@@ -95,11 +95,11 @@ def sync_and_update_all() -> None:
 
 
 def on_main_window_did_init() -> None:
-    if mw is None or not hasattr(mw, "form") or not hasattr(mw.form, "menuTools"):
+    if mw is None or not hasattr(mw, "form") or not hasattr(mw.form, "menubar"):
         return
 
-    menu_tools = mw.form.menuTools
-    vault_menu = QMenu("VaultSync", menu_tools)
+    menubar = mw.form.menubar
+    vault_menu = QMenu("VaultSync", menubar)
 
     action_dash = QAction("Open Dashboard...", vault_menu)
     action_dash.triggered.connect(open_dashboard)
@@ -119,7 +119,12 @@ def on_main_window_did_init() -> None:
     action_settings.triggered.connect(open_settings)
     vault_menu.addAction(action_settings)
 
-    menu_tools.addMenu(vault_menu)
+    # Insert directly into top-level menubar right before Help (matching AnKing and standard add-ons)
+    help_menu = getattr(mw.form, "menuHelp", None)
+    if help_menu is not None and hasattr(help_menu, "menuAction"):
+        menubar.insertMenu(help_menu.menuAction(), vault_menu)
+    else:
+        menubar.addMenu(vault_menu)
 
 
 def on_profile_did_open() -> None:

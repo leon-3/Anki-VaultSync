@@ -104,9 +104,12 @@ class MainWindow(QDialog):
         status_layout.addWidget(title_status)
 
         status_grid = QGridLayout()
-        status_grid.setContentsMargins(0, 4, 0, 0)
-        status_grid.setVerticalSpacing(10)
+        status_grid.setContentsMargins(0, 0, 0, 0)
+        status_grid.setVerticalSpacing(9)
         status_grid.setHorizontalSpacing(20)
+
+        for r in range(4):
+            status_grid.setRowMinimumHeight(r, 25)
 
         # Category labels on left, values in a vertical column on right
         lbl_new = QLabel("New cards:")
