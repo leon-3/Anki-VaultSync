@@ -5,10 +5,10 @@ from pathlib import Path
 
 from aqt import mw
 from aqt.qt import (
-    Qt,
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QCursor,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -22,6 +22,8 @@ from aqt.qt import (
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
+    QToolTip,
+    Qt,
     QVBoxLayout,
     QWidget,
 )
@@ -29,6 +31,41 @@ from aqt.qt import (
 from ..bridge import ensure_models
 from ..profile_config import AddonProfileSettings, ProfileConfigManager
 from .help_tooltips import TOOLTIPS
+
+
+class HelpBadge(QLabel):
+    """Clean, circular help badge that shows a tooltip on hover (zero delay) and on click."""
+
+    def __init__(self, tip_text: str, parent=None) -> None:
+        super().__init__("?", parent)
+        self.tip_text = tip_text
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setFixedSize(18, 18)
+        self.setToolTip(tip_text)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet("""
+            QLabel {
+                border: 1px solid rgba(130, 130, 130, 0.7);
+                border-radius: 9px;
+                font-weight: bold;
+                font-size: 11px;
+                color: palette(text);
+                background-color: rgba(130, 130, 130, 0.15);
+            }
+            QLabel:hover {
+                background-color: rgba(0, 122, 204, 0.45);
+                border-color: rgba(0, 122, 204, 0.95);
+                color: #ffffff;
+            }
+        """)
+
+    def enterEvent(self, event) -> None:
+        super().enterEvent(event)
+        QToolTip.showText(QCursor.pos(), self.tip_text, self)
+
+    def mousePressEvent(self, event) -> None:
+        super().mousePressEvent(event)
+        QToolTip.showText(QCursor.pos(), self.tip_text, self)
 
 
 class ConfigWindow(QDialog):
@@ -53,29 +90,9 @@ class ConfigWindow(QDialog):
         self._init_ui()
         self._populate_fields()
 
-    def _help_button(self, key: str) -> QLabel:
+    def _help_button(self, key: str) -> HelpBadge:
         tip_text = TOOLTIPS.get(key, "No help available.")
-        badge = QLabel("?")
-        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge.setFixedSize(18, 18)
-        badge.setToolTip(tip_text)
-        badge.setStyleSheet("""
-            QLabel {
-                border: 1px solid rgba(130, 130, 130, 0.7);
-                border-radius: 9px;
-                font-weight: bold;
-                font-size: 11px;
-                color: palette(text);
-                background-color: rgba(130, 130, 130, 0.15);
-            }
-            QLabel:hover {
-                background-color: rgba(0, 122, 204, 0.35);
-                border-color: rgba(0, 122, 204, 0.9);
-                color: #007acc;
-            }
-        """)
-        badge.setCursor(Qt.CursorShape.WhatsThisCursor)
-        return badge
+        return HelpBadge(tip_text)
 
     def _init_ui(self) -> None:
         main_layout = QVBoxLayout(self)
@@ -88,12 +105,12 @@ class ConfigWindow(QDialog):
         self._init_tab_general()
         self.tabs.addTab(self.tab_general, "General")
 
-        # Tab 2: Decks & Routing
+        # Tab 2: Decks and Routing
         self.tab_routing = QWidget()
         self._init_tab_routing()
         self.tabs.addTab(self.tab_routing, "Decks and Routing")
 
-        # Tab 3: Card Rules & Media
+        # Tab 3: Card Rules and Media
         self.tab_rules = QWidget()
         self._init_tab_rules()
         self.tabs.addTab(self.tab_rules, "Card Rules and Media")
@@ -136,20 +153,20 @@ class ConfigWindow(QDialog):
         occ_row.addWidget(self._help_button("occlusion_dir"))
         layout.addLayout(occ_row)
 
-        # Default Deck
-        layout.addWidget(QLabel("Default Deck:"))
+        # Default Deck Fallback
+        layout.addWidget(QLabel("Default Target Deck (Fallback):"))
         deck_row = QHBoxLayout()
         self.deck_combo = QComboBox()
         self.deck_combo.setEditable(True)
         if mw is not None and hasattr(mw, "col") and mw.col is not None:
-            for name in mw.col.decks.all_names():
-                self.deck_combo.addItem(name)
+            for d in mw.col.decks.all_names_and_ids():
+                self.deck_combo.addItem(d.name)
         deck_row.addWidget(self.deck_combo)
         deck_row.addWidget(self._help_button("default_deck"))
         layout.addLayout(deck_row)
 
-        # Base Tag
-        layout.addWidget(QLabel("Base Tag:"))
+        # Base Tag Prefix
+        layout.addWidget(QLabel("Base Tag Prefix:"))
         tag_row = QHBoxLayout()
         self.tag_edit = QLineEdit()
         tag_row.addWidget(self.tag_edit)
@@ -161,51 +178,61 @@ class ConfigWindow(QDialog):
     def _init_tab_routing(self) -> None:
         layout = QVBoxLayout(self.tab_routing)
 
-        layout.addWidget(QLabel("Folder -> Deck Routing Rules (Folder / Course -> Target Anki Deck):"))
+        desc = QLabel(
+            "<b>Subdirectory Routing Rules:</b><br>"
+            "Map subfolders in your Obsidian vault directly to specific target Anki decks.<br>"
+            "<i>(Relative folder paths match from vault root.)</i>"
+        )
+        desc.setWordWrap(True)
+        layout.addWidget(desc)
+
         self.routing_table = QTableWidget(0, 2)
-        self.routing_table.setHorizontalHeaderLabels(["Vault Folder / Course", "Target Anki Deck"])
-        self.routing_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.routing_table.setHorizontalHeaderLabels(["Vault Folder", "Target Deck"])
+        self.routing_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.routing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.routing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         layout.addWidget(self.routing_table)
 
         btn_row = QHBoxLayout()
-        add_btn = QPushButton("Add Rule")
+        add_btn = QPushButton("Add Routing Rule")
         add_btn.clicked.connect(self._add_routing_row)
-        remove_btn = QPushButton("Remove Selected")
+        remove_btn = QPushButton("Remove Selected Rule")
         remove_btn.clicked.connect(self._remove_routing_row)
         btn_row.addWidget(add_btn)
         btn_row.addWidget(remove_btn)
-        btn_row.addStretch()
         btn_row.addWidget(self._help_button("decks"))
+        btn_row.addStretch()
         layout.addLayout(btn_row)
-
-        layout.addWidget(QLabel("Ignored Folders / Globs (one per line):"))
-        self.ignore_edit = QPlainTextEdit()
-        layout.addWidget(self.ignore_edit)
 
     def _init_tab_rules(self) -> None:
         layout = QVBoxLayout(self.tab_rules)
 
-        self.hash_media_cb = QCheckBox("Hash Media (Deterministic SHA-256 filenames)")
+        self.hash_media_cb = QCheckBox("Hash Media (Rename media files to deterministic content hashes)")
         row1 = QHBoxLayout()
         row1.addWidget(self.hash_media_cb)
         row1.addWidget(self._help_button("hash_media"))
         row1.addStretch()
         layout.addLayout(row1)
 
-        self.cloze_cb = QCheckBox("Enable Native Cloze Notes (questions titled 'Cloze')")
+        self.cloze_cb = QCheckBox("Enable Cloze Syntax Processing")
         row2 = QHBoxLayout()
         row2.addWidget(self.cloze_cb)
         row2.addWidget(self._help_button("cloze_notes"))
         row2.addStretch()
         layout.addLayout(row2)
 
-        self.re_stage_cb = QCheckBox("Re-stage Image Occlusions on Update")
+        self.re_stage_cb = QCheckBox("Re-stage Already Flagged Image Occlusions")
         row3 = QHBoxLayout()
         row3.addWidget(self.re_stage_cb)
         row3.addWidget(self._help_button("re_stage_occlusions"))
         row3.addStretch()
         layout.addLayout(row3)
+
+        layout.addSpacing(12)
+        layout.addWidget(QLabel("Ignore Patterns (one per line, e.g. .obsidian, templates):"))
+        self.ignore_edit = QPlainTextEdit()
+        self.ignore_edit.setMaximumHeight(120)
+        layout.addWidget(self.ignore_edit)
 
         layout.addStretch()
 
@@ -272,16 +299,18 @@ class ConfigWindow(QDialog):
         if text.isdigit():
             return int(text)
         if mw is not None and hasattr(mw, "col") and mw.col is not None:
-            m = mw.col.models.by_name(text)
-            if m:
-                return int(m["id"])
+            try:
+                m = mw.col.models.by_name(text)
+                if m:
+                    return int(m["id"])
+            except Exception:
+                pass
         return None
 
     def _browse_vault(self) -> None:
         dir_path = QFileDialog.getExistingDirectory(self, "Select Obsidian Vault Folder")
         if dir_path:
             self.vault_edit.setText(dir_path)
-            # Try to load vault config for newly selected path
             p = Path(dir_path)
             if (p / "m2a.toml").is_file():
                 try:
@@ -326,7 +355,6 @@ class ConfigWindow(QDialog):
             QMessageBox.critical(self, "Error", f"Failed to repair templates: {exc}")
 
     def _populate_fields(self) -> None:
-        # Profile settings
         if self._profile_settings.vault_path:
             self.vault_edit.setText(str(self._profile_settings.vault_path))
         if self._profile_settings.occlusion_dir:
@@ -392,9 +420,9 @@ class ConfigWindow(QDialog):
         self.tag_edit.setText(self._vault_cfg.base_tag)
         self.hash_media_cb.setChecked(self._vault_cfg.hash_media)
         self.cloze_cb.setChecked(self._vault_cfg.cloze_notes)
-        self.re_stage_cb.setChecked(getattr(self._vault_cfg, "re_stage_occlusions", False))
+        self.re_stage_cb.setChecked(self._vault_cfg.re_stage_occlusions)
 
-        # Deck routing table (Folder / Course -> Target Anki Deck)
+        # Deck routing
         decks = self._vault_cfg.decks or {}
         self.routing_table.setRowCount(len(decks))
         for r, (folder, target_deck) in enumerate(decks.items()):
@@ -446,8 +474,6 @@ class ConfigWindow(QDialog):
                         decks[f_item.text().strip()] = d_item.text().strip()
                 cfg.decks = decks
 
-                # If subdirectories has the academic default ("Anki - Lectures"), clear it to enable recursive mode (Mode B)
-                # unless the user has specifically configured non-default subdirectories.
                 if getattr(cfg, "subdirectories", None) == {"Anki - Lectures": "Lectures", "Anki - Exercises": "Exercises"}:
                     cfg.subdirectories = {}
 

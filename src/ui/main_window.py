@@ -8,12 +8,14 @@ from aqt import dialogs, mw
 from aqt.operations import QueryOp
 from aqt.qt import (
     QDialog,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    Qt,
     QVBoxLayout,
 )
 from aqt.utils import tooltip
@@ -51,88 +53,197 @@ class MainWindow(QDialog):
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setSpacing(14)
+        layout.setContentsMargins(18, 18, 18, 18)
 
-        # 1. Header: Vault Path + "Change Vault Settings" button aligned to the right
+        # 1. Header: Vault Path + "Change Vault Settings" button on the right
         header_top = QHBoxLayout()
         self.vault_label = QLabel("<b>Vault:</b> (Not Configured)")
         self.vault_label.setStyleSheet("font-size: 13px;")
 
         self.change_vault_btn = QPushButton("Change Vault Settings")
-        self.change_vault_btn.setFixedHeight(26)
-        self.change_vault_btn.setStyleSheet("padding: 2px 10px; font-size: 12px;")
+        self.change_vault_btn.setFixedHeight(36)
+        self.change_vault_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.change_vault_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 13px;
+                border-radius: 6px;
+                padding: 6px 14px;
+            }
+        """)
         self.change_vault_btn.clicked.connect(self._open_settings)
 
         header_top.addWidget(self.vault_label)
         header_top.addStretch()
         header_top.addWidget(self.change_vault_btn)
         layout.addLayout(header_top)
-        layout.addSpacing(6)
 
         # 2. Two-column section: Status / Card counts on the left, Actions on the right
         middle_layout = QHBoxLayout()
+        middle_layout.setSpacing(14)
+
+        box_style = """
+            QGroupBox {
+                font-size: 13px;
+                font-weight: bold;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+                margin-top: 14px;
+                padding: 18px 16px 14px 16px;
+                background-color: rgba(255, 255, 255, 0.02);
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 12px;
+                padding: 0 4px;
+            }
+        """
 
         # Left Column: Card Counts
         status_box = QGroupBox("Card Counts")
-        status_layout = QVBoxLayout(status_box)
+        status_box.setStyleSheet(box_style)
+        status_grid = QGridLayout(status_box)
+        status_grid.setContentsMargins(8, 12, 8, 8)
+        status_grid.setVerticalSpacing(10)
+        status_grid.setHorizontalSpacing(20)
 
-        self.new_cards_label = QLabel("New cards: 0")
-        self.modified_cards_label = QLabel("Modified cards: 0")
-        self.occlusions_label = QLabel("Image occlusions: 0")
-        self.orphans_label = QLabel("Orphaned cards: 0")
+        # Category labels on left, values in a vertical column on right
+        lbl_new = QLabel("New cards:")
+        lbl_new.setStyleSheet("font-size: 13px; font-weight: normal;")
+        self.new_val_label = QLabel("0")
+        self.new_val_label.setStyleSheet("font-size: 13px; font-weight: bold;")
+        self.new_cards_label = self.new_val_label
+        status_grid.addWidget(lbl_new, 0, 0)
+        status_grid.addWidget(self.new_val_label, 0, 1, Qt.AlignmentFlag.AlignRight)
 
-        for lbl in (
-            self.new_cards_label,
-            self.modified_cards_label,
-            self.occlusions_label,
-            self.orphans_label,
-        ):
-            lbl.setStyleSheet("font-size: 13px; padding: 2px 0;")
-            status_layout.addWidget(lbl)
+        lbl_mod = QLabel("Modified cards:")
+        lbl_mod.setStyleSheet("font-size: 13px; font-weight: normal;")
+        self.modified_val_label = QLabel("0")
+        self.modified_val_label.setStyleSheet("font-size: 13px; font-weight: bold;")
+        self.modified_cards_label = self.modified_val_label
+        status_grid.addWidget(lbl_mod, 1, 0)
+        status_grid.addWidget(self.modified_val_label, 1, 1, Qt.AlignmentFlag.AlignRight)
 
-        status_layout.addStretch()
+        lbl_occ = QLabel("Image occlusions:")
+        lbl_occ.setStyleSheet("font-size: 13px; font-weight: normal;")
+        self.occlusions_val_label = QLabel("0")
+        self.occlusions_val_label.setStyleSheet("font-size: 13px; font-weight: bold;")
+        self.occlusions_label = self.occlusions_val_label
+        status_grid.addWidget(lbl_occ, 2, 0)
+        status_grid.addWidget(self.occlusions_val_label, 2, 1, Qt.AlignmentFlag.AlignRight)
+
+        lbl_orph = QLabel("Orphaned cards:")
+        lbl_orph.setStyleSheet("font-size: 13px; font-weight: normal;")
+        self.orphans_val_label = QLabel("0")
+        self.orphans_val_label.setStyleSheet("font-size: 13px; font-weight: bold;")
+        self.orphans_label = self.orphans_val_label
+        status_grid.addWidget(lbl_orph, 3, 0)
+        status_grid.addWidget(self.orphans_val_label, 3, 1, Qt.AlignmentFlag.AlignRight)
+
+        status_grid.setColumnStretch(0, 1)
+        status_grid.setColumnStretch(1, 0)
+        status_grid.setRowStretch(4, 1)
+
         middle_layout.addWidget(status_box, stretch=1)
 
-        # Right Column: Action Buttons (Sync first, Preview Diff, Rescan Vault)
+        # Right Column: Action Buttons (Sync first, Preview Diff second, Rescan Vault third)
         actions_box = QGroupBox("Actions")
+        actions_box.setStyleSheet(box_style)
         actions_layout = QVBoxLayout(actions_box)
+        actions_layout.setContentsMargins(8, 12, 8, 8)
+        actions_layout.setSpacing(10)
+
+        action_btn_style = """
+            QPushButton {
+                font-size: 13px;
+                border-radius: 6px;
+                padding: 6px 14px;
+            }
+        """
 
         self.sync_btn = QPushButton("Sync")
-        self.sync_btn.setStyleSheet("font-weight: bold; padding: 6px;")
+        self.sync_btn.setFixedHeight(36)
+        self.sync_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sync_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 13px;
+                font-weight: bold;
+                border-radius: 6px;
+                padding: 6px 14px;
+            }
+        """)
         self.sync_btn.setEnabled(False)
         self.sync_btn.clicked.connect(lambda: self._start_sync(include_updates=True))
 
         self.diff_btn = QPushButton("Preview Diff")
+        self.diff_btn.setFixedHeight(36)
+        self.diff_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.diff_btn.setStyleSheet(action_btn_style)
         self.diff_btn.setEnabled(False)
         self.diff_btn.clicked.connect(self._open_diff)
 
         self.rescan_btn = QPushButton("Rescan Vault")
+        self.rescan_btn.setFixedHeight(36)
+        self.rescan_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rescan_btn.setStyleSheet(action_btn_style)
         self.rescan_btn.clicked.connect(self._start_scan)
 
         actions_layout.addWidget(self.sync_btn)
         actions_layout.addWidget(self.diff_btn)
         actions_layout.addWidget(self.rescan_btn)
         actions_layout.addStretch()
-        middle_layout.addWidget(actions_box, stretch=1)
 
+        middle_layout.addWidget(actions_box, stretch=1)
         layout.addLayout(middle_layout)
-        layout.addSpacing(6)
 
         # 3. Activity Log
-        layout.addWidget(QLabel("Activity Log:"))
+        log_label = QLabel("Activity Log:")
+        log_label.setStyleSheet("font-size: 13px; font-weight: bold;")
+        layout.addWidget(log_label)
+
         self.log_edit = QPlainTextEdit()
         self.log_edit.setReadOnly(True)
+        self.log_edit.setStyleSheet("""
+            QPlainTextEdit {
+                font-family: monospace;
+                font-size: 12px;
+                border-radius: 8px;
+                padding: 8px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+        """)
         layout.addWidget(self.log_edit)
 
         # 4. Bottom Bar
         bottom_layout = QHBoxLayout()
+        bottom_layout.setSpacing(10)
+
+        bottom_btn_style = """
+            QPushButton {
+                font-size: 13px;
+                border-radius: 6px;
+                padding: 5px 14px;
+            }
+        """
+
         self.orphans_btn = QPushButton("View Orphans in Browser")
+        self.orphans_btn.setFixedHeight(34)
+        self.orphans_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.orphans_btn.setStyleSheet(bottom_btn_style)
         self.orphans_btn.setEnabled(False)
         self.orphans_btn.clicked.connect(self._view_orphans)
 
         settings_btn = QPushButton("Settings")
+        settings_btn.setFixedHeight(34)
+        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        settings_btn.setStyleSheet(bottom_btn_style)
         settings_btn.clicked.connect(self._open_settings)
 
         close_btn = QPushButton("Close")
+        close_btn.setFixedHeight(34)
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setStyleSheet(bottom_btn_style)
         close_btn.clicked.connect(self.close)
 
         bottom_layout.addStretch()
@@ -197,11 +308,11 @@ class MainWindow(QDialog):
         self._current_plan = plan
         self._set_buttons_busy(False)
 
-        # Update card count labels
-        self.new_cards_label.setText(f"<b>New cards:</b> {plan.total_creates}")
-        self.modified_cards_label.setText(f"<b>Modified cards:</b> {plan.total_updates}")
-        self.occlusions_label.setText(f"<b>Image occlusions:</b> {len(plan.occlusions_to_stage)}")
-        self.orphans_label.setText(f"<b>Orphaned cards:</b> {len(plan.orphans)}")
+        # Update card count values in aligned column
+        self.new_val_label.setText(str(plan.total_creates))
+        self.modified_val_label.setText(str(plan.total_updates))
+        self.occlusions_val_label.setText(str(len(plan.occlusions_to_stage)))
+        self.orphans_val_label.setText(str(len(plan.orphans)))
 
         self._log(
             f"Vault scan complete: {plan.total_files} file(s), "
@@ -222,7 +333,6 @@ class MainWindow(QDialog):
             return
         dlg = DiffDialog(self._current_plan, self)
         dlg.exec()
-        # Refresh buttons state with approved updates count
         self.diff_btn.setText(f"Preview Diff ({self._current_plan.approved_updates})")
 
     def _start_sync(self, include_updates: bool) -> None:
@@ -263,7 +373,6 @@ class MainWindow(QDialog):
     def _on_sync_success(self, report: SyncReport) -> None:
         self._set_buttons_busy(False)
 
-        # Refresh UI
         if mw is not None and hasattr(mw, "deckBrowser"):
             mw.deckBrowser.refresh()
             mw.reset()
@@ -287,7 +396,6 @@ class MainWindow(QDialog):
         if self._current_plan is None or not self._current_plan.orphans:
             return
 
-        # Query in Anki card browser: "nid:123,456,789"
         nids = [str(o.note_id) for o in self._current_plan.orphans]
         query = f"nid:{','.join(nids)}"
         browser = dialogs.open("Browser", mw)
