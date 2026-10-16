@@ -33,7 +33,7 @@ class MainWindow(QDialog):
     def __init__(self, profile_manager: ProfileConfigManager, profile_name: str, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Dashboard")
-        self.resize(780, 520)
+        self.resize(780, 500)
 
         self._manager = profile_manager
         self._profile_name = profile_name
@@ -49,35 +49,36 @@ class MainWindow(QDialog):
         if self._settings.vault_path and self._settings.vault_path.is_dir():
             self._start_scan()
         else:
-            self._log("Welcome to VaultSync! Click 'Change Vault Settings' below to select your Obsidian vault.")
+            self._log("Welcome to VaultSync! Click 'Settings' above to select your Obsidian vault.")
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setSpacing(14)
         layout.setContentsMargins(18, 18, 18, 18)
 
-        # 1. Header: Vault Path + "Change Vault Settings" button on the right
+        # 1. Header: Vault Path + "Settings" button on the right
         header_top = QHBoxLayout()
         self.vault_label = QLabel("<b>Vault:</b> (Not Configured)")
         self.vault_label.setStyleSheet("font-size: 13px;")
 
-        self.change_vault_btn = QPushButton("Change Vault Settings")
-        self.change_vault_btn.setFixedHeight(36)
-        self.change_vault_btn.setAutoDefault(False)
-        self.change_vault_btn.setDefault(False)
-        self.change_vault_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.change_vault_btn.setStyleSheet("""
+        self.settings_btn = QPushButton("Settings")
+        self.settings_btn.setFixedHeight(36)
+        self.settings_btn.setAutoDefault(False)
+        self.settings_btn.setDefault(False)
+        self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.settings_btn.setStyleSheet("""
             QPushButton {
                 font-size: 13px;
                 border-radius: 6px;
                 padding: 6px 14px;
             }
         """)
-        self.change_vault_btn.clicked.connect(self._open_settings)
+        self.settings_btn.clicked.connect(self._open_settings)
+        self.change_vault_btn = self.settings_btn  # alias for backwards compatibility
 
         header_top.addWidget(self.vault_label)
         header_top.addStretch()
-        header_top.addWidget(self.change_vault_btn)
+        header_top.addWidget(self.settings_btn)
         layout.addLayout(header_top)
 
         # 2. Two-column section: Status / Card counts on the left, Actions on the right
@@ -138,8 +139,12 @@ class MainWindow(QDialog):
 
         lbl_orph = QLabel("Orphaned cards:")
         lbl_orph.setStyleSheet("font-size: 13px; font-weight: normal; border: none; background: transparent;")
+        lbl_orph.setToolTip("Cards in Anki whose source note was deleted in Obsidian.\nCan also be viewed in Anki Browser via Settings.")
         self.orphans_val_label = QLabel("0")
         self.orphans_val_label.setStyleSheet("font-size: 13px; font-weight: bold; border: none; background: transparent;")
+        self.orphans_val_label.setToolTip("Click to view orphaned cards in Anki Browser")
+        self.orphans_val_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.orphans_val_label.mousePressEvent = lambda event: self._view_orphans()
         self.orphans_label = self.orphans_val_label
         status_grid.addWidget(lbl_orph, 3, 0)
         status_grid.addWidget(self.orphans_val_label, 3, 1, Qt.AlignmentFlag.AlignRight)
@@ -158,10 +163,6 @@ class MainWindow(QDialog):
         actions_layout = QVBoxLayout(actions_box)
         actions_layout.setContentsMargins(16, 14, 16, 14)
         actions_layout.setSpacing(10)
-
-        title_actions = QLabel("Actions")
-        title_actions.setStyleSheet("font-size: 15px; font-weight: bold; border: none; background: transparent;")
-        actions_layout.addWidget(title_actions)
 
         action_btn_style = """
             QPushButton {
@@ -224,50 +225,6 @@ class MainWindow(QDialog):
         """)
         layout.addWidget(self.log_edit)
 
-        # 4. Bottom Bar
-        bottom_layout = QHBoxLayout()
-        bottom_layout.setSpacing(10)
-
-        bottom_btn_style = """
-            QPushButton {
-                font-size: 13px;
-                font-weight: normal;
-                border-radius: 6px;
-                padding: 5px 14px;
-            }
-        """
-
-        self.orphans_btn = QPushButton("View Orphans in Browser")
-        self.orphans_btn.setFixedHeight(34)
-        self.orphans_btn.setAutoDefault(False)
-        self.orphans_btn.setDefault(False)
-        self.orphans_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.orphans_btn.setStyleSheet(bottom_btn_style)
-        self.orphans_btn.setEnabled(False)
-        self.orphans_btn.clicked.connect(self._view_orphans)
-
-        settings_btn = QPushButton("Settings")
-        settings_btn.setFixedHeight(34)
-        settings_btn.setAutoDefault(False)
-        settings_btn.setDefault(False)
-        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        settings_btn.setStyleSheet(bottom_btn_style)
-        settings_btn.clicked.connect(self._open_settings)
-
-        close_btn = QPushButton("Close")
-        close_btn.setFixedHeight(34)
-        close_btn.setAutoDefault(False)
-        close_btn.setDefault(False)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet(bottom_btn_style)
-        close_btn.clicked.connect(self.close)
-
-        bottom_layout.addStretch()
-        bottom_layout.addWidget(self.orphans_btn)
-        bottom_layout.addWidget(settings_btn)
-        bottom_layout.addWidget(close_btn)
-        layout.addLayout(bottom_layout)
-
         # Remove default focus from all buttons
         self.log_edit.setFocus()
 
@@ -295,7 +252,6 @@ class MainWindow(QDialog):
                 or len(self._current_plan.occlusions_to_stage) > 0
             )
         )
-        self.orphans_btn.setEnabled(not busy and (self._current_plan is not None and len(self._current_plan.orphans) > 0))
 
     def _start_scan(self) -> None:
         if self._is_busy:
@@ -345,7 +301,6 @@ class MainWindow(QDialog):
         total_sync_count = plan.total_creates + plan.total_updates + len(plan.occlusions_to_stage)
         self.sync_btn.setText(f"Sync ({total_sync_count})")
         self.diff_btn.setText(f"Preview Diff ({plan.total_updates})")
-        self.orphans_btn.setText(f"View Orphans in Browser ({len(plan.orphans)})")
 
     def _open_diff(self) -> None:
         if self._current_plan is None or self._current_plan.total_updates == 0:

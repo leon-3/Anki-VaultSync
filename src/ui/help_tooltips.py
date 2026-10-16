@@ -63,4 +63,7 @@ TOOLTIPS: dict[str, str] = {
         "List of folders or glob patterns to ignore during vault traversal. "
         "Files inside these directories will not be parsed."
     ),
+    "orphaned_cards": (
+        "Finds cards in Anki originally created by VaultSync/Markdown2Anki whose source note was deleted from your Obsidian vault, and opens them in Anki's Card Browser."
+    ),
 }

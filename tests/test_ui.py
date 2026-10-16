@@ -185,7 +185,9 @@ def test_main_window_dashboard_layout(tmp_path: Path):
     win = MainWindow(manager, "TestDashboard")
     assert win.vault_label is not None
     assert "(Not Configured)" in win.vault_label.text()
-    assert win.change_vault_btn.text() == "Change Vault Settings"
+    assert win.settings_btn.text() == "Settings"
+    assert win.change_vault_btn.text() == "Settings"
+    assert not hasattr(win, "orphans_btn")
     assert not hasattr(win, "auto_close_cb")
     assert win.new_cards_label is not None
     assert win.modified_cards_label is not None
@@ -195,3 +197,12 @@ def test_main_window_dashboard_layout(tmp_path: Path):
     assert win.diff_btn.text() == "Preview Diff"
     assert win.rescan_btn.text() == "Rescan Vault"
     win.close()
+
+
+def test_config_window_orphans_button_exists(tmp_path: Path):
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    dlg = ConfigWindow(manager, "TestProfile")
+    assert hasattr(dlg, "orphans_btn")
+    assert dlg.orphans_btn.text() == "Find & View Orphaned Cards in Browser"
+    dlg.close()

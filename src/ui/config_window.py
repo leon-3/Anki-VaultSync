@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from aqt import mw
+from aqt import dialogs, mw
 from aqt.qt import (
     QAbstractItemView,
     QCheckBox,
@@ -29,6 +29,7 @@ from aqt.qt import (
 )
 
 from ..bridge import ensure_models
+from ..worker import build_sync_plan
 from ..profile_config import AddonProfileSettings, ProfileConfigManager
 from .help_tooltips import TOOLTIPS
 
@@ -284,7 +285,46 @@ class ConfigWindow(QDialog):
         row3.addStretch()
         layout.addLayout(row3)
 
+        self.orphans_btn = QPushButton("Find & View Orphaned Cards in Browser")
+        self.orphans_btn.clicked.connect(self._view_orphans_in_browser)
+        row4 = QHBoxLayout()
+        row4.addWidget(self.orphans_btn)
+        row4.addWidget(self._help_button("orphaned_cards"))
+        row4.addStretch()
+        layout.addLayout(row4)
+
         layout.addStretch()
+
+    def _view_orphans_in_browser(self) -> None:
+        if mw is None or not hasattr(mw, "col") or mw.col is None:
+            QMessageBox.warning(self, "Unavailable", "Anki collection is not currently open.")
+            return
+
+        vault_str = self.vault_edit.text().strip()
+        vault_path = Path(vault_str).expanduser().resolve() if vault_str else None
+        if not vault_path or not vault_path.is_dir():
+            QMessageBox.information(
+                self, "Vault Not Configured", "Please select a valid Obsidian vault directory first."
+            )
+            return
+
+        basic_id = self._get_selected_model_id(self.basic_model_combo)
+        cloze_id = self._get_selected_model_id(self.cloze_model_combo)
+
+        try:
+            plan = build_sync_plan(mw.col, vault_path, basic_model_id=basic_id, cloze_model_id=cloze_id)
+            if not plan.orphans:
+                QMessageBox.information(
+                    self, "No Orphans Found", "All cards in Anki match cards in your Obsidian vault. Zero orphaned cards!"
+                )
+                return
+
+            nids = [str(o.note_id) for o in plan.orphans]
+            query = f"nid:{','.join(nids)}"
+            browser = dialogs.open("Browser", mw)
+            browser.search_for(query)
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Failed to detect orphaned cards: {exc}")
 
     def _get_selected_model_id(self, combo: QComboBox) -> int | None:
         data = combo.currentData()
