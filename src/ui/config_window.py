@@ -143,9 +143,9 @@ class ConfigWindow(QDialog):
     def _init_tab_routing(self) -> None:
         layout = QVBoxLayout(self.tab_routing)
 
-        layout.addWidget(QLabel("Subdirectory Routing Rules (Folder -> Deck):"))
+        layout.addWidget(QLabel("Folder -> Deck Routing Rules (Folder / Course -> Target Anki Deck):"))
         self.routing_table = QTableWidget(0, 2)
-        self.routing_table.setHorizontalHeaderLabels(["Relative Subfolder", "Target Anki Deck"])
+        self.routing_table.setHorizontalHeaderLabels(["Vault Folder / Course", "Target Anki Deck"])
         self.routing_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.routing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         layout.addWidget(self.routing_table)
@@ -158,7 +158,7 @@ class ConfigWindow(QDialog):
         btn_row.addWidget(add_btn)
         btn_row.addWidget(remove_btn)
         btn_row.addStretch()
-        btn_row.addWidget(self._help_button("subdirectories"))
+        btn_row.addWidget(self._help_button("decks"))
         layout.addLayout(btn_row)
 
         layout.addWidget(QLabel("Ignored Folders / Globs (one per line):"))
@@ -240,8 +240,8 @@ class ConfigWindow(QDialog):
     def _add_routing_row(self) -> None:
         row = self.routing_table.rowCount()
         self.routing_table.insertRow(row)
-        self.routing_table.setItem(row, 0, QTableWidgetItem("Anki - Lectures"))
-        self.routing_table.setItem(row, 1, QTableWidgetItem("Lectures"))
+        self.routing_table.setItem(row, 0, QTableWidgetItem("folder_name"))
+        self.routing_table.setItem(row, 1, QTableWidgetItem("Target Deck"))
 
     def _remove_routing_row(self) -> None:
         curr = self.routing_table.currentRow()
@@ -284,10 +284,10 @@ class ConfigWindow(QDialog):
         self.cloze_cb.setChecked(self._vault_cfg.cloze_notes)
         self.re_stage_cb.setChecked(getattr(self._vault_cfg, "re_stage_occlusions", False))
 
-        # Routing table
-        subdirs = self._vault_cfg.subdirectories or {}
-        self.routing_table.setRowCount(len(subdirs))
-        for r, (folder, target_deck) in enumerate(subdirs.items()):
+        # Deck routing table (Folder / Course -> Target Anki Deck)
+        decks = self._vault_cfg.decks or {}
+        self.routing_table.setRowCount(len(decks))
+        for r, (folder, target_deck) in enumerate(decks.items()):
             self.routing_table.setItem(r, 0, QTableWidgetItem(folder))
             self.routing_table.setItem(r, 1, QTableWidgetItem(target_deck))
 
@@ -322,14 +322,19 @@ class ConfigWindow(QDialog):
                 cfg.cloze_notes = self.cloze_cb.isChecked()
                 cfg.re_stage_occlusions = self.re_stage_cb.isChecked()
 
-                # Collect routing
-                subdirs: dict[str, str] = {}
+                # Collect deck routing
+                decks: dict[str, str] = {}
                 for r in range(self.routing_table.rowCount()):
                     f_item = self.routing_table.item(r, 0)
                     d_item = self.routing_table.item(r, 1)
                     if f_item and d_item and f_item.text().strip():
-                        subdirs[f_item.text().strip()] = d_item.text().strip()
-                cfg.subdirectories = subdirs
+                        decks[f_item.text().strip()] = d_item.text().strip()
+                cfg.decks = decks
+
+                # If subdirectories has the academic default ("Anki - Lectures"), clear it to enable recursive mode (Mode B)
+                # unless the user has specifically configured non-default subdirectories.
+                if getattr(cfg, "subdirectories", None) == {"Anki - Lectures": "Lectures", "Anki - Exercises": "Exercises"}:
+                    cfg.subdirectories = {}
 
                 # Collect ignore
                 ignore_text = self.ignore_edit.toPlainText().strip()

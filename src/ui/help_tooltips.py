@@ -41,9 +41,13 @@ TOOLTIPS: dict[str, str] = {
         "Re-applies the latest HTML and CSS card templates from Markdown2Anki to 'M2A Basic' and 'M2A Cloze' "
         "note types in your Anki collection without touching your card data or scheduling."
     ),
+    "decks": (
+        "Folder routing rules that map relative vault folders or courses to specific target Anki decks. "
+        "For example, 'everyday' -> '01. everyday (focus)'."
+    ),
     "subdirectories": (
-        "Folder routing rules that map relative vault subfolders to specific Anki decks. "
-        "For academic vaults, e.g. 'Anki - Lectures' -> 'Lectures'."
+        "Legacy subdirectory mapping for academic mode (maps subfolders like 'Anki - Lectures' to tag 'Lectures'). "
+        "An empty table enables full recursive walking at arbitrary depth."
     ),
     "ignore": (
         "List of folders or glob patterns to ignore during vault traversal. "
