@@ -53,10 +53,24 @@ def _run_menu_sync(include_updates: bool) -> None:
 
     vault_p = settings.vault_path
     occ_dir = settings.occlusion_dir
+    b_mid = settings.basic_model_id
+    c_mid = settings.cloze_model_id
 
     def _full_sync_op(col):
-        plan = build_sync_plan(col, vault_p)
-        report = execute_sync_plan(col, plan, include_updates=include_updates, occlusion_dir=occ_dir)
+        plan = build_sync_plan(
+            col,
+            vault_p,
+            basic_model_id=b_mid,
+            cloze_model_id=c_mid,
+        )
+        report = execute_sync_plan(
+            col,
+            plan,
+            include_updates=include_updates,
+            occlusion_dir=occ_dir,
+            basic_model_id=b_mid,
+            cloze_model_id=c_mid,
+        )
         return report
 
     def _on_success(report):

@@ -210,18 +210,17 @@ class ConfigWindow(QDialog):
         layout.addLayout(row2)
 
         layout.addSpacing(12)
-        layout.addWidget(QLabel("<b>Note Type Bindings (Select Note Type or specify ID):</b>"))
+        layout.addWidget(QLabel("<b>Note Type Bindings:</b>"))
 
         # Basic Note Type selector
         layout.addWidget(QLabel("Basic Note Type:"))
         b_row = QHBoxLayout()
         self.basic_model_combo = QComboBox()
-        self.basic_model_combo.setEditable(True)
         self.basic_model_combo.addItem("Default (M2A Basic)", userData=None)
         if mw is not None and hasattr(mw, "col") and mw.col is not None:
             for m in mw.col.models.all():
                 if m.get("type", 0) == 0:  # standard model
-                    self.basic_model_combo.addItem(f"{m['name']} (ID: {m['id']})", userData=int(m["id"]))
+                    self.basic_model_combo.addItem(m["name"], userData=int(m["id"]))
         b_row.addWidget(self.basic_model_combo)
         b_row.addWidget(self._help_button("basic_model_id"))
         layout.addLayout(b_row)
@@ -230,12 +229,11 @@ class ConfigWindow(QDialog):
         layout.addWidget(QLabel("Cloze Note Type:"))
         c_row = QHBoxLayout()
         self.cloze_model_combo = QComboBox()
-        self.cloze_model_combo.setEditable(True)
         self.cloze_model_combo.addItem("Default (M2A Cloze)", userData=None)
         if mw is not None and hasattr(mw, "col") and mw.col is not None:
             for m in mw.col.models.all():
                 if m.get("type", 0) == 1:  # cloze model
-                    self.cloze_model_combo.addItem(f"{m['name']} (ID: {m['id']})", userData=int(m["id"]))
+                    self.cloze_model_combo.addItem(m["name"], userData=int(m["id"]))
         c_row.addWidget(self.cloze_model_combo)
         c_row.addWidget(self._help_button("cloze_model_id"))
         layout.addLayout(c_row)
@@ -336,7 +334,17 @@ class ConfigWindow(QDialog):
                     found = True
                     break
             if not found:
-                self.basic_model_combo.setEditText(str(self._profile_settings.basic_model_id))
+                name = None
+                if mw is not None and hasattr(mw, "col") and mw.col is not None:
+                    try:
+                        m = mw.col.models.get(self._profile_settings.basic_model_id)
+                        if m is not None:
+                            name = m["name"]
+                    except Exception:
+                        pass
+                display_text = name or f"Note Type ({self._profile_settings.basic_model_id})"
+                self.basic_model_combo.addItem(display_text, userData=self._profile_settings.basic_model_id)
+                self.basic_model_combo.setCurrentIndex(self.basic_model_combo.count() - 1)
         else:
             self.basic_model_combo.setCurrentIndex(0)
 
@@ -349,7 +357,17 @@ class ConfigWindow(QDialog):
                     found = True
                     break
             if not found:
-                self.cloze_model_combo.setEditText(str(self._profile_settings.cloze_model_id))
+                name = None
+                if mw is not None and hasattr(mw, "col") and mw.col is not None:
+                    try:
+                        m = mw.col.models.get(self._profile_settings.cloze_model_id)
+                        if m is not None:
+                            name = m["name"]
+                    except Exception:
+                        pass
+                display_text = name or f"Note Type ({self._profile_settings.cloze_model_id})"
+                self.cloze_model_combo.addItem(display_text, userData=self._profile_settings.cloze_model_id)
+                self.cloze_model_combo.setCurrentIndex(self.cloze_model_combo.count() - 1)
         else:
             self.cloze_model_combo.setCurrentIndex(0)
 

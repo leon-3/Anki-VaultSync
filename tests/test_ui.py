@@ -159,11 +159,19 @@ def test_config_window_model_id_selection_roundtrip(tmp_path: Path):
     manager = ProfileConfigManager(config_path=cfg_file)
 
     dlg = ConfigWindow(manager, "ProfileModelTest")
-    dlg.basic_model_combo.setEditText("1791787456189")
-    dlg.cloze_model_combo.setEditText("1791787737710")
+    dlg.basic_model_combo.addItem("My Basic", userData=1791787456189)
+    dlg.basic_model_combo.setCurrentIndex(dlg.basic_model_combo.count() - 1)
+    dlg.cloze_model_combo.addItem("My Cloze", userData=1791787737710)
+    dlg.cloze_model_combo.setCurrentIndex(dlg.cloze_model_combo.count() - 1)
     dlg._on_save()
     dlg.close()
 
     loaded = manager.load("ProfileModelTest")
     assert loaded.basic_model_id == 1791787456189
     assert loaded.cloze_model_id == 1791787737710
+
+    # Verify reload in ConfigWindow preserves selection
+    dlg2 = ConfigWindow(manager, "ProfileModelTest")
+    assert dlg2.basic_model_combo.currentData() == 1791787456189
+    assert dlg2.cloze_model_combo.currentData() == 1791787737710
+    dlg2.close()
