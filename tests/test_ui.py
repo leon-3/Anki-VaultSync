@@ -198,6 +198,8 @@ def test_main_window_dashboard_layout(tmp_path: Path):
     assert win.modified_cards_label is not None
     assert win.occlusions_label is not None
     assert win.orphans_label is not None
+    assert win.title_status.text() == "Card Counts"
+    assert win.title_actions.text() == "Actions"
     assert win.sync_btn.text() == "Sync"
     assert win.diff_btn.text() == "Preview Diff"
     assert win.rescan_btn.text() == "Rescan Vault"

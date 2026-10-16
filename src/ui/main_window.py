@@ -34,7 +34,7 @@ class MainWindow(QDialog):
     def __init__(self, profile_manager: ProfileConfigManager, profile_name: str, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Dashboard")
-        self.resize(760, 360)
+        self.resize(780, 500)
 
         self._manager = profile_manager
         self._profile_name = profile_name
@@ -103,9 +103,17 @@ class MainWindow(QDialog):
         status_layout.setContentsMargins(16, 14, 16, 14)
         status_layout.setSpacing(10)
 
+        self.title_status = QLabel("Card Counts")
+        self.title_status.setStyleSheet("font-size: 15px; font-weight: bold; border: none; background: transparent;")
+        status_layout.addWidget(self.title_status)
+
         status_grid = QGridLayout()
-        status_grid.setHorizontalSpacing(16)
-        status_grid.setVerticalSpacing(8)
+        status_grid.setContentsMargins(0, 0, 0, 0)
+        status_grid.setVerticalSpacing(9)
+        status_grid.setHorizontalSpacing(20)
+
+        for r in range(4):
+            status_grid.setRowMinimumHeight(r, 25)
 
         lbl_new = QLabel("New cards:")
         lbl_new.setStyleSheet("font-size: 13px; font-weight: normal; border: none; background: transparent;")
@@ -146,6 +154,9 @@ class MainWindow(QDialog):
         status_grid.addWidget(lbl_orph, 3, 0)
         status_grid.addWidget(self.orphans_val_label, 3, 1, Qt.AlignmentFlag.AlignRight)
 
+        status_grid.setColumnStretch(0, 1)
+        status_grid.setColumnStretch(1, 0)
+
         status_layout.addLayout(status_grid)
         status_layout.addStretch()
         middle_layout.addWidget(status_box, stretch=1)
@@ -157,9 +168,14 @@ class MainWindow(QDialog):
         actions_layout.setContentsMargins(16, 14, 16, 14)
         actions_layout.setSpacing(10)
 
+        self.title_actions = QLabel("Actions")
+        self.title_actions.setStyleSheet("font-size: 15px; font-weight: bold; border: none; background: transparent;")
+        actions_layout.addWidget(self.title_actions)
+
         action_btn_style = """
             QPushButton {
                 font-size: 13px;
+                font-weight: normal;
                 border-radius: 6px;
                 padding: 6px 14px;
             }
