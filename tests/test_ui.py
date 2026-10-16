@@ -31,6 +31,8 @@ def test_help_tooltips_completeness():
         "subdirectories",
         "ignore",
         "decks",
+        "basic_model_id",
+        "cloze_model_id",
     ]
     for key in required_keys:
         assert key in TOOLTIPS
@@ -116,6 +118,8 @@ def test_config_window_instantiation(tmp_path: Path):
     assert dlg.tabs.count() == 4
     assert dlg.vault_edit is not None
     assert dlg.deck_combo is not None
+    assert dlg.basic_model_combo is not None
+    assert dlg.cloze_model_combo is not None
     dlg.close()
 
 
@@ -148,3 +152,18 @@ def test_config_window_deck_routing_roundtrip(tmp_path: Path):
     saved_cfg = manager.load_vault(vault_path)
     assert saved_cfg.decks == {"everyday": "01. Everyday", "work": "02. Work"}
     assert saved_cfg.subdirectories == {}
+
+
+def test_config_window_model_id_selection_roundtrip(tmp_path: Path):
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+
+    dlg = ConfigWindow(manager, "ProfileModelTest")
+    dlg.basic_model_combo.setEditText("1791787456189")
+    dlg.cloze_model_combo.setEditText("1791787737710")
+    dlg._on_save()
+    dlg.close()
+
+    loaded = manager.load("ProfileModelTest")
+    assert loaded.basic_model_id == 1791787456189
+    assert loaded.cloze_model_id == 1791787737710

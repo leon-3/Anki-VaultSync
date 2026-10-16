@@ -38,8 +38,18 @@ TOOLTIPS: dict[str, str] = {
         "Automatically closes the VaultSync Dashboard upon successful sync when there are no errors or warnings."
     ),
     "repair_templates": (
-        "Re-applies the latest HTML and CSS card templates from Markdown2Anki to 'M2A Basic' and 'M2A Cloze' "
-        "note types in your Anki collection without touching your card data or scheduling."
+        "Re-applies the latest HTML and CSS card templates from Markdown2Anki to the configured note types "
+        "in your Anki collection without touching your card data or scheduling."
+    ),
+    "basic_model_id": (
+        "Specify an existing Anki note type by ID or name to use for Basic cards. "
+        "VaultSync will use this note type's existing styling, templates, and field layout "
+        "instead of generating a new note type."
+    ),
+    "cloze_model_id": (
+        "Specify an existing Anki note type by ID or name to use for Cloze cards. "
+        "VaultSync will use this note type's existing styling, templates, and field layout "
+        "instead of generating a new note type."
     ),
     "decks": (
         "Folder routing rules that map relative vault folders or courses to specific target Anki decks. "

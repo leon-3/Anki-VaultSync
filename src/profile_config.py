@@ -20,6 +20,8 @@ class AddonProfileSettings:
     occlusion_dir: Path | None = None
     auto_close_on_success: bool = False
     show_diff_before_update: bool = True
+    basic_model_id: int | None = None
+    cloze_model_id: int | None = None
 
 
 class ProfileConfigManager:
@@ -81,12 +83,19 @@ class ProfileConfigManager:
         vault_path = Path(raw_vault).expanduser().resolve() if raw_vault else None
         occlusion_dir = Path(raw_occlusion).expanduser().resolve() if raw_occlusion else None
 
+        raw_b_id = prof_data.get("basic_model_id")
+        raw_c_id = prof_data.get("cloze_model_id")
+        basic_model_id = int(raw_b_id) if raw_b_id is not None and str(raw_b_id).isdigit() else None
+        cloze_model_id = int(raw_c_id) if raw_c_id is not None and str(raw_c_id).isdigit() else None
+
         return AddonProfileSettings(
             profile_name=profile_name,
             vault_path=vault_path,
             occlusion_dir=occlusion_dir,
             auto_close_on_success=auto_close,
             show_diff_before_update=show_diff,
+            basic_model_id=basic_model_id,
+            cloze_model_id=cloze_model_id,
         )
 
     def save(self, settings: AddonProfileSettings) -> None:
@@ -99,6 +108,8 @@ class ProfileConfigManager:
 
         prof_data["vault_path"] = str(settings.vault_path) if settings.vault_path else ""
         prof_data["occlusion_dir"] = str(settings.occlusion_dir) if settings.occlusion_dir else ""
+        prof_data["basic_model_id"] = settings.basic_model_id
+        prof_data["cloze_model_id"] = settings.cloze_model_id
 
         self._write_raw_config(raw)
 

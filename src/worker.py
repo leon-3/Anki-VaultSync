@@ -41,10 +41,12 @@ def build_sync_plan(
     vault_path: Path,
     default_deck: str = "Default",
     trace_fn: Callable[[str], None] | None = None,
+    basic_model_id: int | None = None,
+    cloze_model_id: int | None = None,
 ) -> SyncPlan:
     """Stage 1: Discovers cards in vault, compares against Anki SQLite index, and builds SyncPlan."""
     vault_path = Path(vault_path).expanduser().resolve()
-    model_ids = ensure_models(col)
+    model_ids = ensure_models(col, basic_model_id=basic_model_id, cloze_model_id=cloze_model_id)
     existing_index = build_existing_note_index(col, model_ids)
 
     vault_cfg = load_vault_config(vault_path)
@@ -202,10 +204,12 @@ def execute_sync_plan(
     plan: SyncPlan,
     include_updates: bool = True,
     occlusion_dir: Path | None = None,
+    basic_model_id: int | None = None,
+    cloze_model_id: int | None = None,
 ) -> SyncReport:
     """Stage 3: Applies atomic Flag-Before-Insert persistence and Anki DB mutations."""
     report = SyncReport()
-    model_ids = ensure_models(col)
+    model_ids = ensure_models(col, basic_model_id=basic_model_id, cloze_model_id=cloze_model_id)
 
     try:
         undo_id: int | None = col.add_custom_undo_entry("VaultSync")

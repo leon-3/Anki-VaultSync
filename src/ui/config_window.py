@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from aqt import mw
@@ -35,7 +36,7 @@ class ConfigWindow(QDialog):
     def __init__(self, profile_manager: ProfileConfigManager, profile_name: str, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Settings")
-        self.resize(700, 520)
+        self.resize(700, 560)
 
         self._manager = profile_manager
         self._profile_name = profile_name
@@ -208,6 +209,37 @@ class ConfigWindow(QDialog):
         row2.addStretch()
         layout.addLayout(row2)
 
+        layout.addSpacing(12)
+        layout.addWidget(QLabel("<b>Note Type Bindings (Select Note Type or specify ID):</b>"))
+
+        # Basic Note Type selector
+        layout.addWidget(QLabel("Basic Note Type:"))
+        b_row = QHBoxLayout()
+        self.basic_model_combo = QComboBox()
+        self.basic_model_combo.setEditable(True)
+        self.basic_model_combo.addItem("Default (M2A Basic)", userData=None)
+        if mw is not None and hasattr(mw, "col") and mw.col is not None:
+            for m in mw.col.models.all():
+                if m.get("type", 0) == 0:  # standard model
+                    self.basic_model_combo.addItem(f"{m['name']} (ID: {m['id']})", userData=int(m["id"]))
+        b_row.addWidget(self.basic_model_combo)
+        b_row.addWidget(self._help_button("basic_model_id"))
+        layout.addLayout(b_row)
+
+        # Cloze Note Type selector
+        layout.addWidget(QLabel("Cloze Note Type:"))
+        c_row = QHBoxLayout()
+        self.cloze_model_combo = QComboBox()
+        self.cloze_model_combo.setEditable(True)
+        self.cloze_model_combo.addItem("Default (M2A Cloze)", userData=None)
+        if mw is not None and hasattr(mw, "col") and mw.col is not None:
+            for m in mw.col.models.all():
+                if m.get("type", 0) == 1:  # cloze model
+                    self.cloze_model_combo.addItem(f"{m['name']} (ID: {m['id']})", userData=int(m["id"]))
+        c_row.addWidget(self.cloze_model_combo)
+        c_row.addWidget(self._help_button("cloze_model_id"))
+        layout.addLayout(c_row)
+
         layout.addSpacing(15)
         repair_btn = QPushButton("Repair / Re-apply M2A Note Type Templates")
         repair_btn.clicked.connect(self._repair_templates)
@@ -218,6 +250,24 @@ class ConfigWindow(QDialog):
         layout.addLayout(row3)
 
         layout.addStretch()
+
+    def _get_selected_model_id(self, combo: QComboBox) -> int | None:
+        data = combo.currentData()
+        if data is not None and isinstance(data, int):
+            return data
+        text = combo.currentText().strip()
+        if not text or text.startswith("Default"):
+            return None
+        id_match = re.search(r"\(ID:\s*(\d+)\)", text)
+        if id_match:
+            return int(id_match.group(1))
+        if text.isdigit():
+            return int(text)
+        if mw is not None and hasattr(mw, "col") and mw.col is not None:
+            m = mw.col.models.by_name(text)
+            if m:
+                return int(m["id"])
+        return None
 
     def _browse_vault(self) -> None:
         dir_path = QFileDialog.getExistingDirectory(self, "Select Obsidian Vault Folder")
@@ -253,10 +303,17 @@ class ConfigWindow(QDialog):
             QMessageBox.warning(self, "Unavailable", "Anki collection is not currently open.")
             return
         try:
-            ensure_models(mw.col, repair_templates=True)
+            basic_id = self._get_selected_model_id(self.basic_model_combo)
+            cloze_id = self._get_selected_model_id(self.cloze_model_combo)
+            ensure_models(
+                mw.col,
+                repair_templates=True,
+                basic_model_id=basic_id,
+                cloze_model_id=cloze_id,
+            )
             mw.col.save()
             mw.reset()
-            QMessageBox.information(self, "Success", "M2A Basic and M2A Cloze templates repaired successfully.")
+            QMessageBox.information(self, "Success", "Note type templates repaired successfully.")
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Failed to repair templates: {exc}")
 
@@ -269,6 +326,32 @@ class ConfigWindow(QDialog):
 
         self.auto_close_cb.setChecked(self._profile_settings.auto_close_on_success)
         self.show_diff_cb.setChecked(self._profile_settings.show_diff_before_update)
+
+        # Select basic model
+        if self._profile_settings.basic_model_id is not None:
+            found = False
+            for i in range(self.basic_model_combo.count()):
+                if self.basic_model_combo.itemData(i) == self._profile_settings.basic_model_id:
+                    self.basic_model_combo.setCurrentIndex(i)
+                    found = True
+                    break
+            if not found:
+                self.basic_model_combo.setEditText(str(self._profile_settings.basic_model_id))
+        else:
+            self.basic_model_combo.setCurrentIndex(0)
+
+        # Select cloze model
+        if self._profile_settings.cloze_model_id is not None:
+            found = False
+            for i in range(self.cloze_model_combo.count()):
+                if self.cloze_model_combo.itemData(i) == self._profile_settings.cloze_model_id:
+                    self.cloze_model_combo.setCurrentIndex(i)
+                    found = True
+                    break
+            if not found:
+                self.cloze_model_combo.setEditText(str(self._profile_settings.cloze_model_id))
+        else:
+            self.cloze_model_combo.setCurrentIndex(0)
 
         self._populate_vault_fields()
 
@@ -302,6 +385,9 @@ class ConfigWindow(QDialog):
         occ_str = self.occlusion_edit.text().strip()
         occ_path = Path(occ_str).expanduser().resolve() if occ_str else None
 
+        basic_id = self._get_selected_model_id(self.basic_model_combo)
+        cloze_id = self._get_selected_model_id(self.cloze_model_combo)
+
         # 1. Save profile settings
         new_settings = AddonProfileSettings(
             profile_name=self._profile_name,
@@ -309,6 +395,8 @@ class ConfigWindow(QDialog):
             occlusion_dir=occ_path,
             auto_close_on_success=self.auto_close_cb.isChecked(),
             show_diff_before_update=self.show_diff_cb.isChecked(),
+            basic_model_id=basic_id,
+            cloze_model_id=cloze_id,
         )
         self._manager.save(new_settings)
 

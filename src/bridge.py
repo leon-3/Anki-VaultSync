@@ -23,25 +23,33 @@ from .contracts import ExistingNoteRecord, MediaItem, NoteCreateOp, NoteUpdateOp
 M2A_MARKER_RE = re.compile(r"<!--m2a:([a-zA-Z0-9_-]+)-->")
 
 
-def ensure_models(col: Collection, repair_templates: bool = False) -> dict[str, int]:
-    """Ensures M2A Basic and M2A Cloze exist and returns {model_name: mid}."""
+def ensure_models(
+    col: Collection,
+    repair_templates: bool = False,
+    basic_model_id: int | None = None,
+    cloze_model_id: int | None = None,
+) -> dict[str, int]:
+    """Ensures Basic and Cloze note types exist and returns {model_name: mid}."""
     model_ids: dict[str, int] = {}
     specs = [
-        (MODEL_NAME_BASIC, BASIC_FIELDS, MODEL_STD, KIND_BASIC),
-        (MODEL_NAME_CLOZE, CLOZE_FIELDS, MODEL_CLOZE, KIND_CLOZE),
+        (MODEL_NAME_BASIC, BASIC_FIELDS, MODEL_STD, KIND_BASIC, basic_model_id),
+        (MODEL_NAME_CLOZE, CLOZE_FIELDS, MODEL_CLOZE, KIND_CLOZE, cloze_model_id),
     ]
 
-    for model_name, expected_fields, model_type, tpl_key in specs:
-        existing = col.models.by_name(model_name)
+    for model_name, expected_fields, model_type, tpl_key, preferred_id in specs:
+        existing = None
+        # 1. Prioritize lookup by specified ID
+        if preferred_id is not None:
+            existing = col.models.get(NotetypeId(preferred_id))
+
+        # 2. Fall back to lookup by name
+        if existing is None:
+            existing = col.models.by_name(model_name)
+
         tpl = load_template(tpl_key)
 
         if existing is not None:
-            actual_fields = tuple(f["name"] for f in existing["flds"])
-            if actual_fields != expected_fields:
-                raise RuntimeError(
-                    f"Anki Note Type '{model_name}' has incompatible fields "
-                    f"{list(actual_fields)}; expected {list(expected_fields)}."
-                )
+            # Use the existing note type definition and styling
             if repair_templates:
                 existing["type"] = model_type
                 existing["css"] = tpl.css
@@ -52,6 +60,7 @@ def ensure_models(col: Collection, repair_templates: bool = False) -> dict[str, 
             model_ids[model_name] = int(existing["id"])
             continue
 
+        # 3. Create new model if neither ID nor name found
         model = col.models.new(model_name)
         model["type"] = model_type
         model["css"] = tpl.css
@@ -77,11 +86,18 @@ def build_existing_note_index(
     col: Collection, model_ids: dict[str, int]
 ) -> dict[str, ExistingNoteRecord]:
     """Single-pass O(M) SQL index extraction for all M2A cards in the collection."""
-    mid_to_name = {mid: name for name, mid in model_ids.items()}
-    mid_to_fields = {
-        model_ids[MODEL_NAME_BASIC]: BASIC_FIELDS,
-        model_ids[MODEL_NAME_CLOZE]: CLOZE_FIELDS,
-    }
+    mid_to_name: dict[int, str] = {}
+    mid_to_fields: dict[int, tuple[str, ...]] = {}
+
+    for name, mid in model_ids.items():
+        m = col.models.get(NotetypeId(mid))
+        if m is not None:
+            mid_to_name[mid] = m["name"]
+            mid_to_fields[mid] = tuple(f["name"] for f in m["flds"])
+        else:
+            mid_to_name[mid] = name
+            mid_to_fields[mid] = BASIC_FIELDS if name == MODEL_NAME_BASIC else CLOZE_FIELDS
+
     mids = tuple(model_ids.values())
     if not mids:
         return {}
@@ -108,7 +124,7 @@ def build_existing_note_index(
         if not match:
             continue
         card_id = match.group(1)
-        field_names = mid_to_fields[int(mid)]
+        field_names = mid_to_fields.get(int(mid), BASIC_FIELDS)
         field_values = split_fields(raw_flds)
         fields_dict = dict(zip(field_names, field_values))
         tags_list = col.tags.split(raw_tags)
@@ -117,7 +133,7 @@ def build_existing_note_index(
             note_id=int(nid),
             card_id=card_id,
             model_id=int(mid),
-            model_name=mid_to_name[int(mid)],  # type: ignore[arg-type]
+            model_name=mid_to_name.get(int(mid), MODEL_NAME_BASIC),
             fields=fields_dict,
             tags=tags_list,
             deck_ids=nid_to_dids.get(int(nid), set()),
@@ -149,13 +165,27 @@ def import_media_and_rewrite_fields(
 
 def apply_note_create(col: Collection, op: NoteCreateOp, model_ids: dict[str, int]) -> int:
     """Creates a new note in Anki, ensuring the target deck exists."""
-    model = col.models.get(NotetypeId(model_ids[op.model_name]))
-    assert model is not None, f"Model {op.model_name} not found"
+    target_mid = model_ids.get(op.model_name)
+    if target_mid is None:
+        target_mid = model_ids.get(MODEL_NAME_CLOZE if "Cloze" in op.model_name else MODEL_NAME_BASIC)
+    assert target_mid is not None, f"Model ID for {op.model_name} not found"
+
+    model = col.models.get(NotetypeId(target_mid))
+    assert model is not None, f"Model {op.model_name} (ID {target_mid}) not found"
 
     note = col.new_note(model)
     final_fields, media_count = import_media_and_rewrite_fields(col, op.fields, op.media_refs)
-    for field_name, val in final_fields.items():
-        note[field_name] = val
+
+    # Copy fields into the note type definition
+    model_field_names = [f["name"] for f in model["flds"]]
+    field_items = list(final_fields.items())
+
+    for idx, (field_name, val) in enumerate(field_items):
+        if field_name in note:
+            note[field_name] = val
+        elif idx < len(model_field_names):
+            note[model_field_names[idx]] = val
+
     note.tags = col.tags.split(col.tags.join(op.tags))
     deck_id = col.decks.id(op.target_deck_name)
     col.add_note(note, deck_id)
@@ -166,8 +196,17 @@ def apply_note_update(col: Collection, op: NoteUpdateOp) -> tuple[int, bool]:
     """Updates note fields and tags, and moves cards if target deck changed."""
     note = col.get_note(NoteId(op.note_id))
     final_fields, media_count = import_media_and_rewrite_fields(col, op.new_fields, op.media_refs)
-    for field_name, val in final_fields.items():
-        note[field_name] = val
+
+    model = note.note_type()
+    model_field_names = [f["name"] for f in model["flds"]] if model else []
+    field_items = list(final_fields.items())
+
+    for idx, (field_name, val) in enumerate(field_items):
+        if field_name in note:
+            note[field_name] = val
+        elif idx < len(model_field_names):
+            note[model_field_names[idx]] = val
+
     note.tags = col.tags.split(col.tags.join(op.new_tags))
     col.update_note(note)
 

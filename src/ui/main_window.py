@@ -180,9 +180,11 @@ class MainWindow(QDialog):
         self._log(f"Scanning vault: {self._settings.vault_path}...")
 
         vault_p = self._settings.vault_path
+        b_mid = self._settings.basic_model_id
+        c_mid = self._settings.cloze_model_id
 
         def _scan_op(col) -> SyncPlan:
-            return build_sync_plan(col, vault_p)
+            return build_sync_plan(col, vault_p, basic_model_id=b_mid, cloze_model_id=c_mid)
 
         QueryOp(
             parent=self,
@@ -241,9 +243,18 @@ class MainWindow(QDialog):
 
         plan = self._current_plan
         occ_dir = self._settings.occlusion_dir
+        b_mid = self._settings.basic_model_id
+        c_mid = self._settings.cloze_model_id
 
         def _sync_op(col) -> SyncReport:
-            return execute_sync_plan(col, plan, include_updates=include_updates, occlusion_dir=occ_dir)
+            return execute_sync_plan(
+                col,
+                plan,
+                include_updates=include_updates,
+                occlusion_dir=occ_dir,
+                basic_model_id=b_mid,
+                cloze_model_id=c_mid,
+            )
 
         QueryOp(
             parent=self,
@@ -280,9 +291,12 @@ class MainWindow(QDialog):
     def _view_orphans(self) -> None:
         if self._current_plan is None or not self._current_plan.orphans:
             return
-        nids = ",".join(str(o.note_id) for o in self._current_plan.orphans)
+
+        # Query in Anki card browser: "nid:123,456,789"
+        nids = [str(o.note_id) for o in self._current_plan.orphans]
+        query = f"nid:{','.join(nids)}"
         browser = dialogs.open("Browser", mw)
-        browser.search_for(f"nid:{nids}")
+        browser.search_for(query)
 
     def _open_settings(self) -> None:
         dlg = ConfigWindow(self._manager, self._profile_name, self)
