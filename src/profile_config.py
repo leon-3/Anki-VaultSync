@@ -1,16 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import json
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from anki.models import NotetypeId
+from aqt import mw
 from markdown2anki.config import Config, load_vault_config, save_vault_config
-
-try:
-    from aqt import mw
-except ImportError:
-    mw = None  # Running headless or in unit tests without Anki runtime
 
 
 @dataclass
@@ -20,6 +17,7 @@ class AddonProfileSettings:
     occlusion_dir: Path | None = None
     auto_close_on_success: bool = False
     show_diff_before_update: bool = True
+    sync_on_startup: bool = False
     basic_model_id: int | None = None
     cloze_model_id: int | None = None
 
@@ -69,6 +67,7 @@ class ProfileConfigManager:
         raw = self._read_raw_config()
         auto_close = bool(raw.get("auto_close_on_success", False))
         show_diff = bool(raw.get("show_diff_before_update", True))
+        sync_on_startup = bool(raw.get("sync_on_startup", False))
 
         profiles: dict[str, Any] = raw.get("profiles", {})
         prof_data = profiles.get(profile_name)
@@ -94,6 +93,7 @@ class ProfileConfigManager:
             occlusion_dir=occlusion_dir,
             auto_close_on_success=auto_close,
             show_diff_before_update=show_diff,
+            sync_on_startup=sync_on_startup,
             basic_model_id=basic_model_id,
             cloze_model_id=cloze_model_id,
         )
@@ -102,6 +102,7 @@ class ProfileConfigManager:
         raw = self._read_raw_config()
         raw["auto_close_on_success"] = settings.auto_close_on_success
         raw["show_diff_before_update"] = settings.show_diff_before_update
+        raw["sync_on_startup"] = settings.sync_on_startup
 
         profiles: dict[str, Any] = raw.setdefault("profiles", {})
         prof_data: dict[str, Any] = profiles.setdefault(settings.profile_name, {})

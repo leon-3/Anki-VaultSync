@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from markdown2anki.build import ImageOcclusion
+    from markdown2anki.parser import Card
 
 ModelName = Literal["M2A Basic", "M2A Cloze"]
 
@@ -34,7 +38,7 @@ class NoteCreateOp:
     source_file: Path
     source_line: int
     media_refs: list[MediaItem]
-    card: Any | None = None
+    card: Card | None = None
 
 
 @dataclass
@@ -54,7 +58,7 @@ class NoteUpdateOp:
     source_file: Path
     source_line: int
     media_refs: list[MediaItem]
-    card: Any | None = None
+    card: Card | None = None
     approved: bool = True
 
 
@@ -84,7 +88,7 @@ class SyncPlan:
     vault_path: Path
     default_deck: str
     file_plans: list[FileSyncPlan]
-    occlusions_to_stage: list[Any] = field(default_factory=list)
+    occlusions_to_stage: list[ImageOcclusion] = field(default_factory=list)
     orphans: list[OrphanNoteRecord] = field(default_factory=list)
     diagnostics: list[str] = field(default_factory=list)
 

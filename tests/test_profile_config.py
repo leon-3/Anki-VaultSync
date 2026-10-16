@@ -89,3 +89,19 @@ def test_vault_toml_comment_preservation(tmp_path: Path):
     assert "# User custom comment for deck" in new_text
     assert "# Another comment" in new_text
     assert 'deck = "NewDeckName"' in new_text
+
+
+def test_profile_config_sync_on_startup_roundtrip(tmp_path: Path):
+    config_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=config_file)
+
+    # Defaults to False
+    settings = manager.load("Default")
+    assert settings.sync_on_startup is False
+
+    # Enable sync_on_startup
+    settings.sync_on_startup = True
+    manager.save(settings)
+
+    reloaded = manager.load("Default")
+    assert reloaded.sync_on_startup is True

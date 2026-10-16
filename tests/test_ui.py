@@ -27,6 +27,7 @@ def test_help_tooltips_completeness():
         "cloze_notes",
         "re_stage_occlusions",
         "show_diff_before_update",
+        "sync_on_startup",
         "auto_close_on_success",
         "repair_templates",
         "subdirectories",
@@ -64,7 +65,9 @@ def test_diff_html_generation():
     assert "OldDeck" in diff_html
     assert "+Reviewed" in diff_html
     assert "-Draft" in diff_html
-    assert "Reverse automatic differentiation." in diff_html
+    assert "automatic differentiation" in diff_html
+    assert "<ins" in diff_html
+    assert "<del" in diff_html
 
 
 def test_diff_dialog_instantiation():

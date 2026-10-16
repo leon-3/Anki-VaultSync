@@ -1,6 +1,7 @@
 {
   "auto_close_on_success": false,
   "show_diff_before_update": true,
+  "sync_on_startup": false,
   "profiles": {
     "Default": {
       "vault_path": "",

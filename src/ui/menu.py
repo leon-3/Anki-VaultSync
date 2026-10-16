@@ -43,13 +43,14 @@ def open_settings() -> None:
     _config_window_instance.exec()
 
 
-def _run_menu_sync(include_updates: bool) -> None:
+def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
     profile_name = _get_active_profile()
     settings = _manager.load(profile_name)
 
     if not settings.vault_path or not settings.vault_path.is_dir():
-        tooltip("VaultSync: Vault directory not configured. Opening Settings...")
-        open_settings()
+        if not is_startup:
+            tooltip("VaultSync: Vault directory not configured. Opening Settings...")
+            open_settings()
         return
 
     vault_p = settings.vault_path
@@ -57,7 +58,8 @@ def _run_menu_sync(include_updates: bool) -> None:
     b_mid = settings.basic_model_id
     c_mid = settings.cloze_model_id
 
-    logger.log_info(f"Starting menu sync (include_updates={include_updates})...")
+    tag = "startup sync" if is_startup else "menu sync"
+    logger.log_info(f"Starting {tag} (include_updates={include_updates})...")
 
     def _full_sync_op(col):
         plan = build_sync_plan(
@@ -82,7 +84,7 @@ def _run_menu_sync(include_updates: bool) -> None:
             mw.reset()
 
         logger.log_info(
-            f"Menu sync finished: {report.created_count} added, {report.updated_count} updated, "
+            f"{tag.capitalize()} finished: {report.created_count} added, {report.updated_count} updated, "
             f"{report.deck_moved_count} moved, {report.media_added_count} media file(s)."
         )
         for f_path, reason in report.skipped_files:
@@ -90,17 +92,21 @@ def _run_menu_sync(include_updates: bool) -> None:
         for warn in report.warnings:
             logger.log_warning(warn)
 
+        total_changed = report.created_count + report.updated_count
         if report.skipped_files or report.warnings:
             issues_count = len(report.skipped_files) + len(report.warnings)
             tooltip(f"⚠️ VaultSync: {report.created_count} added, {report.updated_count} updated ({issues_count} warning(s) - see Logs)")
-        else:
+        elif total_changed > 0 or not is_startup:
             tooltip(f"VaultSync: {report.created_count} added, {report.updated_count} updated.")
 
-    QueryOp(
+    op = QueryOp(
         parent=mw,
         op=_full_sync_op,
         success=_on_success,
-    ).with_progress("VaultSync running...").run_in_background()
+    )
+    if not is_startup:
+        op = op.with_progress("VaultSync running...")
+    op.run_in_background()
 
 
 def quick_sync_new() -> None:
@@ -145,7 +151,11 @@ def on_main_window_did_init() -> None:
 
 
 def on_profile_did_open() -> None:
-    pass
+    profile_name = _get_active_profile()
+    settings = _manager.load(profile_name)
+    if settings.sync_on_startup and settings.vault_path and settings.vault_path.is_dir():
+        logger.log_info(f"Auto-sync on startup triggered for profile '{profile_name}'...")
+        _run_menu_sync(include_updates=True, is_startup=True)
 
 
 def on_profile_will_close() -> None:

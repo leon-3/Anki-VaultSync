@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import difflib
 import html
+from pathlib import Path
+import re
 from typing import TYPE_CHECKING
 
 import hashlib
@@ -21,6 +23,37 @@ from aqt.qt import (
 
 if TYPE_CHECKING:
     from ..contracts import NoteUpdateOp, SyncPlan
+
+
+def _generate_word_diff_html(old_text: str, new_text: str) -> str:
+    """Generate an inline word-by-word diff with <del> and <ins> tags."""
+    words_old = re.findall(r"\w+|\s+|[^\w\s]", old_text)
+    words_new = re.findall(r"\w+|\s+|[^\w\s]", new_text)
+    matcher = difflib.SequenceMatcher(None, words_old, words_new)
+    result: list[str] = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            result.append(html.escape("".join(words_old[i1:i2])))
+        elif tag == "delete":
+            deleted = html.escape("".join(words_old[i1:i2]))
+            result.append(
+                f"<del style='color:#c62828; background-color:rgba(198,40,40,0.15); text-decoration:line-through;'>{deleted}</del>"
+            )
+        elif tag == "insert":
+            inserted = html.escape("".join(words_new[j1:j2]))
+            result.append(
+                f"<ins style='color:#2e7d32; background-color:rgba(46,125,50,0.15); text-decoration:none; font-weight:bold;'>{inserted}</ins>"
+            )
+        elif tag == "replace":
+            deleted = html.escape("".join(words_old[i1:i2]))
+            inserted = html.escape("".join(words_new[j1:j2]))
+            result.append(
+                f"<del style='color:#c62828; background-color:rgba(198,40,40,0.15); text-decoration:line-through;'>{deleted}</del>"
+            )
+            result.append(
+                f"<ins style='color:#2e7d32; background-color:rgba(46,125,50,0.15); text-decoration:none; font-weight:bold;'>{inserted}</ins>"
+            )
+    return "".join(result).replace(chr(10), "<br>")
 
 
 def _generate_diff_html(op: NoteUpdateOp) -> str:
@@ -57,30 +90,9 @@ def _generate_diff_html(op: NoteUpdateOp) -> str:
             continue
 
         lines.append(f"<p><b>Field [{html.escape(f_name)}]:</b></p>")
-        diff_lines = list(
-            difflib.unified_diff(
-                old_val.splitlines(),
-                new_val.splitlines(),
-                fromfile="Current Anki",
-                tofile="Markdown",
-                lineterm="",
-            )
-        )
-        diff_html_parts: list[str] = []
-        for d in diff_lines:
-            escaped = html.escape(d)
-            if d.startswith("+"):
-                diff_html_parts.append(f"<span style='color:#2e7d32; background-color:#e8f5e9;'>{escaped}</span>")
-            elif d.startswith("-"):
-                diff_html_parts.append(f"<span style='color:#c62828; background-color:#ffebee;'>{escaped}</span>")
-            elif d.startswith("@@"):
-                diff_html_parts.append(f"<span style='color:#1565c0;'>{escaped}</span>")
-            else:
-                diff_html_parts.append(escaped)
-
-        formatted_diff = "<br>".join(diff_html_parts)
+        formatted_diff = _generate_word_diff_html(old_val, new_val)
         lines.append(
-            f"<div style='font-family:monospace; background:#fafafa; border:1px solid #ddd; padding:8px;'>{formatted_diff}</div>"
+            f"<div style='font-family:monospace; background:palette(alternate-base); border:1px solid palette(midlight); border-radius:4px; padding:10px; line-height:1.5;'>{formatted_diff}</div>"
         )
 
     return "".join(lines)

@@ -98,12 +98,12 @@ def _create_section_card(title: str | None = None, subtitle: str | None = None) 
         }
     """)
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(14, 12, 14, 12)
+    layout.setContentsMargins(16, 14, 16, 14)
     layout.setSpacing(10)
 
     if title:
         t_lbl = QLabel(f"<b>{title}</b>")
-        t_lbl.setStyleSheet("font-size: 13px; border: none; background: transparent;")
+        t_lbl.setStyleSheet("font-size: 13px; font-weight: bold; border: none; background: transparent;")
         layout.addWidget(t_lbl)
     if subtitle:
         s_lbl = QLabel(subtitle)
@@ -126,7 +126,7 @@ class ConfigWindow(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Settings")
-        self.resize(740, 600)
+        self.resize(780, 620)
 
         self._manager = profile_manager
         self._profile_name = profile_name
@@ -248,9 +248,10 @@ class ConfigWindow(QDialog):
         input_style = """
             QLineEdit, QComboBox {
                 font-size: 13px;
-                padding: 5px 10px;
+                padding: 6px 10px;
                 border-radius: 6px;
                 border: 1px solid rgba(255, 255, 255, 0.15);
+                min-height: 22px;
             }
             QLineEdit::placeholder {
                 color: rgba(140, 140, 140, 0.65);
@@ -260,8 +261,9 @@ class ConfigWindow(QDialog):
         btn_style = """
             QPushButton {
                 font-size: 13px;
-                padding: 5px 14px;
+                padding: 6px 14px;
                 border-radius: 6px;
+                min-height: 22px;
             }
         """
 
@@ -324,6 +326,13 @@ class ConfigWindow(QDialog):
         row_diff.addStretch()
         card_sync_l.addLayout(row_diff)
 
+        self.sync_on_startup_cb = QCheckBox("Auto-sync on Anki Startup (Background)")
+        row_startup = QHBoxLayout()
+        row_startup.addWidget(self.sync_on_startup_cb)
+        row_startup.addWidget(self._help_button("sync_on_startup"))
+        row_startup.addStretch()
+        card_sync_l.addLayout(row_startup)
+
         # Base Tag Prefix
         card_sync_l.addWidget(QLabel("Base Tag Prefix (added to all synced cards):"))
         tag_row = QHBoxLayout()
@@ -347,9 +356,10 @@ class ConfigWindow(QDialog):
         input_style = """
             QComboBox {
                 font-size: 13px;
-                padding: 5px 10px;
+                padding: 6px 10px;
                 border-radius: 6px;
                 border: 1px solid rgba(255, 255, 255, 0.15);
+                min-height: 22px;
             }
         """
 
@@ -390,6 +400,7 @@ class ConfigWindow(QDialog):
         self.routing_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.routing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.routing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.routing_table.setMinimumHeight(170)
         self.routing_table.setStyleSheet("""
             QTableWidget {
                 border: 1px solid rgba(255, 255, 255, 0.12);
@@ -467,7 +478,8 @@ class ConfigWindow(QDialog):
         self.ignore_edit = QPlainTextEdit()
         self.ignore_edit.setPlaceholderText("Optional: Folders or globs to ignore (e.g. .obsidian, templates/*, archive)")
         _dim_placeholder(self.ignore_edit)
-        self.ignore_edit.setMaximumHeight(130)
+        self.ignore_edit.setMinimumHeight(120)
+        self.ignore_edit.setMaximumHeight(200)
         self.ignore_edit.setStyleSheet("""
             QPlainTextEdit {
                 font-family: monospace;
@@ -494,10 +506,11 @@ class ConfigWindow(QDialog):
         combo_style = """
             QComboBox {
                 font-size: 13px;
-                padding: 5px 10px;
+                padding: 6px 10px;
                 border-radius: 6px;
                 border: 1px solid rgba(255, 255, 255, 0.15);
-                min-width: 240px;
+                min-width: 250px;
+                min-height: 22px;
             }
         """
 
@@ -759,6 +772,7 @@ class ConfigWindow(QDialog):
             self.occlusion_edit.setText(str(self._profile_settings.occlusion_dir))
 
         self.show_diff_cb.setChecked(self._profile_settings.show_diff_before_update)
+        self.sync_on_startup_cb.setChecked(self._profile_settings.sync_on_startup)
 
         # Select basic model
         if self._profile_settings.basic_model_id is not None:
@@ -846,6 +860,7 @@ class ConfigWindow(QDialog):
             "vault": self.vault_edit.text().strip(),
             "occlusion": self.occlusion_edit.text().strip(),
             "show_diff": self.show_diff_cb.isChecked(),
+            "sync_on_startup": self.sync_on_startup_cb.isChecked(),
             "tag": self.tag_edit.text().strip(),
             "deck": self.deck_combo.currentText().strip(),
             "cloze": self.cloze_cb.isChecked(),
@@ -902,6 +917,7 @@ class ConfigWindow(QDialog):
             occlusion_dir=occ_path,
             auto_close_on_success=False,
             show_diff_before_update=self.show_diff_cb.isChecked(),
+            sync_on_startup=self.sync_on_startup_cb.isChecked(),
             basic_model_id=basic_id,
             cloze_model_id=cloze_id,
         )

@@ -35,6 +35,11 @@ TOOLTIPS: dict[str, str] = {
         "When enabled, opens a visual diff dialog before committing updates, showing exactly which fields, tags, "
         "or decks changed, allowing you to selectively approve updates."
     ),
+    "sync_on_startup": (
+        "When enabled, VaultSync automatically runs a background synchronization of your Obsidian vault "
+        "each time Anki opens this profile. If no changes were detected, it stays quiet; "
+        "if cards were added or modified, a brief notification tooltip appears."
+    ),
     "auto_close_on_success": (
         "Automatically closes the VaultSync Dashboard upon successful sync when there are no errors or warnings."
     ),
