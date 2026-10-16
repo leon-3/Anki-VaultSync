@@ -1,5 +1,5 @@
-from .. import logger
 from __future__ import annotations
+from .. import logger
 
 from typing import TYPE_CHECKING
 

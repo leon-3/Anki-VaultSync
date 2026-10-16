@@ -43,3 +43,13 @@ def test_package_ankiaddon(tmp_path: Path):
         # Verify no test or spec files
         assert not any(n.startswith("tests/") for n in namelist)
         assert not any("SPEC" in n for n in namelist)
+
+
+def test_all_python_files_compile():
+    addon_root = Path(__file__).resolve().parent.parent
+    py_files = list((addon_root / "src").rglob("*.py")) + [addon_root / "__init__.py"]
+    for py_file in py_files:
+        code = py_file.read_text(encoding="utf-8")
+        # compile() will catch SyntaxError, including out-of-order __future__ imports
+        compiled = compile(code, str(py_file), "exec")
+        assert compiled is not None
