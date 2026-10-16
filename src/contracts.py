@@ -73,7 +73,10 @@ class OrphanNoteRecord:
     note_id: int
     card_id: str
     model_name: ModelName
-    preview_question: str
+    preview_question: str = ""
+    deck_names: list[str] = field(default_factory=list)
+    fields: dict[str, str] = field(default_factory=dict)
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass

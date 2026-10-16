@@ -34,7 +34,7 @@ class MainWindow(QDialog):
     def __init__(self, profile_manager: ProfileConfigManager, profile_name: str, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Dashboard")
-        self.resize(780, 500)
+        self.resize(760, 330)
 
         self._manager = profile_manager
         self._profile_name = profile_name

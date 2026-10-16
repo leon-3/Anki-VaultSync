@@ -307,3 +307,43 @@ def test_occlusions_filtering_respects_added_and_restage():
             assert len(plan3.occlusions_to_stage) == 1
         finally:
             col.close()
+
+
+def test_orphan_detection_in_sync_plan():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "Uni"\n[subdirectories]\n',
+            encoding="utf-8",
+        )
+
+        note_file = vault_path / "orphan_test.md"
+        note_file.write_text(
+            "# Chapter\n---\nQuestion to be deleted\nAnswer to be deleted\n",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            # 1. Sync note to Anki
+            plan = build_sync_plan(col, vault_path)
+            assert plan.total_creates == 1
+            report = execute_sync_plan(col, plan)
+            assert report.created_count == 1
+
+            # 2. Delete the note from vault to make it an orphan in Anki
+            note_file.unlink()
+
+            # 3. Scan should detect the orphan without TypeError
+            plan2 = build_sync_plan(col, vault_path)
+            assert len(plan2.orphans) == 1
+            orphan = plan2.orphans[0]
+            assert orphan.note_id > 0
+            assert orphan.model_name == "M2A Basic"
+            assert "Uni" in orphan.deck_names
+            assert orphan.preview_question != ""
+        finally:
+            col.close()

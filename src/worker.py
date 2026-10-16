@@ -235,11 +235,13 @@ def build_sync_plan(
     for oid in sorted(orphan_ids):
         rec = existing_index[oid]
         deck_names = [col.decks.name(did) for did in rec.deck_ids]
+        preview = next(iter(rec.fields.values()), "") if rec.fields else ""
         orphans.append(
             OrphanNoteRecord(
                 note_id=rec.note_id,
                 card_id=oid,
                 model_name=rec.model_name,
+                preview_question=preview,
                 deck_names=deck_names,
                 fields=rec.fields,
                 tags=rec.tags,
