@@ -344,6 +344,9 @@ class MainWindow(QDialog):
             return
         dlg = DiffDialog(self._current_plan, self)
         dlg.exec()
+        if getattr(dlg, "rescan_requested", False):
+            self._start_scan()
+            return
         self.diff_btn.setText(f"Preview Diff ({self._current_plan.approved_updates})")
 
     def _start_sync(self, include_updates: bool) -> None:
@@ -354,6 +357,9 @@ class MainWindow(QDialog):
         if include_updates and self._settings.show_diff_before_update and self._current_plan.total_updates > 0:
             dlg = DiffDialog(self._current_plan, self)
             if not dlg.exec():
+                if getattr(dlg, "rescan_requested", False):
+                    self._start_scan()
+                    return
                 self._log("Sync cancelled by user in diff preview.")
                 return
 
@@ -414,6 +420,7 @@ class MainWindow(QDialog):
                 report,
                 parent=self,
                 on_open_logs=lambda: self._open_settings(tab_index=4),
+                on_rescan=self._start_scan,
             )
             dlg.exec()
         else:
@@ -433,6 +440,7 @@ class MainWindow(QDialog):
             self._last_report,
             parent=self,
             on_open_logs=lambda: self._open_settings(tab_index=4),
+            on_rescan=self._start_scan,
         )
         dlg.exec()
 

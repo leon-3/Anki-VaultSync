@@ -38,6 +38,28 @@ def _compute_sha256(file_path: Path) -> str:
     return hashlib.sha256(file_path.read_bytes()).hexdigest()
 
 
+def _write_occlusion_index(out_dir: Path, staged: dict[str, list[str]]) -> None:
+    """Write an index.md file into occlusions/ mapping each tag to its generated image filenames."""
+    try:
+        import datetime
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        lines = [
+            "# VaultSync - Staged Image Occlusions Index",
+            f"*Generated on {now}*",
+            "",
+            "This index maps each Obsidian tag to the staged image files in this folder.",
+            "",
+        ]
+        for tag, images in sorted(staged.items()):
+            lines.append(f"### Tag: `{tag}`")
+            for img in images:
+                lines.append(f"- `{img}`")
+            lines.append("")
+        (out_dir / "index.md").write_text("\n".join(lines), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _normalize_html_for_diff(text: str, media_refs: list[MediaItem]) -> str:
     """Normalize unhashed image references in HTML text to their staged hashed names.
 
@@ -281,8 +303,9 @@ def execute_sync_plan(
         current_sha256 = hashlib.sha256(current_bytes).hexdigest()
         if current_sha256 != file_plan.sha256_hex:
             report.skipped_files.append(
-                (file_plan.file_path, "File modified externally after scan; skipped for safety.")
+                (file_plan.file_path, "File modified externally in Obsidian after scan; skipped for safety to prevent overwriting.")
             )
+            report.externally_modified_files.append(file_plan.file_path)
             continue
 
         # 2. Flag-Before-Insert protocol: persist flags to Markdown FIRST
@@ -336,11 +359,17 @@ def execute_sync_plan(
     if plan.occlusions_to_stage:
         if occlusion_dir is not None:
             try:
-                occlusion_dir = Path(occlusion_dir).expanduser().resolve()
-                out_dir, flags, staged = export_occlusions(plan.occlusions_to_stage, occlusion_dir)
+                base_dir = Path(occlusion_dir).expanduser().resolve()
+                out_dir, flags, staged = export_occlusions(plan.occlusions_to_stage, base_dir)
                 if flags:
                     write_flags(flags)
-                report.occlusions_staged_count = len(staged)
+                total_imgs = sum(len(imgs) for imgs in staged.values())
+                report.occlusions_staged_count = total_imgs
+                report.staged_occlusions_by_tag = staged
+                report.occlusion_dir = out_dir
+
+                # Automatically write markdown index mapping tags to generated image filenames
+                _write_occlusion_index(out_dir, staged)
             except Exception as exc:
                 report.warnings.append(f"Image occlusions staging error: {exc}")
         else:

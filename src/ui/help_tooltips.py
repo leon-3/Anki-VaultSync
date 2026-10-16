@@ -7,8 +7,9 @@ TOOLTIPS: dict[str, str] = {
         "VaultSync scans this directory and its subfolders for cards."
     ),
     "occlusion_dir": (
-        "Destination directory where image occlusion images are staged with generated hashes. "
-        "You can import or reference these images directly when creating image occlusion cards in Anki."
+        "Base directory where image occlusions are stored. "
+        "VaultSync will automatically create and save exported images into an 'occlusions/' subfolder inside this directory "
+        "(e.g. /your_folder/occlusions/). An index.md mapping each tag to its generated image files will also be created inside that folder."
     ),
     "default_deck": (
         "Fallback Anki deck where cards will be placed if no course, folder routing rule, "

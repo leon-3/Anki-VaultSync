@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 from pathlib import Path
 from typing import Any
@@ -50,14 +51,15 @@ def _dim_placeholder(widget: QLineEdit | QPlainTextEdit) -> None:
 
 
 class HelpBadge(QLabel):
-    """Clean, circular help badge that shows a tooltip on hover and on click."""
+    """Clean, circular help badge that shows a multiline wrapped tooltip box on hover and on click."""
 
     def __init__(self, tip_text: str, parent=None) -> None:
         super().__init__("?", parent)
         self.tip_text = tip_text
+        self.tip_html = f'<div style="width: 320px; font-size: 12px; line-height: 1.4;">{html.escape(tip_text)}</div>'
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setFixedSize(18, 18)
-        self.setToolTip(tip_text)
+        self.setToolTip(self.tip_html)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet("""
             QLabel {
@@ -77,11 +79,11 @@ class HelpBadge(QLabel):
 
     def enterEvent(self, event) -> None:
         super().enterEvent(event)
-        QToolTip.showText(QCursor.pos(), self.tip_text, self)
+        QToolTip.showText(QCursor.pos(), self.tip_html, self)
 
     def mousePressEvent(self, event) -> None:
         super().mousePressEvent(event)
-        QToolTip.showText(QCursor.pos(), self.tip_text, self)
+        QToolTip.showText(QCursor.pos(), self.tip_html, self)
 
 
 def _create_section_card(title: str | None = None, subtitle: str | None = None) -> tuple[QFrame, QVBoxLayout]:
@@ -286,11 +288,11 @@ class ConfigWindow(QDialog):
         card_dirs_l.addLayout(vault_row)
 
         # Image Occlusion Export Folder
-        card_dirs_l.addWidget(QLabel("Image Occlusion Export Folder:"))
+        card_dirs_l.addWidget(QLabel("Image Occlusion Base Folder:"))
         occ_row = QHBoxLayout()
         self.occlusion_edit = QLineEdit()
         self.occlusion_edit.setStyleSheet(input_style)
-        self.occlusion_edit.setPlaceholderText("Optional: Select Image Occlusion folder...")
+        self.occlusion_edit.setPlaceholderText("Optional: Base folder (an 'occlusions/' subfolder will be created inside)...")
         _dim_placeholder(self.occlusion_edit)
         occ_browse = QPushButton("Browse...")
         occ_browse.setStyleSheet(btn_style)
@@ -300,6 +302,13 @@ class ConfigWindow(QDialog):
         occ_row.addWidget(occ_browse)
         occ_row.addWidget(self._help_button("occlusion_dir"))
         card_dirs_l.addLayout(occ_row)
+
+        occ_hint = QLabel(
+            "<i>Note: Images will be exported into an <code>occlusions/</code> subfolder inside this directory (e.g. <code>[Selected Folder]/occlusions/</code>), along with an <code>index.md</code> mapping tags to image files.</i>"
+        )
+        occ_hint.setStyleSheet("font-size: 11px; color: rgba(180, 180, 180, 0.85);")
+        occ_hint.setWordWrap(True)
+        card_dirs_l.addWidget(occ_hint)
         layout.addWidget(card_dirs)
 
         # Section 2: Sync Preferences
@@ -355,6 +364,14 @@ class ConfigWindow(QDialog):
         self.deck_combo.setEditable(True)
         if mw is not None and hasattr(mw, "col") and mw.col is not None:
             for d in mw.col.decks.all_names_and_ids():
+                try:
+                    if hasattr(mw.col.decks, "is_filtered") and mw.col.decks.is_filtered(d.id):
+                        continue
+                    deck = mw.col.decks.get(d.id)
+                    if deck and deck.get("dyn", False):
+                        continue
+                except Exception:
+                    pass
                 self.deck_combo.addItem(d.name)
         deck_row.addWidget(self.deck_combo)
         deck_row.addWidget(self._help_button("default_deck"))

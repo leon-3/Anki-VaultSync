@@ -288,6 +288,12 @@ def test_occlusions_filtering_respects_added_and_restage():
             content = note_file.read_text(encoding="utf-8")
             assert "ADDED" in content
 
+            # Verify index.md was created in occlusions subfolder
+            index_path = occ_dir / "occlusions" / "index.md"
+            assert index_path.is_file()
+            assert "Tag:" in index_path.read_text(encoding="utf-8")
+            assert len(report.staged_occlusions_by_tag) > 0
+
             # 3. Subsequent scan: already-added occlusion should NOT be listed
             plan2 = build_sync_plan(col, vault_path)
             assert len(plan2.occlusions_to_stage) == 0

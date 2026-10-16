@@ -113,5 +113,8 @@ class SyncReport:
     deck_moved_count: int = 0
     media_added_count: int = 0
     occlusions_staged_count: int = 0
+    staged_occlusions_by_tag: dict[str, list[str]] = field(default_factory=dict)
+    occlusion_dir: Path | None = None
     skipped_files: list[tuple[Path, str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    externally_modified_files: list[Path] = field(default_factory=list)

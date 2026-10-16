@@ -4,6 +4,7 @@ import difflib
 import html
 from typing import TYPE_CHECKING
 
+import hashlib
 from aqt.qt import (
     QCheckBox,
     QDialog,
@@ -11,6 +12,7 @@ from aqt.qt import (
     QHBoxLayout,
     QListWidget,
     QListWidgetItem,
+    QPushButton,
     QSplitter,
     Qt,
     QTextBrowser,
@@ -96,6 +98,7 @@ class DiffDialog(QDialog):
         self._all_updates: list[NoteUpdateOp] = []
         for fp in plan.file_plans:
             self._all_updates.extend(fp.updates)
+        self.rescan_requested = False
 
         self._init_ui()
 
@@ -147,11 +150,32 @@ class DiffDialog(QDialog):
         button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Selected")
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
+
+        self.rescan_btn = QPushButton("Rescan Vault")
+        self.rescan_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rescan_btn.setToolTip("Discard current preview and re-scan your vault for the latest changes.")
+        self.rescan_btn.clicked.connect(self._on_rescan_clicked)
+        button_box.addButton(self.rescan_btn, QDialogButtonBox.ButtonRole.ActionRole)
+
         layout.addWidget(button_box)
 
         # Select first item
         if self.list_widget.count() > 0:
             self.list_widget.setCurrentRow(0)
+
+    def _on_rescan_clicked(self) -> None:
+        self.rescan_requested = True
+        self.reject()
+
+    def _is_file_externally_modified(self, op: NoteUpdateOp) -> bool:
+        try:
+            cur_sha = hashlib.sha256(op.source_file.read_bytes()).hexdigest()
+            for fp in self._plan.file_plans:
+                if fp.file_path == op.source_file:
+                    return cur_sha != fp.sha256_hex
+        except Exception:
+            pass
+        return False
 
     def _on_item_selected(self, current: QListWidgetItem | None, previous: QListWidgetItem | None) -> None:
         if current is None:
@@ -159,7 +183,20 @@ class DiffDialog(QDialog):
             return
         idx = current.data(Qt.ItemDataRole.UserRole)
         op = self._all_updates[idx]
-        self.diff_browser.setHtml(_generate_diff_html(op))
+        html_content = _generate_diff_html(op)
+
+        if self._is_file_externally_modified(op):
+            banner = (
+                "<div style='background-color:#fff3cd; color:#856404; border:1px solid #ffeeba; "
+                "border-radius:6px; padding:10px; margin-bottom:12px; font-size:12px; font-family:sans-serif;'>"
+                "<b>⚠️ Note modified in Obsidian since scan.</b><br>"
+                "This file was edited externally. If you sync now, this note will be skipped for safety. "
+                "Click <b>Rescan Vault</b> below to refresh the preview with your latest edits."
+                "</div>"
+            )
+            html_content = banner + html_content
+
+        self.diff_browser.setHtml(html_content)
 
     def _on_item_check_changed(self, item: QListWidgetItem) -> None:
         idx = item.data(Qt.ItemDataRole.UserRole)

@@ -294,3 +294,56 @@ def test_config_window_unsaved_changes_dirty_check(tmp_path: Path):
     dlg._on_save()
     assert not dlg._has_unsaved_changes()
     dlg.close()
+
+
+def test_help_badge_multiline_tooltip():
+    from src.ui.config_window import HelpBadge
+    badge = HelpBadge("A very long explanation that should wrap across multiple lines cleanly.")
+    assert "<div style=" in badge.tip_html
+    assert "width: 320px" in badge.tip_html
+    assert "A very long explanation" in badge.tip_html
+
+
+def test_diff_dialog_rescan_action(tmp_path: Path):
+    from src.contracts import FileSyncPlan, NoteUpdateOp, SyncPlan, ModelName
+    note_file = tmp_path / "test.md"
+    note_file.write_text("content", encoding="utf-8")
+
+    op = NoteUpdateOp(
+        note_id=1,
+        card_id="abc",
+        model_name="M2A Basic",
+        target_deck_name="Default",
+        old_deck_names=["Default"],
+        old_fields={"Front": "Q", "Back": "A"},
+        new_fields={"Front": "Q2", "Back": "A2"},
+        old_tags=[],
+        new_tags=[],
+        deck_changed=False,
+        fields_changed=True,
+        tags_changed=False,
+        source_file=note_file,
+        source_line=2,
+        media_refs=[],
+    )
+
+    plan = SyncPlan(
+        vault_path=tmp_path,
+        default_deck="Default",
+        file_plans=[
+            FileSyncPlan(
+                file_path=note_file,
+                mtime_ns=0,
+                sha256_hex="initial_hash",
+                creates=[],
+                updates=[op],
+                unchanged_count=0,
+            )
+        ],
+    )
+
+    dlg = DiffDialog(plan)
+    assert dlg.rescan_btn is not None
+    dlg._on_rescan_clicked()
+    assert dlg.rescan_requested is True
+    dlg.close()
