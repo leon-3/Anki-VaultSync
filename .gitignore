@@ -28,3 +28,4 @@ ENV/
 .coverage
 htmlcov/
 meta.json
+*.log

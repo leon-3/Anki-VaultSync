@@ -116,7 +116,8 @@ def test_config_window_instantiation(tmp_path: Path):
     manager = ProfileConfigManager(config_path=cfg_file)
 
     dlg = ConfigWindow(manager, "TestProfile")
-    assert dlg.tabs.count() == 4
+    assert dlg.tabs.count() == 5
+    assert dlg.tabs.tabText(4) == "Logs"
     assert dlg.vault_edit is not None
     assert dlg.deck_combo is not None
     assert dlg.basic_model_combo is not None
@@ -189,6 +190,10 @@ def test_main_window_dashboard_layout(tmp_path: Path):
     assert win.change_vault_btn.text() == "Settings"
     assert not hasattr(win, "orphans_btn")
     assert not hasattr(win, "auto_close_cb")
+    assert not hasattr(win, "log_edit")
+    assert win.status_label is not None
+    assert win.status_dot is not None
+    assert win.status_report_btn is not None
     assert win.new_cards_label is not None
     assert win.modified_cards_label is not None
     assert win.occlusions_label is not None
@@ -205,4 +210,44 @@ def test_config_window_orphans_button_exists(tmp_path: Path):
     dlg = ConfigWindow(manager, "TestProfile")
     assert hasattr(dlg, "orphans_btn")
     assert dlg.orphans_btn.text() == "Find & View Orphaned Cards in Browser"
+    dlg.close()
+
+
+def test_config_window_logs_tab(tmp_path: Path):
+    from src import logger
+    log_file = tmp_path / "ui_test.log"
+    logger.set_custom_log_path(log_file)
+    try:
+        logger.log_info("First test event")
+        logger.log_warning("Second test warning")
+
+        cfg_file = tmp_path / "config.json"
+        manager = ProfileConfigManager(config_path=cfg_file)
+        dlg = ConfigWindow(manager, "TestProfile", initial_tab=4)
+        assert dlg.tabs.currentIndex() == 4
+        assert hasattr(dlg, "log_edit")
+        text = dlg.log_edit.toPlainText()
+        # Newest should be on top
+        first_line = text.splitlines()[0]
+        assert "Second test warning" in first_line
+        dlg.close()
+    finally:
+        logger.set_custom_log_path(None)
+
+
+def test_sync_issues_dialog(tmp_path: Path):
+    from src.contracts import SyncReport
+    from src.ui.sync_report_dialog import SyncIssuesDialog
+
+    report = SyncReport(
+        created_count=2,
+        updated_count=1,
+        skipped_files=[(Path("/vault/bad.md"), "Syntax error on line 5")],
+        warnings=["Missing media file image.png"],
+    )
+
+    dlg = SyncIssuesDialog(report)
+    assert "bad.md" in dlg.issues_edit.toPlainText()
+    assert "Syntax error on line 5" in dlg.issues_edit.toPlainText()
+    assert "Missing media file image.png" in dlg.issues_edit.toPlainText()
     dlg.close()

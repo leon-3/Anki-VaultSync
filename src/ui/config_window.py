@@ -6,9 +6,11 @@ from pathlib import Path
 from aqt import dialogs, mw
 from aqt.qt import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QCursor,
+    QDesktopServices,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -23,10 +25,12 @@ from aqt.qt import (
     QTableWidgetItem,
     QTabWidget,
     QToolTip,
+    QUrl,
     Qt,
     QVBoxLayout,
     QWidget,
 )
+from ..logger import clear_log, get_log_file_path, read_log_text
 
 from ..bridge import ensure_models
 from ..worker import build_sync_plan
@@ -72,10 +76,16 @@ class HelpBadge(QLabel):
 class ConfigWindow(QDialog):
     """Tabbed settings configurator for Anki-VaultSync."""
 
-    def __init__(self, profile_manager: ProfileConfigManager, profile_name: str, parent=None) -> None:
+    def __init__(
+        self,
+        profile_manager: ProfileConfigManager,
+        profile_name: str,
+        parent=None,
+        initial_tab: int | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Settings")
-        self.resize(700, 560)
+        self.resize(720, 580)
 
         self._manager = profile_manager
         self._profile_name = profile_name
@@ -90,6 +100,8 @@ class ConfigWindow(QDialog):
 
         self._init_ui()
         self._populate_fields()
+        if initial_tab is not None and 0 <= initial_tab < self.tabs.count():
+            self.tabs.setCurrentIndex(initial_tab)
 
     def _help_button(self, key: str) -> HelpBadge:
         tip_text = TOOLTIPS.get(key, "No help available.")
@@ -120,6 +132,11 @@ class ConfigWindow(QDialog):
         self.tab_advanced = QWidget()
         self._init_tab_advanced()
         self.tabs.addTab(self.tab_advanced, "Advanced")
+
+        # Tab 5: Logs
+        self.tab_logs = QWidget()
+        self._init_tab_logs()
+        self.tabs.addTab(self.tab_logs, "Logs")
 
         # Dialog Buttons
         button_box = QDialogButtonBox(
@@ -526,3 +543,82 @@ class ConfigWindow(QDialog):
                 QMessageBox.warning(self, "Warning", f"Could not update m2a.toml: {exc}")
 
         self.accept()
+
+    def _init_tab_logs(self) -> None:
+        layout = QVBoxLayout(self.tab_logs)
+        layout.setSpacing(10)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        # Header with actions
+        header = QHBoxLayout()
+        desc = QLabel("Operation history across sessions (<b>newest entries on top</b>):")
+        desc.setStyleSheet("font-size: 13px;")
+        header.addWidget(desc)
+        header.addStretch()
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        refresh_btn.clicked.connect(self._refresh_logs)
+        header.addWidget(refresh_btn)
+
+        copy_btn = QPushButton("Copy All")
+        copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        copy_btn.clicked.connect(self._copy_logs)
+        header.addWidget(copy_btn)
+
+        open_file_btn = QPushButton("Open File")
+        open_file_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        open_file_btn.clicked.connect(self._open_log_file)
+        header.addWidget(open_file_btn)
+
+        clear_btn = QPushButton("Clear Log")
+        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        clear_btn.clicked.connect(self._clear_logs)
+        header.addWidget(clear_btn)
+
+        layout.addLayout(header)
+
+        self.log_edit = QPlainTextEdit()
+        self.log_edit.setReadOnly(True)
+        self.log_edit.setStyleSheet("""
+            QPlainTextEdit {
+                font-family: monospace;
+                font-size: 12px;
+                border: 1px solid palette(midlight);
+                border-radius: 6px;
+                padding: 8px;
+                background: palette(alternate-base);
+            }
+        """)
+        layout.addWidget(self.log_edit)
+
+        self._refresh_logs()
+
+    def _refresh_logs(self) -> None:
+        text = read_log_text(newest_first=True)
+        self.log_edit.setPlainText(text or "(Log is currently empty)")
+
+    def _copy_logs(self) -> None:
+        clipboard = QApplication.clipboard()
+        if clipboard:
+            clipboard.setText(self.log_edit.toPlainText())
+            QMessageBox.information(self, "Copied", "Log contents copied to clipboard.")
+
+    def _open_log_file(self) -> None:
+        log_path = get_log_file_path()
+        if not log_path.exists():
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.touch()
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path)))
+
+    def _clear_logs(self) -> None:
+        res = QMessageBox.question(
+            self,
+            "Clear Log",
+            "Are you sure you want to clear the entire log history?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if res == QMessageBox.StandardButton.Yes:
+            clear_log()
+            self._refresh_logs()

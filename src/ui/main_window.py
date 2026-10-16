@@ -13,18 +13,19 @@ from aqt.qt import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
-    QPlainTextEdit,
     QPushButton,
     Qt,
     QVBoxLayout,
 )
 from aqt.utils import tooltip
 
+from .. import logger
 from ..contracts import SyncPlan, SyncReport
 from ..profile_config import ProfileConfigManager
 from ..worker import build_sync_plan, execute_sync_plan
 from .config_window import ConfigWindow
 from .diff_dialog import DiffDialog
+from .sync_report_dialog import SyncIssuesDialog
 
 
 class MainWindow(QDialog):
@@ -33,13 +34,14 @@ class MainWindow(QDialog):
     def __init__(self, profile_manager: ProfileConfigManager, profile_name: str, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Dashboard")
-        self.resize(780, 500)
+        self.resize(760, 360)
 
         self._manager = profile_manager
         self._profile_name = profile_name
         self._settings = self._manager.load(profile_name)
 
         self._current_plan: SyncPlan | None = None
+        self._last_report: SyncReport | None = None
         self._is_busy = False
 
         self._init_ui()
@@ -49,6 +51,7 @@ class MainWindow(QDialog):
         if self._settings.vault_path and self._settings.vault_path.is_dir():
             self._start_scan()
         else:
+            self._set_status("Vault not configured. Click 'Settings' to select your vault.", state="warning")
             self._log("Welcome to VaultSync! Click 'Settings' above to select your Obsidian vault.")
 
     def _init_ui(self) -> None:
@@ -100,21 +103,13 @@ class MainWindow(QDialog):
         status_layout.setContentsMargins(16, 14, 16, 14)
         status_layout.setSpacing(10)
 
-        title_status = QLabel("Card Counts")
-        title_status.setStyleSheet("font-size: 15px; font-weight: bold; border: none; background: transparent;")
-        status_layout.addWidget(title_status)
-
         status_grid = QGridLayout()
-        status_grid.setContentsMargins(0, 0, 0, 0)
-        status_grid.setVerticalSpacing(9)
-        status_grid.setHorizontalSpacing(20)
+        status_grid.setHorizontalSpacing(16)
+        status_grid.setVerticalSpacing(8)
 
-        for r in range(4):
-            status_grid.setRowMinimumHeight(r, 25)
-
-        # Category labels on left, values in a vertical column on right
         lbl_new = QLabel("New cards:")
         lbl_new.setStyleSheet("font-size: 13px; font-weight: normal; border: none; background: transparent;")
+        lbl_new.setToolTip("Cards found in Obsidian notes that are not yet in Anki.")
         self.new_val_label = QLabel("0")
         self.new_val_label.setStyleSheet("font-size: 13px; font-weight: bold; border: none; background: transparent;")
         self.new_cards_label = self.new_val_label
@@ -123,6 +118,7 @@ class MainWindow(QDialog):
 
         lbl_mod = QLabel("Modified cards:")
         lbl_mod.setStyleSheet("font-size: 13px; font-weight: normal; border: none; background: transparent;")
+        lbl_mod.setToolTip("Cards where note text, tags, or deck assignment changed in Obsidian.")
         self.modified_val_label = QLabel("0")
         self.modified_val_label.setStyleSheet("font-size: 13px; font-weight: bold; border: none; background: transparent;")
         self.modified_cards_label = self.modified_val_label
@@ -131,6 +127,7 @@ class MainWindow(QDialog):
 
         lbl_occ = QLabel("Image occlusions:")
         lbl_occ.setStyleSheet("font-size: 13px; font-weight: normal; border: none; background: transparent;")
+        lbl_occ.setToolTip("Occlusion cards to stage from your configured occlusion folder.")
         self.occlusions_val_label = QLabel("0")
         self.occlusions_val_label.setStyleSheet("font-size: 13px; font-weight: bold; border: none; background: transparent;")
         self.occlusions_label = self.occlusions_val_label
@@ -149,15 +146,11 @@ class MainWindow(QDialog):
         status_grid.addWidget(lbl_orph, 3, 0)
         status_grid.addWidget(self.orphans_val_label, 3, 1, Qt.AlignmentFlag.AlignRight)
 
-        status_grid.setColumnStretch(0, 1)
-        status_grid.setColumnStretch(1, 0)
-
         status_layout.addLayout(status_grid)
         status_layout.addStretch()
-
         middle_layout.addWidget(status_box, stretch=1)
 
-        # Right Column: Action Buttons (Sync first, Preview Diff second, Rescan Vault third)
+        # Right Column: Actions
         actions_box = QFrame()
         actions_box.setStyleSheet(box_style)
         actions_layout = QVBoxLayout(actions_box)
@@ -167,7 +160,6 @@ class MainWindow(QDialog):
         action_btn_style = """
             QPushButton {
                 font-size: 13px;
-                font-weight: normal;
                 border-radius: 6px;
                 padding: 6px 14px;
             }
@@ -207,30 +199,60 @@ class MainWindow(QDialog):
         middle_layout.addWidget(actions_box, stretch=1)
         layout.addLayout(middle_layout)
 
-        # 3. Activity Log
-        log_label = QLabel("Activity Log:")
-        log_label.setStyleSheet("font-size: 15px; font-weight: bold; margin-top: 4px;")
-        layout.addWidget(log_label)
-
-        self.log_edit = QPlainTextEdit()
-        self.log_edit.setReadOnly(True)
-        self.log_edit.setStyleSheet("""
-            QPlainTextEdit {
-                font-family: monospace;
-                font-size: 12px;
+        # 3. Status Bar
+        self.status_box = QFrame()
+        self.status_box.setObjectName("statusBox")
+        self.status_box.setStyleSheet("""
+            #statusBox {
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 8px;
-                padding: 8px;
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                background-color: rgba(255, 255, 255, 0.02);
             }
         """)
-        layout.addWidget(self.log_edit)
+        status_bar_layout = QHBoxLayout(self.status_box)
+        status_bar_layout.setContentsMargins(14, 8, 14, 8)
+        status_bar_layout.setSpacing(8)
 
-        # Remove default focus from all buttons
-        self.log_edit.setFocus()
+        self.status_dot = QLabel("●")
+        self.status_dot.setStyleSheet("font-size: 13px; color: #4CAF50;")
+        self.status_label = QLabel("Ready")
+        self.status_label.setStyleSheet("font-size: 13px;")
 
-    def _log(self, text: str) -> None:
-        now = datetime.datetime.now().strftime("%H:%M:%S")
-        self.log_edit.appendPlainText(f"[{now}] {text}")
+        status_bar_layout.addWidget(self.status_dot)
+        status_bar_layout.addWidget(self.status_label)
+        status_bar_layout.addStretch()
+
+        self.status_report_btn = QPushButton("View Issues")
+        self.status_report_btn.setFixedHeight(26)
+        self.status_report_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.status_report_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 12px;
+                padding: 2px 10px;
+                border-radius: 4px;
+            }
+        """)
+        self.status_report_btn.setVisible(False)
+        self.status_report_btn.clicked.connect(self._open_last_sync_report)
+        status_bar_layout.addWidget(self.status_report_btn)
+
+        layout.addWidget(self.status_box)
+
+    def _set_status(self, text: str, state: str = "normal", show_issues: bool = False) -> None:
+        colors = {
+            "normal": "#4CAF50",
+            "ready": "#4CAF50",
+            "busy": "#2196F3",
+            "warning": "#FF9800",
+            "error": "#F44336",
+        }
+        color = colors.get(state, "#4CAF50")
+        self.status_dot.setStyleSheet(f"font-size: 13px; color: {color};")
+        self.status_label.setText(text)
+        self.status_report_btn.setVisible(show_issues)
+
+    def _log(self, text: str, level: str = "INFO") -> None:
+        logger.log(text, level=level)
 
     def _refresh_header(self) -> None:
         self._settings = self._manager.load(self._profile_name)
@@ -257,6 +279,7 @@ class MainWindow(QDialog):
         if self._is_busy:
             return
         if not self._settings.vault_path or not self._settings.vault_path.is_dir():
+            self._set_status("Vault directory not configured", state="warning")
             QMessageBox.information(
                 self, "Vault Not Configured", "Please select your Obsidian vault folder in Settings."
             )
@@ -264,6 +287,7 @@ class MainWindow(QDialog):
             return
 
         self._set_buttons_busy(True)
+        self._set_status("Scanning vault...", state="busy")
         self._log(f"Scanning vault: {self._settings.vault_path}...")
 
         vault_p = self._settings.vault_path
@@ -302,6 +326,11 @@ class MainWindow(QDialog):
         self.sync_btn.setText(f"Sync ({total_sync_count})")
         self.diff_btn.setText(f"Preview Diff ({plan.total_updates})")
 
+        if total_sync_count > 0:
+            self._set_status(f"Scan complete: {total_sync_count} item(s) ready to sync", state="ready")
+        else:
+            self._set_status("Ready (Vault is up to date)", state="ready")
+
     def _open_diff(self) -> None:
         if self._current_plan is None or self._current_plan.total_updates == 0:
             return
@@ -321,6 +350,7 @@ class MainWindow(QDialog):
                 return
 
         self._set_buttons_busy(True)
+        self._set_status("Syncing cards to Anki...", state="busy")
         self._log("Starting Sync...")
 
         plan = self._current_plan
@@ -346,6 +376,7 @@ class MainWindow(QDialog):
 
     def _on_sync_success(self, report: SyncReport) -> None:
         self._set_buttons_busy(False)
+        self._last_report = report
 
         if mw is not None and hasattr(mw, "deckBrowser"):
             mw.deckBrowser.refresh()
@@ -357,14 +388,45 @@ class MainWindow(QDialog):
         )
 
         for f_path, reason in report.skipped_files:
-            self._log(f"WARNING: Skipped {f_path.name}: {reason}")
+            self._log(f"WARNING: Skipped {f_path.name}: {reason}", level="WARNING")
         for warn in report.warnings:
-            self._log(f"WARNING: {warn}")
+            self._log(f"WARNING: {warn}", level="WARNING")
 
         tooltip(f"VaultSync: {report.created_count} added, {report.updated_count} updated.")
 
+        has_issues = bool(report.skipped_files or report.warnings)
+        if has_issues:
+            issues_count = len(report.skipped_files) + len(report.warnings)
+            self._set_status(
+                f"Sync completed with {issues_count} issue(s) ({report.created_count} added, {report.updated_count} updated)",
+                state="warning",
+                show_issues=True,
+            )
+            dlg = SyncIssuesDialog(
+                report,
+                parent=self,
+                on_open_logs=lambda: self._open_settings(tab_index=4),
+            )
+            dlg.exec()
+        else:
+            self._set_status(
+                f"Sync complete: {report.created_count} added, {report.updated_count} updated",
+                state="ready",
+                show_issues=False,
+            )
+
         # Re-scan to refresh counters
         self._start_scan()
+
+    def _open_last_sync_report(self) -> None:
+        if self._last_report is None:
+            return
+        dlg = SyncIssuesDialog(
+            self._last_report,
+            parent=self,
+            on_open_logs=lambda: self._open_settings(tab_index=4),
+        )
+        dlg.exec()
 
     def _view_orphans(self) -> None:
         if self._current_plan is None or not self._current_plan.orphans:
@@ -375,8 +437,8 @@ class MainWindow(QDialog):
         browser = dialogs.open("Browser", mw)
         browser.search_for(query)
 
-    def _open_settings(self) -> None:
-        dlg = ConfigWindow(self._manager, self._profile_name, self)
+    def _open_settings(self, tab_index: int | None = None) -> None:
+        dlg = ConfigWindow(self._manager, self._profile_name, self, initial_tab=tab_index)
         if dlg.exec():
             self._refresh_header()
             if self._settings.vault_path and self._settings.vault_path.is_dir():
