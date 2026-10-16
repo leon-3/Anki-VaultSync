@@ -189,3 +189,63 @@ def test_bulk_sync_undo_merge_limit_does_not_fail():
             assert len(col.find_notes("deck:BulkDeck")) == 50
         finally:
             col.close()
+
+
+def test_image_hash_normalization_prevents_false_updates():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "Uni"\nhash_media = true\n[subdirectories]\n',
+            encoding="utf-8",
+        )
+
+        note_dir = vault_path / "Topic"
+        note_dir.mkdir()
+        img_file = note_dir / "pasted image 123.png"
+        img_file.write_bytes(b"dummy_image_content")
+
+        note_file = note_dir / "note.md"
+        note_file.write_text(
+            "# Chapter\n---\nQuestion with image\nAnswer with ![[pasted image 123.png]]\n",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            # 1. First sync creates the note
+            plan = build_sync_plan(col, vault_path)
+            assert plan.total_creates == 1
+            staged_name = plan.file_plans[0].creates[0].media_refs[0].staged_filename
+            assert staged_name != "pasted image 123.png"
+
+            report = execute_sync_plan(col, plan)
+            assert report.created_count == 1
+
+            # 2. Simulate note in Anki holding the raw unhashed filename (or URL-encoded)
+            note_ids = col.find_notes("deck:Uni")
+            assert len(note_ids) == 1
+            anki_note = col.get_note(note_ids[0])
+            assert staged_name in anki_note["Back"]
+            anki_note["Back"] = anki_note["Back"].replace(staged_name, "pasted%20image%20123.png")
+            col.update_note(anki_note)
+
+            # 3. Subsequent build_sync_plan: normalization should identify it as UNCHANGED
+            plan2 = build_sync_plan(col, vault_path)
+            assert plan2.total_creates == 0
+            assert plan2.total_updates == 0
+            assert plan2.total_unchanged == 1
+
+            # 4. If actual text changes in markdown, an update IS detected
+            note_file.write_text(
+                note_file.read_text(encoding="utf-8").replace("Answer with", "Updated Answer with"),
+                encoding="utf-8",
+            )
+            plan3 = build_sync_plan(col, vault_path)
+            assert plan3.total_creates == 0
+            assert plan3.total_updates == 1
+            assert plan3.total_unchanged == 0
+        finally:
+            col.close()

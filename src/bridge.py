@@ -152,7 +152,7 @@ def import_media_and_rewrite_fields(
     for item in media_refs:
         if not item.source_path.is_file():
             raise FileNotFoundError(f"Missing media file: {item.source_path}")
-        stored_name = col.media.add_file(str(item.source_path))
+        stored_name = col.media.write_data(item.staged_filename, item.source_path.read_bytes())
         added_count += 1
         if stored_name != item.staged_filename:
             for k, html_val in updated_fields.items():

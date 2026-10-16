@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+import re
 from typing import Callable
+import urllib.parse
 
 from anki.collection import Collection
 from markdown2anki.build import MODEL_CLOZE, build
@@ -34,6 +36,34 @@ from .contracts import (
 
 def _compute_sha256(file_path: Path) -> str:
     return hashlib.sha256(file_path.read_bytes()).hexdigest()
+
+
+def _normalize_html_for_diff(text: str, media_refs: list[MediaItem]) -> str:
+    """Normalize unhashed image references in HTML text to their staged hashed names.
+
+    When hash_media is True, markdown2anki produces hashed filenames (e.g. 5bcc4ef4_01.png).
+    Existing notes in Anki may still reference the unhashed filename (e.g. pasted image 20261007165418.png).
+    This function replaces unhashed references with their hashed counterpart so that diff detection
+    does not falsely flag the card as modified when only the media naming format changed.
+    """
+    if not media_refs or not text:
+        return text
+    normalized = text
+    for item in media_refs:
+        if item.staged_filename != item.source_path.name:
+            orig_name = item.source_path.name
+            escaped_variants = [
+                re.escape(orig_name),
+                re.escape(orig_name.lower()),
+                re.escape(urllib.parse.quote(orig_name)),
+                re.escape(urllib.parse.quote(orig_name.lower())),
+            ]
+            pattern = re.compile(
+                rf'src=([\"\'])({"|".join(escaped_variants)})\1',
+                re.IGNORECASE,
+            )
+            normalized = pattern.sub(lambda m, s=item.staged_filename: f"src={m.group(1)}{s}{m.group(1)}", normalized)
+    return normalized
 
 
 def build_sync_plan(
@@ -128,8 +158,13 @@ def build_sync_plan(
                     field_names[1]: with_marker(note.fields[1] if len(note.fields) > 1 else "", card_id),
                 }
 
+                normalized_rec_fields = {
+                    fname: _normalize_html_for_diff(fval, media_refs)
+                    for fname, fval in rec.fields.items()
+                }
+
                 # Diff detection
-                fields_changed = new_fields != rec.fields
+                fields_changed = new_fields != normalized_rec_fields
                 tags_changed = set(note.tags) != set(rec.tags)
 
                 target_deck_id = col.decks.id(target_deck)
@@ -144,7 +179,7 @@ def build_sync_plan(
                             model_name=model_name,
                             target_deck_name=target_deck,
                             old_deck_names=old_deck_names,
-                            old_fields=rec.fields,
+                            old_fields=normalized_rec_fields,
                             new_fields=new_fields,
                             old_tags=rec.tags,
                             new_tags=list(note.tags),
@@ -246,10 +281,10 @@ def execute_sync_plan(
 
         # 2. Flag-Before-Insert protocol: persist flags to Markdown FIRST
         if has_creates:
-            flags_to_write = [\
-                (create_op.card, create_op.card_id)\
-                for create_op in file_plan.creates\
-                if create_op.card is not None\
+            flags_to_write = [
+                (create_op.card, create_op.card_id)
+                for create_op in file_plan.creates
+                if create_op.card is not None
             ]
             if flags_to_write:
                 try:
