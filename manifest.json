@@ -1,6 +1,6 @@
 {
   "package": "anki_vaultsync",
-  "name": "Anki-VaultSync (Markdown2Anki GUI)",
+  "name": "VaultSync",
   "min_point_version": 231000,
   "conflicts": []
 }

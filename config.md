@@ -1,6 +1,6 @@
-# Anki-VaultSync Configuration
+# VaultSync Configuration
 
-Anki-VaultSync connects Obsidian/Markdown vaults to Anki using Markdown2Anki.
+VaultSync connects Obsidian/Markdown vaults to Anki using Markdown2Anki.
 
 ## Settings
 

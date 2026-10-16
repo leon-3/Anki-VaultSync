@@ -1,6 +1,6 @@
-# Anki-VaultSync
+# VaultSync
 
-**Anki-VaultSync** is an Anki Desktop add-on providing a native graphical interface for synchronizing Markdown/Obsidian flashcard vaults with Anki.
+**VaultSync** is an Anki Desktop add-on providing a native graphical interface for synchronizing Markdown/Obsidian flashcard vaults with Anki.
 
 It uses **Markdown2Anki** as its parsing, rendering, and media processing engine.
 

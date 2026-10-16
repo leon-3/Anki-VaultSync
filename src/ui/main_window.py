@@ -47,7 +47,7 @@ class MainWindow(QDialog):
         if self._settings.vault_path and self._settings.vault_path.is_dir():
             self._start_scan()
         else:
-            self._log("Welcome to VaultSync! Please configure your vault directory in Settings.")
+            self._log("Welcome to VaultSync! Click 'Change Vault' or 'Settings' below to select your Obsidian vault.")
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -84,7 +84,7 @@ class MainWindow(QDialog):
         self.sync_new_btn.setEnabled(False)
         self.sync_new_btn.clicked.connect(lambda: self._start_sync(include_updates=False))
 
-        self.sync_all_btn = QPushButton("Sync & Update All")
+        self.sync_all_btn = QPushButton("Sync and Update (Modified Cards)")
         self.sync_all_btn.setEnabled(False)
         self.sync_all_btn.clicked.connect(lambda: self._start_sync(include_updates=True))
 
@@ -132,8 +132,10 @@ class MainWindow(QDialog):
         self._settings = self._manager.load(self._profile_name)
         if self._settings.vault_path:
             self.vault_label.setText(f"<b>Vault Path:</b> {self._settings.vault_path}")
+            self.status_label.setText("<b>Status:</b> Ready to scan")
         else:
             self.vault_label.setText("<b>Vault Path:</b> (Not Configured)")
+            self.status_label.setText("<b>Status:</b> Vault not configured. Click 'Change Vault' or 'Settings' to select your vault.")
 
         default_deck = "Default"
         if self._settings.vault_path and self._settings.vault_path.is_dir():
@@ -169,7 +171,7 @@ class MainWindow(QDialog):
             return
         if not self._settings.vault_path or not self._settings.vault_path.is_dir():
             QMessageBox.information(
-                self, "Vault Not Found", "Please specify a valid Obsidian vault directory in Settings."
+                self, "Vault Not Configured", "Please select your Obsidian vault folder in Settings."
             )
             self._open_settings()
             return
@@ -211,7 +213,7 @@ class MainWindow(QDialog):
         # Update button labels with counts
         self.diff_btn.setText(f"Preview Diff ({plan.total_updates})")
         self.sync_new_btn.setText(f"Sync New Cards ({plan.total_creates})")
-        self.sync_all_btn.setText("Sync & Update All")
+        self.sync_all_btn.setText(f"Sync and Update (Modified Cards) ({plan.total_updates})")
         self.orphans_btn.setText(f"View Orphans in Browser ({len(plan.orphans)})")
 
     def _open_diff(self) -> None:
@@ -234,7 +236,7 @@ class MainWindow(QDialog):
                 return
 
         self._set_buttons_busy(True)
-        mode_text = "Sync & Update" if include_updates else "Sync New"
+        mode_text = "Sync and Update" if include_updates else "Sync New"
         self._log(f"Starting {mode_text}...")
 
         plan = self._current_plan

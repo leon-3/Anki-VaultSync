@@ -26,11 +26,6 @@ def _get_active_profile() -> str:
 def open_dashboard() -> None:
     global _main_window_instance
     profile_name = _get_active_profile()
-    settings = _manager.load(profile_name)
-
-    if not settings.vault_path or not settings.vault_path.is_dir():
-        open_settings()
-        return
 
     if _main_window_instance is None or not _main_window_instance.isVisible():
         _main_window_instance = MainWindow(_manager, profile_name, mw)
@@ -100,7 +95,7 @@ def on_main_window_did_init() -> None:
     action_quick.triggered.connect(quick_sync_new)
     vault_menu.addAction(action_quick)
 
-    action_update = QAction("Sync & Update (Modified Cards)", vault_menu)
+    action_update = QAction("Sync and Update (Modified Cards)", vault_menu)
     action_update.triggered.connect(sync_and_update_all)
     vault_menu.addAction(action_update)
 
