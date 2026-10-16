@@ -5,6 +5,7 @@ from pathlib import Path
 
 from aqt import mw
 from aqt.qt import (
+    Qt,
     QAbstractItemView,
     QCheckBox,
     QComboBox,
@@ -52,13 +53,29 @@ class ConfigWindow(QDialog):
         self._init_ui()
         self._populate_fields()
 
-    def _help_button(self, key: str) -> QPushButton:
-        btn = QPushButton("?")
-        btn.setFixedSize(26, 26)
-        btn.setToolTip("Click for help")
+    def _help_button(self, key: str) -> QLabel:
         tip_text = TOOLTIPS.get(key, "No help available.")
-        btn.clicked.connect(lambda: QMessageBox.information(self, "Setting Info", tip_text))
-        return btn
+        badge = QLabel("?")
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge.setFixedSize(18, 18)
+        badge.setToolTip(tip_text)
+        badge.setStyleSheet("""
+            QLabel {
+                border: 1px solid rgba(130, 130, 130, 0.7);
+                border-radius: 9px;
+                font-weight: bold;
+                font-size: 11px;
+                color: palette(text);
+                background-color: rgba(130, 130, 130, 0.15);
+            }
+            QLabel:hover {
+                background-color: rgba(0, 122, 204, 0.35);
+                border-color: rgba(0, 122, 204, 0.9);
+                color: #007acc;
+            }
+        """)
+        badge.setCursor(Qt.CursorShape.WhatsThisCursor)
+        return badge
 
     def _init_ui(self) -> None:
         main_layout = QVBoxLayout(self)
@@ -74,12 +91,12 @@ class ConfigWindow(QDialog):
         # Tab 2: Decks & Routing
         self.tab_routing = QWidget()
         self._init_tab_routing()
-        self.tabs.addTab(self.tab_routing, "Decks & Routing")
+        self.tabs.addTab(self.tab_routing, "Decks and Routing")
 
         # Tab 3: Card Rules & Media
         self.tab_rules = QWidget()
         self._init_tab_rules()
-        self.tabs.addTab(self.tab_rules, "Card Rules & Media")
+        self.tabs.addTab(self.tab_rules, "Card Rules and Media")
 
         # Tab 4: Advanced
         self.tab_advanced = QWidget()
@@ -202,13 +219,6 @@ class ConfigWindow(QDialog):
         row1.addStretch()
         layout.addLayout(row1)
 
-        self.auto_close_cb = QCheckBox("Auto-close Dashboard on Successful Sync")
-        row2 = QHBoxLayout()
-        row2.addWidget(self.auto_close_cb)
-        row2.addWidget(self._help_button("auto_close_on_success"))
-        row2.addStretch()
-        layout.addLayout(row2)
-
         layout.addSpacing(12)
         layout.addWidget(QLabel("<b>Note Type Bindings:</b>"))
 
@@ -322,7 +332,6 @@ class ConfigWindow(QDialog):
         if self._profile_settings.occlusion_dir:
             self.occlusion_edit.setText(str(self._profile_settings.occlusion_dir))
 
-        self.auto_close_cb.setChecked(self._profile_settings.auto_close_on_success)
         self.show_diff_cb.setChecked(self._profile_settings.show_diff_before_update)
 
         # Select basic model
@@ -411,7 +420,7 @@ class ConfigWindow(QDialog):
             profile_name=self._profile_name,
             vault_path=vault_path,
             occlusion_dir=occ_path,
-            auto_close_on_success=self.auto_close_cb.isChecked(),
+            auto_close_on_success=False,
             show_diff_before_update=self.show_diff_cb.isChecked(),
             basic_model_id=basic_id,
             cloze_model_id=cloze_id,

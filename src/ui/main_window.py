@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 from aqt import dialogs, mw
 from aqt.operations import QueryOp
 from aqt.qt import (
-    QCheckBox,
     QDialog,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -47,66 +47,84 @@ class MainWindow(QDialog):
         if self._settings.vault_path and self._settings.vault_path.is_dir():
             self._start_scan()
         else:
-            self._log("Welcome to VaultSync! Click 'Change Vault' or 'Settings' below to select your Obsidian vault.")
+            self._log("Welcome to VaultSync! Click 'Change Vault Settings' below to select your Obsidian vault.")
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
 
-        # Header Info Card
-        self.profile_label = QLabel(f"<b>Active Profile:</b> {self._profile_name}")
-        self.vault_label = QLabel("<b>Vault Path:</b> (Not Configured)")
-        self.deck_label = QLabel("<b>Default Deck:</b> (Default)")
-        self.status_label = QLabel("<b>Status:</b> Ready")
-
-        change_vault_btn = QPushButton("Change Vault")
-        change_vault_btn.clicked.connect(self._open_settings)
-
+        # 1. Header: Vault Path + "Change Vault Settings" button aligned to the right
         header_top = QHBoxLayout()
+        self.vault_label = QLabel("<b>Vault:</b> (Not Configured)")
+        self.vault_label.setStyleSheet("font-size: 13px;")
+
+        self.change_vault_btn = QPushButton("Change Vault Settings")
+        self.change_vault_btn.setFixedHeight(26)
+        self.change_vault_btn.setStyleSheet("padding: 2px 10px; font-size: 12px;")
+        self.change_vault_btn.clicked.connect(self._open_settings)
+
         header_top.addWidget(self.vault_label)
-        header_top.addWidget(change_vault_btn)
-
-        layout.addWidget(self.profile_label)
+        header_top.addStretch()
+        header_top.addWidget(self.change_vault_btn)
         layout.addLayout(header_top)
-        layout.addWidget(self.deck_label)
-        layout.addWidget(self.status_label)
-        layout.addSpacing(8)
+        layout.addSpacing(6)
 
-        # Action Buttons
-        btn_layout = QHBoxLayout()
-        self.rescan_btn = QPushButton("Rescan Vault")
-        self.rescan_btn.clicked.connect(self._start_scan)
+        # 2. Two-column section: Status / Card counts on the left, Actions on the right
+        middle_layout = QHBoxLayout()
+
+        # Left Column: Card Counts
+        status_box = QGroupBox("Card Counts")
+        status_layout = QVBoxLayout(status_box)
+
+        self.new_cards_label = QLabel("New cards: 0")
+        self.modified_cards_label = QLabel("Modified cards: 0")
+        self.occlusions_label = QLabel("Image occlusions: 0")
+        self.orphans_label = QLabel("Orphaned cards: 0")
+
+        for lbl in (
+            self.new_cards_label,
+            self.modified_cards_label,
+            self.occlusions_label,
+            self.orphans_label,
+        ):
+            lbl.setStyleSheet("font-size: 13px; padding: 2px 0;")
+            status_layout.addWidget(lbl)
+
+        status_layout.addStretch()
+        middle_layout.addWidget(status_box, stretch=1)
+
+        # Right Column: Action Buttons (Sync first, Preview Diff, Rescan Vault)
+        actions_box = QGroupBox("Actions")
+        actions_layout = QVBoxLayout(actions_box)
+
+        self.sync_btn = QPushButton("Sync")
+        self.sync_btn.setStyleSheet("font-weight: bold; padding: 6px;")
+        self.sync_btn.setEnabled(False)
+        self.sync_btn.clicked.connect(lambda: self._start_sync(include_updates=True))
 
         self.diff_btn = QPushButton("Preview Diff")
         self.diff_btn.setEnabled(False)
         self.diff_btn.clicked.connect(self._open_diff)
 
-        self.sync_new_btn = QPushButton("Sync New Cards")
-        self.sync_new_btn.setEnabled(False)
-        self.sync_new_btn.clicked.connect(lambda: self._start_sync(include_updates=False))
+        self.rescan_btn = QPushButton("Rescan Vault")
+        self.rescan_btn.clicked.connect(self._start_scan)
 
-        self.sync_all_btn = QPushButton("Sync and Update (Modified Cards)")
-        self.sync_all_btn.setEnabled(False)
-        self.sync_all_btn.clicked.connect(lambda: self._start_sync(include_updates=True))
+        actions_layout.addWidget(self.sync_btn)
+        actions_layout.addWidget(self.diff_btn)
+        actions_layout.addWidget(self.rescan_btn)
+        actions_layout.addStretch()
+        middle_layout.addWidget(actions_box, stretch=1)
 
-        btn_layout.addWidget(self.rescan_btn)
-        btn_layout.addWidget(self.diff_btn)
-        btn_layout.addWidget(self.sync_new_btn)
-        btn_layout.addWidget(self.sync_all_btn)
-        layout.addLayout(btn_layout)
-        layout.addSpacing(8)
+        layout.addLayout(middle_layout)
+        layout.addSpacing(6)
 
-        # Activity Log
+        # 3. Activity Log
         layout.addWidget(QLabel("Activity Log:"))
         self.log_edit = QPlainTextEdit()
         self.log_edit.setReadOnly(True)
         layout.addWidget(self.log_edit)
 
-        # Bottom Bar
+        # 4. Bottom Bar
         bottom_layout = QHBoxLayout()
-        self.auto_close_cb = QCheckBox("Auto-close on success")
-        self.auto_close_cb.setChecked(self._settings.auto_close_on_success)
-        self.auto_close_cb.toggled.connect(self._on_auto_close_toggled)
-
         self.orphans_btn = QPushButton("View Orphans in Browser")
         self.orphans_btn.setEnabled(False)
         self.orphans_btn.clicked.connect(self._view_orphans)
@@ -117,7 +135,6 @@ class MainWindow(QDialog):
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.close)
 
-        bottom_layout.addWidget(self.auto_close_cb)
         bottom_layout.addStretch()
         bottom_layout.addWidget(self.orphans_btn)
         bottom_layout.addWidget(settings_btn)
@@ -131,31 +148,15 @@ class MainWindow(QDialog):
     def _refresh_header(self) -> None:
         self._settings = self._manager.load(self._profile_name)
         if self._settings.vault_path:
-            self.vault_label.setText(f"<b>Vault Path:</b> {self._settings.vault_path}")
-            self.status_label.setText("<b>Status:</b> Ready to scan")
+            self.vault_label.setText(f"<b>Vault:</b> {self._settings.vault_path}")
         else:
-            self.vault_label.setText("<b>Vault Path:</b> (Not Configured)")
-            self.status_label.setText("<b>Status:</b> Vault not configured. Click 'Change Vault' or 'Settings' to select your vault.")
-
-        default_deck = "Default"
-        if self._settings.vault_path and self._settings.vault_path.is_dir():
-            try:
-                vcfg = self._manager.load_vault(self._settings.vault_path)
-                default_deck = vcfg.deck or "Default"
-            except Exception:
-                pass
-        self.deck_label.setText(f"<b>Default Deck:</b> {default_deck}")
+            self.vault_label.setText("<b>Vault:</b> (Not Configured)")
 
     def _set_buttons_busy(self, busy: bool) -> None:
         self._is_busy = busy
         self.rescan_btn.setEnabled(not busy)
         self.diff_btn.setEnabled(not busy and (self._current_plan is not None and self._current_plan.total_updates > 0))
-        self.sync_new_btn.setEnabled(
-            not busy
-            and self._current_plan is not None
-            and (self._current_plan.total_creates > 0 or len(self._current_plan.occlusions_to_stage) > 0)
-        )
-        self.sync_all_btn.setEnabled(
+        self.sync_btn.setEnabled(
             not busy
             and self._current_plan is not None
             and (
@@ -196,13 +197,11 @@ class MainWindow(QDialog):
         self._current_plan = plan
         self._set_buttons_busy(False)
 
-        summary = (
-            f"<b>Status:</b> {plan.total_creates} new cards &middot; "
-            f"{plan.total_updates} modified cards &middot; "
-            f"{len(plan.occlusions_to_stage)} occlusions &middot; "
-            f"{len(plan.orphans)} orphans"
-        )
-        self.status_label.setText(summary)
+        # Update card count labels
+        self.new_cards_label.setText(f"<b>New cards:</b> {plan.total_creates}")
+        self.modified_cards_label.setText(f"<b>Modified cards:</b> {plan.total_updates}")
+        self.occlusions_label.setText(f"<b>Image occlusions:</b> {len(plan.occlusions_to_stage)}")
+        self.orphans_label.setText(f"<b>Orphaned cards:</b> {len(plan.orphans)}")
 
         self._log(
             f"Vault scan complete: {plan.total_files} file(s), "
@@ -213,9 +212,9 @@ class MainWindow(QDialog):
             self._log(f"Detected {len(plan.orphans)} orphaned card(s) in Anki no longer found in vault.")
 
         # Update button labels with counts
+        total_sync_count = plan.total_creates + plan.total_updates + len(plan.occlusions_to_stage)
+        self.sync_btn.setText(f"Sync ({total_sync_count})")
         self.diff_btn.setText(f"Preview Diff ({plan.total_updates})")
-        self.sync_new_btn.setText(f"Sync New Cards ({plan.total_creates})")
-        self.sync_all_btn.setText(f"Sync and Update (Modified Cards) ({plan.total_updates})")
         self.orphans_btn.setText(f"View Orphans in Browser ({len(plan.orphans)})")
 
     def _open_diff(self) -> None:
@@ -238,8 +237,7 @@ class MainWindow(QDialog):
                 return
 
         self._set_buttons_busy(True)
-        mode_text = "Sync and Update" if include_updates else "Sync New"
-        self._log(f"Starting {mode_text}...")
+        self._log("Starting Sync...")
 
         plan = self._current_plan
         occ_dir = self._settings.occlusion_dir
@@ -285,9 +283,6 @@ class MainWindow(QDialog):
         # Re-scan to refresh counters
         self._start_scan()
 
-        if self.auto_close_cb.isChecked() and not report.skipped_files and not report.warnings:
-            self.accept()
-
     def _view_orphans(self) -> None:
         if self._current_plan is None or not self._current_plan.orphans:
             return
@@ -304,7 +299,3 @@ class MainWindow(QDialog):
             self._refresh_header()
             if self._settings.vault_path and self._settings.vault_path.is_dir():
                 self._start_scan()
-
-    def _on_auto_close_toggled(self, checked: bool) -> None:
-        self._settings.auto_close_on_success = checked
-        self._manager.save(self._settings)
