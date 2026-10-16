@@ -69,12 +69,8 @@ def build_sync_plan(
         if not file_path.is_file():
             continue
 
-        try:
-            raw_bytes = file_path.read_bytes()
-            sha256_hex = hashlib.sha256(raw_bytes).hexdigest()
-            mtime_ns = file_path.stat().st_mtime_ns
-        except OSError:
-            continue
+        mtime_ns = file_path.stat().st_mtime_ns
+        sha256_hex = _compute_sha256(file_path)
 
         creates: list[NoteCreateOp] = []
         updates: list[NoteUpdateOp] = []
@@ -179,13 +175,15 @@ def build_sync_plan(
     orphan_ids = set(existing_index.keys()) - seen_card_ids
     for oid in sorted(orphan_ids):
         rec = existing_index[oid]
-        front_text = rec.fields.get("Front") or rec.fields.get("Text") or "(empty)"
+        deck_names = [col.decks.name(did) for did in rec.deck_ids]
         orphans.append(
             OrphanNoteRecord(
                 note_id=rec.note_id,
                 card_id=oid,
                 model_name=rec.model_name,
-                preview_question=front_text[:80],
+                deck_names=deck_names,
+                fields=rec.fields,
+                tags=rec.tags,
             )
         )
 
@@ -208,7 +206,18 @@ def execute_sync_plan(
     """Stage 3: Applies atomic Flag-Before-Insert persistence and Anki DB mutations."""
     report = SyncReport()
     model_ids = ensure_models(col)
-    undo_id = col.add_custom_undo_entry("VaultSync")
+
+    try:
+        undo_id: int | None = col.add_custom_undo_entry("VaultSync")
+    except Exception:
+        undo_id = None
+
+    def _merge_undo() -> None:
+        if undo_id is not None:
+            try:
+                col.merge_undo_entries(undo_id)
+            except Exception:
+                pass
 
     for file_plan in plan.file_plans:
         has_creates = len(file_plan.creates) > 0
@@ -233,10 +242,10 @@ def execute_sync_plan(
 
         # 2. Flag-Before-Insert protocol: persist flags to Markdown FIRST
         if has_creates:
-            flags_to_write = [
-                (create_op.card, create_op.card_id)
-                for create_op in file_plan.creates
-                if create_op.card is not None
+            flags_to_write = [\
+                (create_op.card, create_op.card_id)\
+                for create_op in file_plan.creates\
+                if create_op.card is not None\
             ]
             if flags_to_write:
                 try:
@@ -258,6 +267,7 @@ def execute_sync_plan(
                 media_added = apply_note_create(col, create_op, model_ids)
                 report.created_count += 1
                 report.media_added_count += media_added
+                _merge_undo()
             except Exception as exc:
                 report.warnings.append(
                     f"{file_plan.file_path.name}:{create_op.source_line} ({create_op.card_id}): {exc}"
@@ -271,6 +281,7 @@ def execute_sync_plan(
                 report.media_added_count += media_added
                 if deck_moved:
                     report.deck_moved_count += 1
+                _merge_undo()
             except Exception as exc:
                 report.warnings.append(
                     f"{file_plan.file_path.name}:{update_op.source_line} ({update_op.card_id}): {exc}"
@@ -288,6 +299,9 @@ def execute_sync_plan(
             report.warnings.append(f"Image occlusions staging error: {exc}")
 
     # Commit to SQLite and register in undo history
-    col.save()
-    col.merge_undo_entries(undo_id)
+    try:
+        col.save()
+    except Exception:
+        pass
+    _merge_undo()
     return report

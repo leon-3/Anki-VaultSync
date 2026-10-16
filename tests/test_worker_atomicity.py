@@ -154,3 +154,38 @@ def test_flag_write_failure_aborts_note_creation():
         finally:
             note_file.chmod(0o666)
             col.close()
+
+
+def test_bulk_sync_undo_merge_limit_does_not_fail():
+    """Verify that syncing 50+ cards does not overflow Anki's undo stack ring buffer."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "BulkDeck"\n[subdirectories]\n',
+            encoding="utf-8",
+        )
+
+        note_dir = vault_path / "Topic"
+        note_dir.mkdir()
+        note_file = note_dir / "bulk.md"
+
+        card_blocks = ["# Bulk Notes\n"]
+        for i in range(50):
+            card_blocks.append(f"---\nQuestion Number {i}\nAnswer Number {i}\n")
+        note_file.write_text("\n".join(card_blocks), encoding="utf-8")
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            plan = build_sync_plan(col, vault_path)
+            assert plan.total_creates == 50
+
+            # Must not raise 'target undo op not found'
+            report = execute_sync_plan(col, plan)
+            assert report.created_count == 50
+            assert len(report.skipped_files) == 0
+            assert len(col.find_notes("deck:BulkDeck")) == 50
+        finally:
+            col.close()
