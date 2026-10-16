@@ -1,0 +1,1 @@
+"""Anki-VaultSync source package."""

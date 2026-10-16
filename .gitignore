@@ -1,0 +1,29 @@
+# Specs and agent instructions
+SPEC.md
+DECOUPLING_SPEC.md
+.agents/
+.gemini/
+.idea/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.ankiaddon
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/

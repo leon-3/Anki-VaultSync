@@ -1,0 +1,10 @@
+{
+  "auto_close_on_success": false,
+  "show_diff_before_update": true,
+  "profiles": {
+    "Default": {
+      "vault_path": "",
+      "occlusion_dir": ""
+    }
+  }
+}
