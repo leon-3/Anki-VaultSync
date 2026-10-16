@@ -1,3 +1,4 @@
+from .. import logger
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -56,6 +57,8 @@ def _run_menu_sync(include_updates: bool) -> None:
     b_mid = settings.basic_model_id
     c_mid = settings.cloze_model_id
 
+    logger.log_info(f"Starting menu sync (include_updates={include_updates})...")
+
     def _full_sync_op(col):
         plan = build_sync_plan(
             col,
@@ -77,7 +80,21 @@ def _run_menu_sync(include_updates: bool) -> None:
         if mw is not None and hasattr(mw, "deckBrowser"):
             mw.deckBrowser.refresh()
             mw.reset()
-        tooltip(f"VaultSync: {report.created_count} added, {report.updated_count} updated.")
+
+        logger.log_info(
+            f"Menu sync finished: {report.created_count} added, {report.updated_count} updated, "
+            f"{report.deck_moved_count} moved, {report.media_added_count} media file(s)."
+        )
+        for f_path, reason in report.skipped_files:
+            logger.log_warning(f"Skipped {f_path.name}: {reason}")
+        for warn in report.warnings:
+            logger.log_warning(warn)
+
+        if report.skipped_files or report.warnings:
+            issues_count = len(report.skipped_files) + len(report.warnings)
+            tooltip(f"⚠️ VaultSync: {report.created_count} added, {report.updated_count} updated ({issues_count} warning(s) - see Logs)")
+        else:
+            tooltip(f"VaultSync: {report.created_count} added, {report.updated_count} updated.")
 
     QueryOp(
         parent=mw,
