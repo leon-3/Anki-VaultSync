@@ -251,3 +251,46 @@ def test_sync_issues_dialog(tmp_path: Path):
     assert "Syntax error on line 5" in dlg.issues_edit.toPlainText()
     assert "Missing media file image.png" in dlg.issues_edit.toPlainText()
     dlg.close()
+
+
+def test_config_window_buttons_not_default(tmp_path: Path):
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    dlg = ConfigWindow(manager, "TestProfile")
+    save_btn = dlg.button_box.button(dlg.button_box.StandardButton.Save)
+    assert not save_btn.isDefault()
+    assert not save_btn.autoDefault()
+    dlg.close()
+
+
+def test_main_window_buttons_not_default(tmp_path: Path):
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    win = MainWindow(manager, "TestDashboard")
+    assert not win.settings_btn.isDefault()
+    assert not win.settings_btn.autoDefault()
+    win.close()
+
+
+def test_config_window_unsaved_changes_dirty_check(tmp_path: Path):
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    dlg = ConfigWindow(manager, "TestProfile")
+
+    # Initially, no changes
+    assert not dlg._has_unsaved_changes()
+
+    # Make a change
+    dlg.vault_edit.setText("/some/new/vault/path")
+    assert dlg._has_unsaved_changes()
+
+    # Revert change
+    dlg.vault_edit.setText("")
+    assert not dlg._has_unsaved_changes()
+
+    # Make another change and save
+    dlg.tag_edit.setText("new_tag")
+    assert dlg._has_unsaved_changes()
+    dlg._on_save()
+    assert not dlg._has_unsaved_changes()
+    dlg.close()

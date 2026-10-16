@@ -224,11 +224,17 @@ def build_sync_plan(
             )
         )
 
+    # Filter image occlusions: only stage if re_stage_occlusions is enabled or if not yet added
+    occlusions_to_stage = [
+        occ for occ in result.occlusions
+        if vault_cfg.re_stage_occlusions or not occ.card.added
+    ]
+
     return SyncPlan(
         vault_path=vault_path,
         default_deck=vault_cfg.deck or default_deck,
         file_plans=file_plans,
-        occlusions_to_stage=result.occlusions,
+        occlusions_to_stage=occlusions_to_stage,
         orphans=orphans,
         diagnostics=[str(d) for d in collected.diagnostics],
     )
@@ -327,15 +333,20 @@ def execute_sync_plan(
                 )
 
     # 5. Stage Image Occlusions
-    if occlusion_dir is not None and plan.occlusions_to_stage:
-        try:
-            occlusion_dir = Path(occlusion_dir).expanduser().resolve()
-            out_dir, flags, staged = export_occlusions(plan.occlusions_to_stage, occlusion_dir)
-            if flags:
-                write_flags(flags)
-            report.occlusions_staged_count = len(staged)
-        except Exception as exc:
-            report.warnings.append(f"Image occlusions staging error: {exc}")
+    if plan.occlusions_to_stage:
+        if occlusion_dir is not None:
+            try:
+                occlusion_dir = Path(occlusion_dir).expanduser().resolve()
+                out_dir, flags, staged = export_occlusions(plan.occlusions_to_stage, occlusion_dir)
+                if flags:
+                    write_flags(flags)
+                report.occlusions_staged_count = len(staged)
+            except Exception as exc:
+                report.warnings.append(f"Image occlusions staging error: {exc}")
+        else:
+            report.warnings.append(
+                f"{len(plan.occlusions_to_stage)} image occlusion(s) found, but no Image Occlusion Export Folder is configured in Settings."
+            )
 
     # Commit to SQLite and register in undo history
     try:

@@ -238,6 +238,14 @@ class MainWindow(QDialog):
 
         layout.addWidget(self.status_box)
 
+        # Ensure no button is selected or focused by default
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFocus()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.setFocus()
+
     def _set_status(self, text: str, state: str = "normal", show_issues: bool = False) -> None:
         colors = {
             "normal": "#4CAF50",

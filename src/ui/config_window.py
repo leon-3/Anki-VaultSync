@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 from aqt import dialogs, mw
 from aqt.qt import (
     QAbstractItemView,
     QApplication,
     QCheckBox,
+    QColor,
     QComboBox,
     QCursor,
     QDesktopServices,
@@ -20,6 +22,7 @@ from aqt.qt import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPalette,
     QPlainTextEdit,
     QPushButton,
     QTableWidget,
@@ -37,6 +40,13 @@ from ..bridge import ensure_models
 from ..worker import build_sync_plan
 from ..profile_config import AddonProfileSettings, ProfileConfigManager
 from .help_tooltips import TOOLTIPS
+
+
+def _dim_placeholder(widget: QLineEdit | QPlainTextEdit) -> None:
+    """Explicitly styles and dims placeholder text so it is clearly distinct from filled text."""
+    pal = widget.palette()
+    pal.setColor(QPalette.ColorRole.PlaceholderText, QColor(140, 140, 140, 170))
+    widget.setPalette(pal)
 
 
 class HelpBadge(QLabel):
@@ -129,8 +139,14 @@ class ConfigWindow(QDialog):
 
         self._init_ui()
         self._populate_fields()
+        self._initial_state = self._snapshot_state()
+
         if initial_tab is not None and 0 <= initial_tab < self.tabs.count():
             self.tabs.setCurrentIndex(initial_tab)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.setFocus()
 
     def _help_button(self, key: str) -> HelpBadge:
         tip_text = TOOLTIPS.get(key, "No help available.")
@@ -198,6 +214,15 @@ class ConfigWindow(QDialog):
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
+        save_btn = self.button_box.button(QDialogButtonBox.StandardButton.Save)
+        if save_btn:
+            save_btn.setDefault(False)
+            save_btn.setAutoDefault(False)
+        cancel_btn = self.button_box.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_btn:
+            cancel_btn.setDefault(False)
+            cancel_btn.setAutoDefault(False)
+
         self.button_box.setStyleSheet("""
             QPushButton {
                 font-size: 13px;
@@ -210,6 +235,9 @@ class ConfigWindow(QDialog):
         self.button_box.rejected.connect(self.reject)
         main_layout.addWidget(self.button_box)
 
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFocus()
+
     def _init_tab_general(self) -> None:
         layout = QVBoxLayout(self.tab_general)
         layout.setContentsMargins(14, 14, 14, 14)
@@ -221,6 +249,10 @@ class ConfigWindow(QDialog):
                 padding: 5px 10px;
                 border-radius: 6px;
                 border: 1px solid rgba(255, 255, 255, 0.15);
+            }
+            QLineEdit::placeholder {
+                color: rgba(140, 140, 140, 0.65);
+                font-style: italic;
             }
         """
         btn_style = """
@@ -242,7 +274,8 @@ class ConfigWindow(QDialog):
         vault_row = QHBoxLayout()
         self.vault_edit = QLineEdit()
         self.vault_edit.setStyleSheet(input_style)
-        self.vault_edit.setPlaceholderText("/path/to/your/ObsidianVault")
+        self.vault_edit.setPlaceholderText("Select Obsidian vault folder...")
+        _dim_placeholder(self.vault_edit)
         vault_browse = QPushButton("Browse...")
         vault_browse.setStyleSheet(btn_style)
         vault_browse.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -257,7 +290,8 @@ class ConfigWindow(QDialog):
         occ_row = QHBoxLayout()
         self.occlusion_edit = QLineEdit()
         self.occlusion_edit.setStyleSheet(input_style)
-        self.occlusion_edit.setPlaceholderText("/path/to/occlusions (optional)")
+        self.occlusion_edit.setPlaceholderText("Optional: Select Image Occlusion folder...")
+        _dim_placeholder(self.occlusion_edit)
         occ_browse = QPushButton("Browse...")
         occ_browse.setStyleSheet(btn_style)
         occ_browse.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -286,7 +320,8 @@ class ConfigWindow(QDialog):
         tag_row = QHBoxLayout()
         self.tag_edit = QLineEdit()
         self.tag_edit.setStyleSheet(input_style)
-        self.tag_edit.setPlaceholderText("e.g. vaultsync")
+        self.tag_edit.setPlaceholderText("Optional: e.g. vaultsync")
+        _dim_placeholder(self.tag_edit)
         tag_row.addWidget(self.tag_edit)
         tag_row.addWidget(self._help_button("base_tag"))
         tag_row.addStretch()
@@ -413,7 +448,8 @@ class ConfigWindow(QDialog):
         )
 
         self.ignore_edit = QPlainTextEdit()
-        self.ignore_edit.setPlaceholderText(".obsidian\ntemplates/*\narchive\n")
+        self.ignore_edit.setPlaceholderText("Optional: Folders or globs to ignore (e.g. .obsidian, templates/*, archive)")
+        _dim_placeholder(self.ignore_edit)
         self.ignore_edit.setMaximumHeight(130)
         self.ignore_edit.setStyleSheet("""
             QPlainTextEdit {
@@ -422,6 +458,10 @@ class ConfigWindow(QDialog):
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 6px;
                 padding: 8px;
+            }
+            QPlainTextEdit::placeholder {
+                color: rgba(140, 140, 140, 0.65);
+                font-style: italic;
             }
         """)
         card_ign_l.addWidget(self.ignore_edit)
@@ -774,6 +814,60 @@ class ConfigWindow(QDialog):
         ignore_lines = "\n".join(self._vault_cfg.ignore or [])
         self.ignore_edit.setPlainText(ignore_lines)
 
+    def _get_routing_table_data(self) -> list[tuple[str, str]]:
+        rules: list[tuple[str, str]] = []
+        for r in range(self.routing_table.rowCount()):
+            f_item = self.routing_table.item(r, 0)
+            d_item = self.routing_table.item(r, 1)
+            f_text = f_item.text().strip() if f_item else ""
+            d_text = d_item.text().strip() if d_item else ""
+            rules.append((f_text, d_text))
+        return rules
+
+    def _snapshot_state(self) -> dict[str, Any]:
+        return {
+            "vault": self.vault_edit.text().strip(),
+            "occlusion": self.occlusion_edit.text().strip(),
+            "show_diff": self.show_diff_cb.isChecked(),
+            "tag": self.tag_edit.text().strip(),
+            "deck": self.deck_combo.currentText().strip(),
+            "cloze": self.cloze_cb.isChecked(),
+            "hash_media": self.hash_media_cb.isChecked(),
+            "re_stage": self.re_stage_cb.isChecked(),
+            "ignore": self.ignore_edit.toPlainText().strip(),
+            "basic_model": self._get_selected_model_id(self.basic_model_combo),
+            "cloze_model": self._get_selected_model_id(self.cloze_model_combo),
+            "routing": self._get_routing_table_data(),
+        }
+
+    def _has_unsaved_changes(self) -> bool:
+        if not hasattr(self, "_initial_state"):
+            return False
+        return self._snapshot_state() != self._initial_state
+
+    def _confirm_discard_changes(self) -> bool:
+        if not self._has_unsaved_changes():
+            return True
+        reply = QMessageBox.question(
+            self,
+            "Unsaved Changes",
+            "You have unsaved changes in Settings.\n\nDo you want to discard your changes and close?",
+            QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return reply == QMessageBox.StandardButton.Discard
+
+    def reject(self) -> None:
+        if not self._confirm_discard_changes():
+            return
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        if not self._confirm_discard_changes():
+            event.ignore()
+            return
+        event.accept()
+
     def _on_save(self) -> None:
         vault_str = self.vault_edit.text().strip()
         vault_path = Path(vault_str).expanduser().resolve() if vault_str else None
@@ -826,4 +920,5 @@ class ConfigWindow(QDialog):
             except Exception as exc:
                 QMessageBox.warning(self, "Warning", f"Could not update m2a.toml: {exc}")
 
+        self._initial_state = self._snapshot_state()
         self.accept()

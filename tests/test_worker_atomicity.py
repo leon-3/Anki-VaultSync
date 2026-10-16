@@ -249,3 +249,55 @@ def test_image_hash_normalization_prevents_false_updates():
             assert plan3.total_unchanged == 0
         finally:
             col.close()
+
+
+def test_occlusions_filtering_respects_added_and_restage():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+        occ_dir = tmp_path / "occlusions"
+        occ_dir.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "Anatomy"\nre_stage_occlusions = false\n[subdirectories]\n',
+            encoding="utf-8",
+        )
+
+        note_dir = vault_path / "Topic"
+        note_dir.mkdir()
+        img_file = note_dir / "diagram.png"
+        img_file.write_bytes(b"\x89PNG\r\n\x1a\nfakeimage")
+
+        note_file = note_dir / "occlusion.md"
+        note_file.write_text(
+            "# Chapter\n---\nImage Cloze\n![[diagram.png]]\n",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            # 1. Initial scan: occlusion should be ready to stage
+            plan1 = build_sync_plan(col, vault_path)
+            assert len(plan1.occlusions_to_stage) == 1
+
+            # 2. Stage occlusions via execute_sync_plan
+            report = execute_sync_plan(col, plan1, occlusion_dir=occ_dir)
+            assert report.occlusions_staged_count == 1
+            # Note file should have received the ADDED flag
+            content = note_file.read_text(encoding="utf-8")
+            assert "ADDED" in content
+
+            # 3. Subsequent scan: already-added occlusion should NOT be listed
+            plan2 = build_sync_plan(col, vault_path)
+            assert len(plan2.occlusions_to_stage) == 0
+
+            # 4. If re_stage_occlusions is explicitly enabled in config:
+            (vault_path / "m2a.toml").write_text(
+                'vault = "."\ndeck = "Anatomy"\nre_stage_occlusions = true\n[subdirectories]\n',
+                encoding="utf-8",
+            )
+            plan3 = build_sync_plan(col, vault_path)
+            assert len(plan3.occlusions_to_stage) == 1
+        finally:
+            col.close()
