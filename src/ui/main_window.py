@@ -445,6 +445,9 @@ class MainWindow(QDialog):
                 state="ready",
                 show_issues=False,
             )
+            if self._settings.auto_close_on_success:
+                self.accept()
+                return
 
         # Re-scan to refresh counters
         self._start_scan()

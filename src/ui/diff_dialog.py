@@ -19,40 +19,66 @@ from aqt.qt import (
     Qt,
     QTextBrowser,
     QVBoxLayout,
+    QWidget,
 )
 
 if TYPE_CHECKING:
     from ..contracts import NoteUpdateOp, SyncPlan
 
 
+M2A_MARKER_STRIP_RE = re.compile(r"\s*<!--m2a:[a-zA-Z0-9_-]+-->")
+HTML_TOKEN_RE = re.compile(r"<[^>]+>|\w+|\s+|[^\w\s<]+")
+
+
+def _format_diff_token(tok: str) -> str:
+    lower = tok.lower().strip()
+    if lower in ("<br>", "<br/>", "<br />"):
+        return "<br>"
+    if lower in ("<p>", "<div>"):
+        return ""
+    if lower in ("</p>", "</div>"):
+        return "<br>"
+    if tok.startswith("<") and tok.endswith(">"):
+        return ""  # Strip structural wrapper tags from visual text diff
+    return html.escape(tok)
+
+
 def _generate_word_diff_html(old_text: str, new_text: str) -> str:
     """Generate an inline word-by-word diff with <del> and <ins> tags."""
-    words_old = re.findall(r"\w+|\s+|[^\w\s]", old_text)
-    words_new = re.findall(r"\w+|\s+|[^\w\s]", new_text)
+    clean_old = M2A_MARKER_STRIP_RE.sub("", old_text).strip()
+    clean_new = M2A_MARKER_STRIP_RE.sub("", new_text).strip()
+
+    words_old = HTML_TOKEN_RE.findall(clean_old)
+    words_new = HTML_TOKEN_RE.findall(clean_new)
     matcher = difflib.SequenceMatcher(None, words_old, words_new)
     result: list[str] = []
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
-            result.append(html.escape("".join(words_old[i1:i2])))
+            for tok in words_old[i1:i2]:
+                result.append(_format_diff_token(tok))
         elif tag == "delete":
-            deleted = html.escape("".join(words_old[i1:i2]))
-            result.append(
-                f"<del style='color:#c62828; background-color:rgba(198,40,40,0.15); text-decoration:line-through;'>{deleted}</del>"
-            )
+            deleted = "".join(_format_diff_token(t) for t in words_old[i1:i2] if _format_diff_token(t))
+            if deleted:
+                result.append(
+                    f"<del style='color:#c62828; background-color:rgba(198,40,40,0.15); text-decoration:line-through;'>{deleted}</del>"
+                )
         elif tag == "insert":
-            inserted = html.escape("".join(words_new[j1:j2]))
-            result.append(
-                f"<ins style='color:#2e7d32; background-color:rgba(46,125,50,0.15); text-decoration:none; font-weight:bold;'>{inserted}</ins>"
-            )
+            inserted = "".join(_format_diff_token(t) for t in words_new[j1:j2] if _format_diff_token(t))
+            if inserted:
+                result.append(
+                    f"<ins style='color:#2e7d32; background-color:rgba(46,125,50,0.15); text-decoration:none; font-weight:bold;'>{inserted}</ins>"
+                )
         elif tag == "replace":
-            deleted = html.escape("".join(words_old[i1:i2]))
-            inserted = html.escape("".join(words_new[j1:j2]))
-            result.append(
-                f"<del style='color:#c62828; background-color:rgba(198,40,40,0.15); text-decoration:line-through;'>{deleted}</del>"
-            )
-            result.append(
-                f"<ins style='color:#2e7d32; background-color:rgba(46,125,50,0.15); text-decoration:none; font-weight:bold;'>{inserted}</ins>"
-            )
+            deleted = "".join(_format_diff_token(t) for t in words_old[i1:i2] if _format_diff_token(t))
+            inserted = "".join(_format_diff_token(t) for t in words_new[j1:j2] if _format_diff_token(t))
+            if deleted:
+                result.append(
+                    f"<del style='color:#c62828; background-color:rgba(198,40,40,0.15); text-decoration:line-through;'>{deleted}</del>"
+                )
+            if inserted:
+                result.append(
+                    f"<ins style='color:#2e7d32; background-color:rgba(46,125,50,0.15); text-decoration:none; font-weight:bold;'>{inserted}</ins>"
+                )
     return "".join(result).replace(chr(10), "<br>")
 
 
@@ -139,7 +165,7 @@ class DiffDialog(QDialog):
         self.list_widget.currentItemChanged.connect(self._on_item_selected)
         self.list_widget.itemChanged.connect(self._on_item_check_changed)
 
-        left_layout_container = QDialog()
+        left_layout_container = QWidget()
         left_layout = QVBoxLayout(left_layout_container)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.addWidget(self.select_all_cb)

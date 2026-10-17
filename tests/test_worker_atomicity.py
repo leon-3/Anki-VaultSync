@@ -347,3 +347,23 @@ def test_orphan_detection_in_sync_plan():
             assert orphan.preview_question != ""
         finally:
             col.close()
+
+
+def test_write_occlusion_index_appends_batches(tmp_path):
+    from src.worker import _write_occlusion_index
+    out_dir = tmp_path / "occlusions"
+    out_dir.mkdir()
+
+    # Batch 1
+    _write_occlusion_index(out_dir, {"Tag1": ["img1.png", "img2.png"]})
+    text1 = (out_dir / "index.md").read_text("utf-8")
+    assert "Tag1" in text1
+    assert "img1.png" in text1
+
+    # Batch 2
+    _write_occlusion_index(out_dir, {"Tag2": ["img3.png"]})
+    text2 = (out_dir / "index.md").read_text("utf-8")
+    assert "Tag1" in text2
+    assert "Tag2" in text2
+    assert "img1.png" in text2
+    assert "img3.png" in text2

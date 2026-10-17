@@ -326,6 +326,13 @@ class ConfigWindow(QDialog):
         row_diff.addStretch()
         card_sync_l.addLayout(row_diff)
 
+        self.auto_close_cb = QCheckBox("Automatically Close Dashboard on Successful Sync")
+        row_auto_close = QHBoxLayout()
+        row_auto_close.addWidget(self.auto_close_cb)
+        row_auto_close.addWidget(self._help_button("auto_close_on_success"))
+        row_auto_close.addStretch()
+        card_sync_l.addLayout(row_auto_close)
+
         self.sync_on_startup_cb = QCheckBox("Auto-sync on Anki Startup (Background)")
         row_startup = QHBoxLayout()
         row_startup.addWidget(self.sync_on_startup_cb)
@@ -772,6 +779,7 @@ class ConfigWindow(QDialog):
             self.occlusion_edit.setText(str(self._profile_settings.occlusion_dir))
 
         self.show_diff_cb.setChecked(self._profile_settings.show_diff_before_update)
+        self.auto_close_cb.setChecked(self._profile_settings.auto_close_on_success)
         self.sync_on_startup_cb.setChecked(self._profile_settings.sync_on_startup)
 
         # Select basic model
@@ -860,6 +868,7 @@ class ConfigWindow(QDialog):
             "vault": self.vault_edit.text().strip(),
             "occlusion": self.occlusion_edit.text().strip(),
             "show_diff": self.show_diff_cb.isChecked(),
+            "auto_close": self.auto_close_cb.isChecked(),
             "sync_on_startup": self.sync_on_startup_cb.isChecked(),
             "tag": self.tag_edit.text().strip(),
             "deck": self.deck_combo.currentText().strip(),
@@ -915,7 +924,7 @@ class ConfigWindow(QDialog):
             profile_name=self._profile_name,
             vault_path=vault_path,
             occlusion_dir=occ_path,
-            auto_close_on_success=False,
+            auto_close_on_success=self.auto_close_cb.isChecked(),
             show_diff_before_update=self.show_diff_cb.isChecked(),
             sync_on_startup=self.sync_on_startup_cb.isChecked(),
             basic_model_id=basic_id,

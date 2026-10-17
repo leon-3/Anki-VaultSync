@@ -352,3 +352,41 @@ def test_diff_dialog_rescan_action(tmp_path: Path):
     dlg._on_rescan_clicked()
     assert dlg.rescan_requested is True
     dlg.close()
+
+
+def test_config_window_auto_close_roundtrip(tmp_path: Path):
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    dlg = ConfigWindow(manager, "AutoCloseProfile")
+    assert hasattr(dlg, "auto_close_cb")
+    dlg.auto_close_cb.setChecked(True)
+    dlg._on_save()
+    dlg.close()
+
+    loaded = manager.load("AutoCloseProfile")
+    assert loaded.auto_close_on_success is True
+
+
+def test_diff_html_with_rendered_html_fields():
+    op = NoteUpdateOp(
+        note_id=1,
+        card_id="abc123",
+        model_name="M2A Basic",
+        target_deck_name="Deck",
+        old_deck_names=["Deck"],
+        old_fields={"Front": "<p>What is a token?</p><!--m2a:abc123-->", "Back": "A symbol."},
+        new_fields={"Front": "<p>What is a lexical token?</p><!--m2a:abc123-->", "Back": "A symbol."},
+        old_tags=[],
+        new_tags=[],
+        deck_changed=False,
+        fields_changed=True,
+        tags_changed=False,
+        source_file=Path("/vault/tokens.md"),
+        source_line=10,
+        media_refs=[],
+    )
+    diff_html = _generate_diff_html(op)
+    assert "&lt;p&gt;" not in diff_html
+    assert "<!--m2a:abc123-->" not in diff_html
+    assert "lexical" in diff_html
+    assert "<ins" in diff_html

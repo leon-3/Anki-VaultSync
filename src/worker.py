@@ -39,23 +39,39 @@ def _compute_sha256(file_path: Path) -> str:
 
 
 def _write_occlusion_index(out_dir: Path, staged: dict[str, list[str]]) -> None:
-    """Write an index.md file into occlusions/ mapping each tag to its generated image filenames."""
+    """Append staged image occlusions into index.md, preserving earlier batch history."""
     try:
         import datetime
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        lines = [
-            "# VaultSync - Staged Image Occlusions Index",
-            f"*Generated on {now}*",
-            "",
-            "This index maps each Obsidian tag to the staged image files in this folder.",
+        index_file = out_dir / "index.md"
+
+        batch_lines = [
+            f"## Batch: {now}",
             "",
         ]
         for tag, images in sorted(staged.items()):
-            lines.append(f"### Tag: `{tag}`")
+            batch_lines.append(f"### Tag: `{tag}`")
             for img in images:
-                lines.append(f"- `{img}`")
-            lines.append("")
-        (out_dir / "index.md").write_text("\n".join(lines), encoding="utf-8")
+                batch_lines.append(f"- `{img}`")
+            batch_lines.append("")
+
+        if not index_file.exists():
+            header = [
+                "# VaultSync - Staged Image Occlusions Index",
+                "",
+                "This index maps each Obsidian tag to the staged image files in this folder.",
+                "",
+                "---",
+                "",
+            ]
+            full_content = "\n".join(header + batch_lines)
+        else:
+            existing_text = index_file.read_text(encoding="utf-8")
+            if not existing_text.endswith("\n"):
+                existing_text += "\n"
+            full_content = existing_text + "\n---\n\n" + "\n".join(batch_lines)
+
+        index_file.write_text(full_content, encoding="utf-8")
     except Exception:
         pass
 
