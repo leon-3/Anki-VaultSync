@@ -22,11 +22,11 @@ _active_notification: SyncNotification | None = None
 
 
 class SyncNotification(QFrame):
-    """Informative, floating multi-line notification popup positioned at the bottom right.
+    """Clean, informative multi-line notification popup positioned at the bottom-left.
 
-    Stays visible for 10 seconds and provides an explicit [✕] button to dismiss immediately.
-    Displays detailed breakdown of added cards (total, image clozes, text clozes), updated cards,
-    media files, and any warnings.
+    Stays visible for 10 seconds and provides a clean [×] button to dismiss immediately.
+    Displays detailed breakdown of added cards (basic, image clozes, text clozes), updated cards,
+    media files, and any warnings without emojis.
     """
 
     def __init__(
@@ -44,15 +44,15 @@ class SyncNotification(QFrame):
 
         self.setStyleSheet("""
             QFrame#syncNotification {
-                background-color: #21252b;
-                border: 1px solid rgba(255, 255, 255, 0.18);
-                border-radius: 8px;
-                padding: 10px 14px;
+                background-color: #282c34;
+                border: 1px solid rgba(255, 255, 255, 0.16);
+                border-radius: 6px;
+                padding: 8px 12px;
             }
             QLabel {
                 color: #d7dae0;
                 font-size: 12px;
-                line-height: 1.4;
+                line-height: 1.35;
                 background: transparent;
                 border: none;
             }
@@ -60,35 +60,35 @@ class SyncNotification(QFrame):
                 background: transparent;
                 border: none;
                 color: #828997;
-                font-weight: bold;
                 font-size: 14px;
-                min-width: 20px;
-                max-width: 20px;
-                min-height: 20px;
-                max-height: 20px;
-                border-radius: 10px;
+                font-weight: bold;
+                min-width: 18px;
+                max-width: 18px;
+                min-height: 18px;
+                max-height: 18px;
+                border-radius: 9px;
                 padding: 0;
             }
             QPushButton#closeBtn:hover {
-                background-color: rgba(255, 255, 255, 0.15);
+                background-color: rgba(255, 255, 255, 0.12);
                 color: #ffffff;
             }
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 12)
-        layout.setSpacing(6)
+        layout.setContentsMargins(10, 8, 10, 10)
+        layout.setSpacing(5)
 
-        # Header row: Title + Close Button
+        # Header row: Clean title + Close button
         header_row = QHBoxLayout()
         header_row.setSpacing(8)
 
-        lbl_title = QLabel("<b>⚡ VaultSync Result</b>")
-        lbl_title.setStyleSheet("font-size: 13px; color: #61afef; font-weight: bold;")
+        lbl_title = QLabel("<b>VaultSync</b>")
+        lbl_title.setStyleSheet("font-size: 12px; color: #61afef; font-weight: 600;")
         header_row.addWidget(lbl_title)
         header_row.addStretch()
 
-        btn_close = QPushButton("✕")
+        btn_close = QPushButton("×")
         btn_close.setObjectName("closeBtn")
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_close.clicked.connect(self.close)
@@ -106,55 +106,52 @@ class SyncNotification(QFrame):
         total_changed = total_added + total_updated
 
         if total_changed == 0 and not report.warnings and not report.skipped_files:
-            lbl_idle = QLabel("✔ <i>Everything up to date (no changes).</i>")
+            lbl_idle = QLabel("<i>Up to date (no changes)</i>")
             lbl_idle.setStyleSheet("color: #98c379;")
             layout.addWidget(lbl_idle)
         else:
             # a) Total cards added
-            lbl_added = QLabel(f"<b>➕ Added:</b> {total_added} card{'s' if total_added != 1 else ''}")
+            lbl_added = QLabel(f"<b>Added:</b> {total_added} card{'s' if total_added != 1 else ''}")
             lbl_added.setStyleSheet("color: #98c379; font-weight: 600;")
             layout.addWidget(lbl_added)
 
-            # Detailed breakdown if cards were added
+            # Detailed breakdown: basic first, then image clozes, then text clozes
             if total_added > 0:
-                # b) Image clozes
+                if report.created_basic_count > 0:
+                    lbl_bc = QLabel(f"   • Basic: <b>{report.created_basic_count}</b>")
+                    lbl_bc.setStyleSheet("color: #abb2bf; font-size: 11px;")
+                    layout.addWidget(lbl_bc)
+
                 lbl_ic = QLabel(f"   • Image Clozes: <b>{report.created_image_cloze_count}</b>")
                 lbl_ic.setStyleSheet("color: #abb2bf; font-size: 11px;")
                 layout.addWidget(lbl_ic)
 
-                # c) Text clozes
                 lbl_tc = QLabel(f"   • Text Clozes: <b>{report.created_text_cloze_count}</b>")
                 lbl_tc.setStyleSheet("color: #abb2bf; font-size: 11px;")
                 layout.addWidget(lbl_tc)
 
-                # Basic notes (if any)
-                if report.created_basic_count > 0:
-                    lbl_bc = QLabel(f"   • Basic Cards: <b>{report.created_basic_count}</b>")
-                    lbl_bc.setStyleSheet("color: #abb2bf; font-size: 11px;")
-                    layout.addWidget(lbl_bc)
-
             # d) Cards updated (at a sync with update)
             if include_updates:
-                lbl_upd = QLabel(f"<b>🔄 Updated:</b> {total_updated} card{'s' if total_updated != 1 else ''}")
+                lbl_upd = QLabel(f"<b>Updated:</b> {total_updated} card{'s' if total_updated != 1 else ''}")
                 lbl_upd.setStyleSheet("color: #e5c07b; font-weight: 600;")
                 layout.addWidget(lbl_upd)
 
             # Additional details: Media files
             if report.media_added_count > 0:
-                lbl_med = QLabel(f"📁 <b>Media:</b> {report.media_added_count} file{'s' if report.media_added_count != 1 else ''}")
+                lbl_med = QLabel(f"<b>Media:</b> {report.media_added_count} file{'s' if report.media_added_count != 1 else ''}")
                 lbl_med.setStyleSheet("color: #61afef; font-size: 11px;")
                 layout.addWidget(lbl_med)
 
             # Additional details: Deck movements
             if report.deck_moved_count > 0:
-                lbl_mov = QLabel(f"📦 <b>Moved Decks:</b> {report.deck_moved_count} card{'s' if report.deck_moved_count != 1 else ''}")
+                lbl_mov = QLabel(f"<b>Moved Decks:</b> {report.deck_moved_count} card{'s' if report.deck_moved_count != 1 else ''}")
                 lbl_mov.setStyleSheet("color: #c678dd; font-size: 11px;")
                 layout.addWidget(lbl_mov)
 
             # Additional details: Warnings / Skipped
             issue_count = len(report.warnings) + len(report.skipped_files)
             if issue_count > 0:
-                lbl_warn = QLabel(f"⚠️ <b>Warnings:</b> {issue_count} (see Logs tab)")
+                lbl_warn = QLabel(f"<b>Warnings:</b> {issue_count} (see Logs tab)")
                 lbl_warn.setStyleSheet("color: #e06c75; font-size: 11px; font-weight: 600;")
                 layout.addWidget(lbl_warn)
 
@@ -165,20 +162,20 @@ class SyncNotification(QFrame):
         self._timer.start(10000)
 
         self.adjustSize()
-        self._position_bottom_right(parent)
+        self._position_bottom_left(parent)
 
     def mousePressEvent(self, event: QMouseEvent | None) -> None:
         if event is not None:
             event.accept()
         self.close()
 
-    def _position_bottom_right(self, parent_widget: QWidget | None = None) -> None:
+    def _position_bottom_left(self, parent_widget: QWidget | None = None) -> None:
         target_win = parent_widget or (mw if mw is not None else None)
         if target_win is not None and hasattr(target_win, "geometry"):
             try:
                 geom = target_win.geometry()
                 margin = 24
-                x = geom.right() - self.width() - margin
+                x = geom.x() + margin
                 y = geom.bottom() - self.height() - margin
                 self.move(x, y)
             except Exception:
@@ -191,7 +188,7 @@ def show_sync_notification(
     include_updates: bool = True,
     is_startup: bool = False,
 ) -> SyncNotification | None:
-    """Shows the 10-second multi-line sync notification popup at the bottom-right."""
+    """Shows the 10-second multi-line sync notification popup at the bottom-left."""
     global _active_notification
 
     # Startup sync with no changes stays quiet
