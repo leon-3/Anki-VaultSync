@@ -99,18 +99,23 @@ def _create_section_card(title: str | None = None, subtitle: str | None = None) 
         }
     """)
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(16, 14, 16, 14)
-    layout.setSpacing(10)
+    layout.setContentsMargins(16, 14, 16, 16)
+    layout.setSpacing(12)
 
-    if title:
-        t_lbl = QLabel(f"<b>{title}</b>")
-        t_lbl.setStyleSheet("font-size: 13px; font-weight: bold; border: none; background: transparent;")
-        layout.addWidget(t_lbl)
-    if subtitle:
-        s_lbl = QLabel(subtitle)
-        s_lbl.setStyleSheet("font-size: 12px; color: rgba(180, 180, 180, 0.9); border: none; background: transparent;")
-        s_lbl.setWordWrap(True)
-        layout.addWidget(s_lbl)
+    if title or subtitle:
+        header_box = QVBoxLayout()
+        header_box.setSpacing(3)
+        if title:
+            t_lbl = QLabel(f"<b>{title}</b>")
+            t_lbl.setStyleSheet("font-size: 13px; font-weight: bold; border: none; background: transparent;")
+            header_box.addWidget(t_lbl)
+        if subtitle:
+            s_lbl = QLabel(subtitle)
+            s_lbl.setStyleSheet("font-size: 12px; color: rgba(180, 180, 180, 0.85); border: none; background: transparent;")
+            s_lbl.setWordWrap(True)
+            header_box.addWidget(s_lbl)
+        layout.addLayout(header_box)
+        layout.addSpacing(2)
 
     return card, layout
 
@@ -118,16 +123,23 @@ def _create_section_card(title: str | None = None, subtitle: str | None = None) 
 class ConfigWindow(QDialog):
     """Modern, tabbed settings configurator for Anki-VaultSync."""
 
+    TAB_GENERAL = 0
+    TAB_DECK_ROUTING = 1
+    TAB_TAG_ALIASING = 2
+    TAB_RULES = 3
+    TAB_ADVANCED = 4
+    TAB_LOGS = 5
+
     def __init__(
         self,
         profile_manager: ProfileConfigManager,
         profile_name: str,
         parent=None,
-        initial_tab: int | None = None,
+        initial_tab: int | str | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Settings")
-        self.resize(800, 680)
+        self.resize(820, 700)
 
         self._manager = profile_manager
         self._profile_name = profile_name
@@ -144,8 +156,14 @@ class ConfigWindow(QDialog):
         self._populate_fields()
         self._initial_state = self._snapshot_state()
 
-        if initial_tab is not None and 0 <= initial_tab < self.tabs.count():
-            self.tabs.setCurrentIndex(initial_tab)
+        if initial_tab is not None:
+            if isinstance(initial_tab, str):
+                for idx in range(self.tabs.count()):
+                    if self.tabs.tabText(idx).strip().lower() == initial_tab.strip().lower():
+                        self.tabs.setCurrentIndex(idx)
+                        break
+            elif isinstance(initial_tab, int) and 0 <= initial_tab < self.tabs.count():
+                self.tabs.setCurrentIndex(initial_tab)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -154,6 +172,17 @@ class ConfigWindow(QDialog):
     def _help_button(self, key: str) -> HelpBadge:
         tip_text = TOOLTIPS.get(key, "No help available.")
         return HelpBadge(tip_text)
+
+    def _wrap_tab_in_scroll(self, tab_widget: QWidget, content_widget: QWidget) -> None:
+        outer_layout = QVBoxLayout(tab_widget)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        content_widget.setStyleSheet("background: transparent;")
+        scroll.setWidget(content_widget)
+        outer_layout.addWidget(scroll)
 
     def _init_ui(self) -> None:
         main_layout = QVBoxLayout(self)
@@ -171,7 +200,7 @@ class ConfigWindow(QDialog):
             }
             QTabBar::tab {
                 background: transparent;
-                padding: 8px 16px;
+                padding: 8px 14px;
                 font-size: 13px;
                 border-top-left-radius: 6px;
                 border-top-right-radius: 6px;
@@ -193,22 +222,28 @@ class ConfigWindow(QDialog):
         self._init_tab_general()
         self.tabs.addTab(self.tab_general, "General")
 
-        # Tab 2: Deck Routing & Aliases
-        self.tab_routing = QWidget()
-        self._init_tab_routing()
-        self.tabs.addTab(self.tab_routing, "Deck Routing & Aliases")
+        # Tab 2: Deck Routing
+        self.tab_deck_routing = QWidget()
+        self.tab_routing = self.tab_deck_routing
+        self._init_tab_deck_routing()
+        self.tabs.addTab(self.tab_deck_routing, "Deck Routing")
 
-        # Tab 3: Card Rules and Media
+        # Tab 3: Tag Aliasing
+        self.tab_tag_aliasing = QWidget()
+        self._init_tab_tag_aliasing()
+        self.tabs.addTab(self.tab_tag_aliasing, "Tag Aliasing")
+
+        # Tab 4: Card Rules and Media
         self.tab_rules = QWidget()
         self._init_tab_rules()
         self.tabs.addTab(self.tab_rules, "Card Rules and Media")
 
-        # Tab 4: Advanced
+        # Tab 5: Advanced
         self.tab_advanced = QWidget()
         self._init_tab_advanced()
         self.tabs.addTab(self.tab_advanced, "Advanced")
 
-        # Tab 5: Logs
+        # Tab 6: Logs
         self.tab_logs = QWidget()
         self._init_tab_logs()
         self.tabs.addTab(self.tab_logs, "Logs")
@@ -242,9 +277,10 @@ class ConfigWindow(QDialog):
         self.setFocus()
 
     def _init_tab_general(self) -> None:
-        layout = QVBoxLayout(self.tab_general)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(14)
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(16)
 
         input_style = """
             QLineEdit, QComboBox {
@@ -252,7 +288,7 @@ class ConfigWindow(QDialog):
                 padding: 6px 10px;
                 border-radius: 6px;
                 border: 1px solid rgba(255, 255, 255, 0.15);
-                min-height: 22px;
+                min-height: 24px;
             }
             QLineEdit::placeholder {
                 color: rgba(140, 140, 140, 0.65);
@@ -264,7 +300,7 @@ class ConfigWindow(QDialog):
                 font-size: 13px;
                 padding: 6px 14px;
                 border-radius: 6px;
-                min-height: 22px;
+                min-height: 24px;
             }
         """
 
@@ -274,9 +310,12 @@ class ConfigWindow(QDialog):
             "Specify the local folders for your Obsidian markdown vault and image occlusions.",
         )
 
-        # Vault Path
-        card_dirs_l.addWidget(QLabel("Obsidian Vault Folder:"))
+        lbl_vault = QLabel("Obsidian Vault Folder:")
+        lbl_vault.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        card_dirs_l.addWidget(lbl_vault)
+
         vault_row = QHBoxLayout()
+        vault_row.setSpacing(8)
         self.vault_edit = QLineEdit()
         self.vault_edit.setStyleSheet(input_style)
         self.vault_edit.setPlaceholderText("Select Obsidian vault folder...")
@@ -285,14 +324,19 @@ class ConfigWindow(QDialog):
         vault_browse.setStyleSheet(btn_style)
         vault_browse.setCursor(Qt.CursorShape.PointingHandCursor)
         vault_browse.clicked.connect(self._browse_vault)
-        vault_row.addWidget(self.vault_edit)
+        vault_row.addWidget(self.vault_edit, 1)
         vault_row.addWidget(vault_browse)
         vault_row.addWidget(self._help_button("vault_path"))
         card_dirs_l.addLayout(vault_row)
 
-        # Image Occlusion Export Folder
-        card_dirs_l.addWidget(QLabel("Image Occlusion Base Folder:"))
+        card_dirs_l.addSpacing(6)
+
+        lbl_occ = QLabel("Image Occlusion Base Folder:")
+        lbl_occ.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        card_dirs_l.addWidget(lbl_occ)
+
         occ_row = QHBoxLayout()
+        occ_row.setSpacing(8)
         self.occlusion_edit = QLineEdit()
         self.occlusion_edit.setStyleSheet(input_style)
         self.occlusion_edit.setPlaceholderText("Optional: Base folder (an 'occlusions/' subfolder will be created inside)...")
@@ -301,7 +345,7 @@ class ConfigWindow(QDialog):
         occ_browse.setStyleSheet(btn_style)
         occ_browse.setCursor(Qt.CursorShape.PointingHandCursor)
         occ_browse.clicked.connect(self._browse_occlusion)
-        occ_row.addWidget(self.occlusion_edit)
+        occ_row.addWidget(self.occlusion_edit, 1)
         occ_row.addWidget(occ_browse)
         occ_row.addWidget(self._help_button("occlusion_dir"))
         card_dirs_l.addLayout(occ_row)
@@ -309,79 +353,107 @@ class ConfigWindow(QDialog):
         occ_hint = QLabel(
             "<i>Note: Images will be exported into an <code>occlusions/</code> subfolder inside this directory (e.g. <code>[Selected Folder]/occlusions/</code>), along with an <code>index.md</code> mapping tags to image files.</i>"
         )
-        occ_hint.setStyleSheet("font-size: 11px; color: rgba(180, 180, 180, 0.85);")
+        occ_hint.setStyleSheet("font-size: 11px; color: rgba(180, 180, 180, 0.85); line-height: 1.3;")
         occ_hint.setWordWrap(True)
         card_dirs_l.addWidget(occ_hint)
         layout.addWidget(card_dirs)
 
-        # Section 2: Sync Preferences & Tags
+        # Section 2: Sync Behavior
         card_sync, card_sync_l = _create_section_card(
-            "Sync Behavior & Tags",
-            "General synchronization preferences and hierarchical tag formatting.",
+            "Sync Behavior",
+            "Preferences for synchronization prompts and automated background sync.",
         )
 
         self.show_diff_cb = QCheckBox("Show Diff Preview Dialog Before Updating Modified Cards")
+        self.show_diff_cb.setStyleSheet("font-size: 13px;")
         row_diff = QHBoxLayout()
+        row_diff.setSpacing(8)
         row_diff.addWidget(self.show_diff_cb)
         row_diff.addWidget(self._help_button("show_diff_before_update"))
         row_diff.addStretch()
         card_sync_l.addLayout(row_diff)
 
         self.auto_close_cb = QCheckBox("Automatically Close Dashboard on Successful Sync")
+        self.auto_close_cb.setStyleSheet("font-size: 13px;")
         row_auto_close = QHBoxLayout()
+        row_auto_close.setSpacing(8)
         row_auto_close.addWidget(self.auto_close_cb)
         row_auto_close.addWidget(self._help_button("auto_close_on_success"))
         row_auto_close.addStretch()
         card_sync_l.addLayout(row_auto_close)
 
         self.sync_on_startup_cb = QCheckBox("Auto-sync on Anki Startup (Background)")
+        self.sync_on_startup_cb.setStyleSheet("font-size: 13px;")
         row_startup = QHBoxLayout()
+        row_startup.setSpacing(8)
         row_startup.addWidget(self.sync_on_startup_cb)
         row_startup.addWidget(self._help_button("sync_on_startup"))
         row_startup.addStretch()
         card_sync_l.addLayout(row_startup)
 
-        # Base Tag Prefix
-        card_sync_l.addWidget(QLabel("Base Tag Prefix (added to all synced cards):"))
+        layout.addWidget(card_sync)
+
+        # Section 3: Tag Formatting & Rules
+        card_tag, card_tag_l = _create_section_card(
+            "Tag Formatting",
+            "Global hierarchical tag formatting for notes synced from vault folders.",
+        )
+
+        lbl_tag = QLabel("Base Tag Prefix:")
+        lbl_tag.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        card_tag_l.addWidget(lbl_tag)
+
         tag_row = QHBoxLayout()
+        tag_row.setSpacing(8)
         self.tag_edit = QLineEdit()
         self.tag_edit.setStyleSheet(input_style)
         self.tag_edit.setPlaceholderText("Optional: e.g. vaultsync")
+        self.tag_edit.setMaximumWidth(360)
         _dim_placeholder(self.tag_edit)
         tag_row.addWidget(self.tag_edit)
         tag_row.addWidget(self._help_button("base_tag"))
         tag_row.addStretch()
-        card_sync_l.addLayout(tag_row)
+        card_tag_l.addLayout(tag_row)
 
-        self.pad_single_digits_cb = QCheckBox("Pad Single-Digit Tag Numbers (e.g. '1. Topic' -> '01_Topic')")
+        tag_hint = QLabel("<i>Optional prefix prepended to all synced card tags (e.g. <code>vaultsync</code>).</i>")
+        tag_hint.setStyleSheet("font-size: 11px; color: rgba(180, 180, 180, 0.85);")
+        card_tag_l.addWidget(tag_hint)
+
+        card_tag_l.addSpacing(8)
+
+        self.pad_single_digits_cb = QCheckBox("Pad Single-Digit Tag Numbers (e.g. '1. Topic' → '01_Topic')")
+        self.pad_single_digits_cb.setStyleSheet("font-size: 13px;")
         row_pad = QHBoxLayout()
+        row_pad.setSpacing(8)
         row_pad.addWidget(self.pad_single_digits_cb)
         row_pad.addWidget(self._help_button("pad_single_digit_tags"))
         row_pad.addStretch()
-        card_sync_l.addLayout(row_pad)
+        card_tag_l.addLayout(row_pad)
 
-        layout.addWidget(card_sync)
+        pad_hint = QLabel("<i>Ensures natural sorting for numbered chapters/folders. Alphanumeric terms like 'MP3' or 'ISO9001' are protected.</i>")
+        pad_hint.setStyleSheet("font-size: 11px; color: rgba(180, 180, 180, 0.85);")
+        card_tag_l.addWidget(pad_hint)
+
+        layout.addWidget(card_tag)
         layout.addStretch()
 
-    def _init_tab_routing(self) -> None:
-        outer_layout = QVBoxLayout(self.tab_routing)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
+        self._wrap_tab_in_scroll(self.tab_general, content_widget)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_content = QWidget()
-        layout = QVBoxLayout(scroll_content)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(14)
+    def _init_tab_deck_routing(self) -> None:
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(16)
 
-        input_style = """
+        combo_style = """
             QComboBox {
                 font-size: 13px;
                 padding: 6px 10px;
                 border-radius: 6px;
                 border: 1px solid rgba(255, 255, 255, 0.15);
-                min-height: 22px;
+                min-height: 24px;
+                min-width: 260px;
+                max-width: 400px;
             }
         """
         table_style = """
@@ -399,6 +471,14 @@ class ConfigWindow(QDialog):
                 border-bottom: 1px solid rgba(255, 255, 255, 0.15);
             }
         """
+        btn_style = """
+            QPushButton {
+                font-size: 12px;
+                padding: 6px 14px;
+                border-radius: 6px;
+                min-height: 22px;
+            }
+        """
 
         # Section 1: Fallback Default Deck
         card_def, card_def_l = _create_section_card(
@@ -406,8 +486,9 @@ class ConfigWindow(QDialog):
             "Fallback Anki deck used when a note does not match any specific routing rule.",
         )
         deck_row = QHBoxLayout()
+        deck_row.setSpacing(8)
         self.deck_combo = QComboBox()
-        self.deck_combo.setStyleSheet(input_style)
+        self.deck_combo.setStyleSheet(combo_style)
         self.deck_combo.setEditable(True)
         if mw is not None and hasattr(mw, "col") and mw.col is not None:
             for d in mw.col.decks.all_names_and_ids():
@@ -428,8 +509,8 @@ class ConfigWindow(QDialog):
 
         # Section 2: Deck Routing Rules
         card_rules, card_rules_l = _create_section_card(
-            "Deck Routing",
-            "Map vault folder paths directly to target Anki decks using longest prefix matching.",
+            "Deck Routing Rules",
+            "Route vault folders and nested subdirectories directly to target Anki decks using longest prefix matching.",
         )
 
         self.routing_table = QTableWidget(0, 2)
@@ -437,20 +518,24 @@ class ConfigWindow(QDialog):
         self.routing_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.routing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.routing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.routing_table.setMinimumHeight(140)
+        self.routing_table.setMinimumHeight(240)
         self.routing_table.setStyleSheet(table_style)
         card_rules_l.addWidget(self.routing_table)
 
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
         add_btn = QPushButton("Add Routing Rule")
+        add_btn.setStyleSheet(btn_style)
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_btn.clicked.connect(self._add_routing_row)
 
         browse_btn = QPushButton("Browse Folder...")
+        browse_btn.setStyleSheet(btn_style)
         browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         browse_btn.clicked.connect(self._browse_routing_folder)
 
         remove_btn = QPushButton("Remove Selected Rule")
+        remove_btn.setStyleSheet(btn_style)
         remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         remove_btn.clicked.connect(self._remove_routing_row)
 
@@ -460,12 +545,56 @@ class ConfigWindow(QDialog):
         btn_row.addWidget(self._help_button("deck_routing"))
         btn_row.addStretch()
         card_rules_l.addLayout(btn_row)
-        layout.addWidget(card_rules)
 
-        # Section 3: Tag Path Aliases
+        rule_hint = QLabel(
+            "<i>Longest prefix match applies: e.g. rules for 'everyday' and 'everyday/deep' will route notes in the deep folder to the more specific deck.</i>"
+        )
+        rule_hint.setStyleSheet("font-size: 11px; color: rgba(180, 180, 180, 0.85);")
+        rule_hint.setWordWrap(True)
+        card_rules_l.addWidget(rule_hint)
+
+        layout.addWidget(card_rules)
+        layout.addStretch()
+
+        self._wrap_tab_in_scroll(self.tab_deck_routing, content_widget)
+
+    def _init_tab_routing(self) -> None:
+        """Backward-compatibility alias."""
+        self._init_tab_deck_routing()
+
+    def _init_tab_tag_aliasing(self) -> None:
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(16)
+
+        table_style = """
+            QTableWidget {
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
+                font-size: 12px;
+                gridline-color: rgba(255, 255, 255, 0.05);
+            }
+            QHeaderView::section {
+                font-size: 12px;
+                font-weight: bold;
+                padding: 6px;
+                border: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+            }
+        """
+        btn_style = """
+            QPushButton {
+                font-size: 12px;
+                padding: 6px 14px;
+                border-radius: 6px;
+                min-height: 22px;
+            }
+        """
+
         card_aliases, card_aliases_l = _create_section_card(
             "Tag Path Aliases",
-            "Map vault folder paths to custom tag replacements (or leave target empty to suppress tag emission).",
+            "Map vault folder paths to custom hierarchical tag replacements, or leave the target alias empty to omit that folder from tags.",
         )
 
         self.alias_table = QTableWidget(0, 2)
@@ -473,20 +602,24 @@ class ConfigWindow(QDialog):
         self.alias_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.alias_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.alias_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.alias_table.setMinimumHeight(140)
+        self.alias_table.setMinimumHeight(280)
         self.alias_table.setStyleSheet(table_style)
         card_aliases_l.addWidget(self.alias_table)
 
         alias_btn_row = QHBoxLayout()
+        alias_btn_row.setSpacing(8)
         add_alias_btn = QPushButton("Add Tag Alias")
+        add_alias_btn.setStyleSheet(btn_style)
         add_alias_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_alias_btn.clicked.connect(self._add_alias_row)
 
         browse_alias_btn = QPushButton("Browse Folder...")
+        browse_alias_btn.setStyleSheet(btn_style)
         browse_alias_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         browse_alias_btn.clicked.connect(self._browse_alias_folder)
 
         remove_alias_btn = QPushButton("Remove Selected Alias")
+        remove_alias_btn.setStyleSheet(btn_style)
         remove_alias_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         remove_alias_btn.clicked.connect(self._remove_alias_row)
 
@@ -496,15 +629,25 @@ class ConfigWindow(QDialog):
         alias_btn_row.addWidget(self._help_button("tag_aliases"))
         alias_btn_row.addStretch()
         card_aliases_l.addLayout(alias_btn_row)
-        layout.addWidget(card_aliases)
 
-        scroll.setWidget(scroll_content)
-        outer_layout.addWidget(scroll)
+        alias_hint = QLabel(
+            "<i>Leave 'Tag Alias / Replacement' empty to completely suppress generating tags for that folder level.<br>"
+            "Global tag options (Base Tag Prefix and Single-Digit Padding) are configured under the <b>General</b> tab.</i>"
+        )
+        alias_hint.setStyleSheet("font-size: 11px; color: rgba(180, 180, 180, 0.85); line-height: 1.3;")
+        alias_hint.setWordWrap(True)
+        card_aliases_l.addWidget(alias_hint)
+
+        layout.addWidget(card_aliases)
+        layout.addStretch()
+
+        self._wrap_tab_in_scroll(self.tab_tag_aliasing, content_widget)
 
     def _init_tab_rules(self) -> None:
-        layout = QVBoxLayout(self.tab_rules)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(14)
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(16)
 
         # Section 1: Parsing & Media Flags
         card_media, card_media_l = _create_section_card(
@@ -513,21 +656,27 @@ class ConfigWindow(QDialog):
         )
 
         self.cloze_cb = QCheckBox("Enable Cloze Syntax Processing (==cloze==, {cloze})")
+        self.cloze_cb.setStyleSheet("font-size: 13px;")
         row_cloze = QHBoxLayout()
+        row_cloze.setSpacing(8)
         row_cloze.addWidget(self.cloze_cb)
         row_cloze.addWidget(self._help_button("cloze_notes"))
         row_cloze.addStretch()
         card_media_l.addLayout(row_cloze)
 
         self.hash_media_cb = QCheckBox("Hash Media (Rename media files to deterministic content hashes)")
+        self.hash_media_cb.setStyleSheet("font-size: 13px;")
         row_hash = QHBoxLayout()
+        row_hash.setSpacing(8)
         row_hash.addWidget(self.hash_media_cb)
         row_hash.addWidget(self._help_button("hash_media"))
         row_hash.addStretch()
         card_media_l.addLayout(row_hash)
 
         self.re_stage_cb = QCheckBox("Re-stage Already Flagged Image Occlusions")
+        self.re_stage_cb.setStyleSheet("font-size: 13px;")
         row_occ = QHBoxLayout()
+        row_occ.setSpacing(8)
         row_occ.addWidget(self.re_stage_cb)
         row_occ.addWidget(self._help_button("re_stage_occlusions"))
         row_occ.addStretch()
@@ -544,8 +693,8 @@ class ConfigWindow(QDialog):
         self.ignore_edit = QPlainTextEdit()
         self.ignore_edit.setPlaceholderText("Optional: Folders or globs to ignore (e.g. .obsidian, templates/*, archive)")
         _dim_placeholder(self.ignore_edit)
-        self.ignore_edit.setMinimumHeight(120)
-        self.ignore_edit.setMaximumHeight(200)
+        self.ignore_edit.setMinimumHeight(140)
+        self.ignore_edit.setMaximumHeight(220)
         self.ignore_edit.setStyleSheet("""
             QPlainTextEdit {
                 font-family: monospace;
@@ -564,10 +713,13 @@ class ConfigWindow(QDialog):
         layout.addWidget(card_ign)
         layout.addStretch()
 
+        self._wrap_tab_in_scroll(self.tab_rules, content_widget)
+
     def _init_tab_advanced(self) -> None:
-        layout = QVBoxLayout(self.tab_advanced)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(14)
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(16)
 
         combo_style = """
             QComboBox {
@@ -575,8 +727,17 @@ class ConfigWindow(QDialog):
                 padding: 6px 10px;
                 border-radius: 6px;
                 border: 1px solid rgba(255, 255, 255, 0.15);
-                min-width: 250px;
-                min-height: 22px;
+                min-width: 260px;
+                max-width: 400px;
+                min-height: 24px;
+            }
+        """
+        btn_style = """
+            QPushButton {
+                font-size: 13px;
+                padding: 6px 16px;
+                border-radius: 6px;
+                min-height: 24px;
             }
         """
 
@@ -586,9 +747,12 @@ class ConfigWindow(QDialog):
             "Optionally bind VaultSync cards to existing Anki Note Types instead of default templates.",
         )
 
-        # Basic Note Type selector
-        card_models_l.addWidget(QLabel("Basic Note Type:"))
+        lbl_basic = QLabel("Basic Note Type:")
+        lbl_basic.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        card_models_l.addWidget(lbl_basic)
+
         b_row = QHBoxLayout()
+        b_row.setSpacing(8)
         self.basic_model_combo = QComboBox()
         self.basic_model_combo.setStyleSheet(combo_style)
         self.basic_model_combo.addItem("Default (M2A Basic)", userData=None)
@@ -601,9 +765,14 @@ class ConfigWindow(QDialog):
         b_row.addStretch()
         card_models_l.addLayout(b_row)
 
-        # Cloze Note Type selector
-        card_models_l.addWidget(QLabel("Cloze Note Type:"))
+        card_models_l.addSpacing(6)
+
+        lbl_cloze = QLabel("Cloze Note Type:")
+        lbl_cloze.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        card_models_l.addWidget(lbl_cloze)
+
         c_row = QHBoxLayout()
+        c_row.setSpacing(8)
         self.cloze_model_combo = QComboBox()
         self.cloze_model_combo.setStyleSheet(combo_style)
         self.cloze_model_combo.addItem("Default (M2A Cloze)", userData=None)
@@ -626,9 +795,10 @@ class ConfigWindow(QDialog):
 
         repair_btn = QPushButton("Repair / Re-apply M2A Note Type Templates")
         repair_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        repair_btn.setStyleSheet("QPushButton { font-size: 13px; padding: 6px 14px; border-radius: 6px; }")
+        repair_btn.setStyleSheet(btn_style)
         repair_btn.clicked.connect(self._repair_templates)
         row_rep = QHBoxLayout()
+        row_rep.setSpacing(8)
         row_rep.addWidget(repair_btn)
         row_rep.addWidget(self._help_button("repair_templates"))
         row_rep.addStretch()
@@ -636,9 +806,10 @@ class ConfigWindow(QDialog):
 
         self.orphans_btn = QPushButton("Find & View Orphaned Cards in Browser")
         self.orphans_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.orphans_btn.setStyleSheet("QPushButton { font-size: 13px; padding: 6px 14px; border-radius: 6px; }")
+        self.orphans_btn.setStyleSheet(btn_style)
         self.orphans_btn.clicked.connect(self._view_orphans_in_browser)
         row_orph = QHBoxLayout()
+        row_orph.setSpacing(8)
         row_orph.addWidget(self.orphans_btn)
         row_orph.addWidget(self._help_button("orphaned_cards"))
         row_orph.addStretch()
@@ -647,13 +818,16 @@ class ConfigWindow(QDialog):
         layout.addWidget(card_tools)
         layout.addStretch()
 
+        self._wrap_tab_in_scroll(self.tab_advanced, content_widget)
+
     def _init_tab_logs(self) -> None:
         layout = QVBoxLayout(self.tab_logs)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
 
         # Header with actions
         header = QHBoxLayout()
+        header.setSpacing(10)
         desc = QLabel("Operation history across sessions (<b>newest entries on top</b>):")
         desc.setStyleSheet("font-size: 13px;")
         header.addWidget(desc)
@@ -661,13 +835,13 @@ class ConfigWindow(QDialog):
 
         open_folder_btn = QPushButton("Open Logs Folder")
         open_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        open_folder_btn.setStyleSheet("QPushButton { font-size: 12px; padding: 4px 10px; border-radius: 4px; }")
+        open_folder_btn.setStyleSheet("QPushButton { font-size: 12px; padding: 5px 12px; border-radius: 4px; }")
         open_folder_btn.clicked.connect(self._open_log_folder)
         header.addWidget(open_folder_btn)
 
         clear_btn = QPushButton("Clear Logs")
         clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_btn.setStyleSheet("QPushButton { font-size: 12px; padding: 4px 10px; border-radius: 4px; }")
+        clear_btn.setStyleSheet("QPushButton { font-size: 12px; padding: 5px 12px; border-radius: 4px; }")
         clear_btn.clicked.connect(self._clear_logs)
         header.addWidget(clear_btn)
         layout.addLayout(header)
@@ -683,7 +857,7 @@ class ConfigWindow(QDialog):
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 6px;
                 background-color: rgba(0, 0, 0, 0.2);
-                padding: 8px;
+                padding: 10px;
             }
         """)
         layout.addWidget(self.log_viewer)

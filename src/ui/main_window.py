@@ -435,7 +435,7 @@ class MainWindow(QDialog):
             dlg = SyncIssuesDialog(
                 report,
                 parent=self,
-                on_open_logs=lambda: self._open_settings(tab_index=4),
+                on_open_logs=lambda: self._open_settings(tab_index="Logs"),
                 on_rescan=self._start_scan,
             )
             dlg.exec()
@@ -458,7 +458,7 @@ class MainWindow(QDialog):
         dlg = SyncIssuesDialog(
             self._last_report,
             parent=self,
-            on_open_logs=lambda: self._open_settings(tab_index=4),
+            on_open_logs=lambda: self._open_settings(tab_index="Logs"),
             on_rescan=self._start_scan,
         )
         dlg.exec()
@@ -472,7 +472,7 @@ class MainWindow(QDialog):
         browser = dialogs.open("Browser", mw)
         browser.search_for(query)
 
-    def _open_settings(self, tab_index: int | None = None) -> None:
+    def _open_settings(self, tab_index: int | str | None = None) -> None:
         dlg = ConfigWindow(self._manager, self._profile_name, self, initial_tab=tab_index)
         if dlg.exec():
             self._refresh_header()

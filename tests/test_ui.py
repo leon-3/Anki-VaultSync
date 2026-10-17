@@ -18,26 +18,26 @@ if app is None:
 
 
 def test_help_tooltips_completeness():
-    required_keys = [
-        "vault_path",
-        "occlusion_dir",
-        "default_deck",
-        "base_tag",
-        "pad_single_digit_tags",
-        "hash_media",
-        "cloze_notes",
-        "re_stage_occlusions",
-        "show_diff_before_update",
-        "sync_on_startup",
-        "auto_close_on_success",
-        "repair_templates",
-        "subdirectories",
-        "ignore",
-        "deck_routing",
-        "tag_aliases",
-        "decks",
-        "basic_model_id",
-        "cloze_model_id",
+    required_keys = [\
+        "vault_path",\
+        "occlusion_dir",\
+        "default_deck",\
+        "base_tag",\
+        "pad_single_digit_tags",\
+        "hash_media",\
+        "cloze_notes",\
+        "re_stage_occlusions",\
+        "show_diff_before_update",\
+        "sync_on_startup",\
+        "auto_close_on_success",\
+        "repair_templates",\
+        "subdirectories",\
+        "ignore",\
+        "deck_routing",\
+        "tag_aliases",\
+        "decks",\
+        "basic_model_id",\
+        "cloze_model_id",\
     ]
     for key in required_keys:
         assert key in TOOLTIPS
@@ -122,8 +122,13 @@ def test_config_window_instantiation(tmp_path: Path):
     manager = ProfileConfigManager(config_path=cfg_file)
 
     dlg = ConfigWindow(manager, "TestProfile")
-    assert dlg.tabs.count() == 5
-    assert dlg.tabs.tabText(4) == "Logs"
+    assert dlg.tabs.count() == 6
+    assert dlg.tabs.tabText(0) == "General"
+    assert dlg.tabs.tabText(1) == "Deck Routing"
+    assert dlg.tabs.tabText(2) == "Tag Aliasing"
+    assert dlg.tabs.tabText(3) == "Card Rules and Media"
+    assert dlg.tabs.tabText(4) == "Advanced"
+    assert dlg.tabs.tabText(5) == "Logs"
     assert dlg.vault_edit is not None
     assert dlg.deck_combo is not None
     assert dlg.basic_model_combo is not None
@@ -280,14 +285,19 @@ def test_config_window_logs_tab(tmp_path: Path):
 
         cfg_file = tmp_path / "config.json"
         manager = ProfileConfigManager(config_path=cfg_file)
-        dlg = ConfigWindow(manager, "TestProfile", initial_tab=4)
-        assert dlg.tabs.currentIndex() == 4
+        dlg = ConfigWindow(manager, "TestProfile", initial_tab=5)
+        assert dlg.tabs.currentIndex() == 5
         assert hasattr(dlg, "log_edit")
         text = dlg.log_edit.toPlainText()
         # Newest should be on top
         first_line = text.splitlines()[0]
         assert "Second test warning" in first_line
         dlg.close()
+
+        # Test initial_tab by name
+        dlg_named = ConfigWindow(manager, "TestProfile", initial_tab="Logs")
+        assert dlg_named.tabs.currentIndex() == 5
+        dlg_named.close()
     finally:
         logger.set_custom_log_path(None)
 
