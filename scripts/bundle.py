@@ -4,12 +4,14 @@
 Automates:
 1. AST forbidden-import check across all vendored markdown2anki modules.
 2. Vendoring decoupled markdown2anki engine, templates, and pure-Python dependencies (markdown, tomlkit).
-3. Packaging clean dist/anki-vaultsync.ankiaddon zip archive.
+3. Preserving third-party licenses for all vendored components (BSD-3-Clause, MIT).
+4. Packaging clean dist/anki-vaultsync.ankiaddon zip archive.
 """
 from __future__ import annotations
 
 import argparse
 import ast
+import importlib.metadata
 import importlib.util
 import os
 import shutil
@@ -95,6 +97,22 @@ def resolve_package_dir(package_name: str) -> Path:
     return Path(list(spec.submodule_search_locations)[0]).resolve()
 
 
+def resolve_package_license(package_name: str) -> Path | None:
+    """Locates the installed license file for a package from dist-info metadata."""
+    try:
+        dist = importlib.metadata.distribution(package_name)
+        if dist.files:
+            for f in dist.files:
+                name_lower = f.name.lower()
+                if "license" in name_lower or "licence" in name_lower or "copying" in name_lower:
+                    path = Path(dist.locate_file(f))
+                    if path.is_file():
+                        return path
+    except Exception:
+        pass
+    return None
+
+
 def clean_pycache(target_dir: Path) -> None:
     for cache_dir in target_dir.rglob("__pycache__"):
         if cache_dir.is_dir():
@@ -123,6 +141,11 @@ def vendor_sync(repo_root: Path, vendor_dir: Path) -> None:
             raise FileNotFoundError(f"Required engine file missing: {src_file}")
         dest_file = vendor_m2a / filename
         shutil.copy2(src_file, dest_file)
+
+    # Copy Markdown2Anki LICENSE if present
+    m2a_license = repo_root / "LICENSE"
+    if m2a_license.is_file():
+        shutil.copy2(m2a_license, vendor_m2a / "LICENSE")
 
     # Sanitize __init__.py so unvendored export package is lazily resolved
     dest_init = vendor_m2a / "__init__.py"
@@ -172,13 +195,18 @@ def vendor_sync(repo_root: Path, vendor_dir: Path) -> None:
         raise FileNotFoundError(f"Templates directory missing: {src_templates}")
     shutil.copytree(src_templates, vendor_m2a / "templates")
 
-    # 3. Copy pure-Python dependencies: markdown, tomlkit
+    # 3. Copy pure-Python dependencies: markdown, tomlkit (with respective licenses)
     for pkg_name in ("markdown", "tomlkit"):
         pkg_source = resolve_package_dir(pkg_name)
         pkg_dest = vendor_dir / pkg_name
         if pkg_dest.exists():
             shutil.rmtree(pkg_dest)
         shutil.copytree(pkg_source, pkg_dest)
+
+        lic_file = resolve_package_license(pkg_name)
+        if lic_file and lic_file.is_file():
+            shutil.copy2(lic_file, pkg_dest / lic_file.name)
+            print(f"[+] Included license for {pkg_name}: {lic_file.name}")
 
     clean_pycache(vendor_dir)
 
@@ -193,6 +221,7 @@ def package_ankiaddon(addon_root: Path, dist_dir: Path) -> Path:
         "config.json",
         "config.md",
         "LICENSE",
+        "THIRD_PARTY_LICENSES.md",
         "README.md",
         "src",
         "vendor",
