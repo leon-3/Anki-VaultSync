@@ -24,9 +24,9 @@ _active_notification: SyncNotification | None = None
 class SyncNotification(QFrame):
     """Clean, informative multi-line notification popup positioned at the bottom-left.
 
-    Stays visible for 10 seconds and provides a clean [×] button to dismiss immediately.
-    Displays detailed breakdown of added cards (basic, image clozes, text clozes), updated cards,
-    media files, and any warnings without emojis.
+    Uses native Anki window palette colors without custom colored text or emojis,
+    matching the native look and feel of Anki Desktop. Stays visible for 10 seconds
+    and provides a clean [×] button to dismiss immediately.
     """
 
     def __init__(
@@ -44,13 +44,13 @@ class SyncNotification(QFrame):
 
         self.setStyleSheet("""
             QFrame#syncNotification {
-                background-color: #282c34;
-                border: 1px solid rgba(255, 255, 255, 0.16);
+                background-color: palette(window);
+                border: 1px solid palette(mid);
                 border-radius: 6px;
                 padding: 8px 12px;
             }
             QLabel {
-                color: #d7dae0;
+                color: palette(window-text);
                 font-size: 12px;
                 line-height: 1.35;
                 background: transparent;
@@ -59,7 +59,7 @@ class SyncNotification(QFrame):
             QPushButton#closeBtn {
                 background: transparent;
                 border: none;
-                color: #828997;
+                color: palette(window-text);
                 font-size: 14px;
                 font-weight: bold;
                 min-width: 18px;
@@ -70,8 +70,7 @@ class SyncNotification(QFrame):
                 padding: 0;
             }
             QPushButton#closeBtn:hover {
-                background-color: rgba(255, 255, 255, 0.12);
-                color: #ffffff;
+                background-color: palette(midlight);
             }
         """)
 
@@ -79,12 +78,11 @@ class SyncNotification(QFrame):
         layout.setContentsMargins(10, 8, 10, 10)
         layout.setSpacing(5)
 
-        # Header row: Clean title + Close button
+        # Header row: Title + Close button
         header_row = QHBoxLayout()
         header_row.setSpacing(8)
 
         lbl_title = QLabel("<b>VaultSync</b>")
-        lbl_title.setStyleSheet("font-size: 12px; color: #61afef; font-weight: 600;")
         header_row.addWidget(lbl_title)
         header_row.addStretch()
 
@@ -98,7 +96,7 @@ class SyncNotification(QFrame):
         # Separator line
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); max-height: 1px; border: none;")
+        sep.setStyleSheet("background-color: palette(mid); max-height: 1px; border: none;")
         layout.addWidget(sep)
 
         total_added = report.created_count
@@ -107,52 +105,43 @@ class SyncNotification(QFrame):
 
         if total_changed == 0 and not report.warnings and not report.skipped_files:
             lbl_idle = QLabel("<i>Up to date (no changes)</i>")
-            lbl_idle.setStyleSheet("color: #98c379;")
             layout.addWidget(lbl_idle)
         else:
             # a) Total cards added
             lbl_added = QLabel(f"<b>Added:</b> {total_added} card{'s' if total_added != 1 else ''}")
-            lbl_added.setStyleSheet("color: #98c379; font-weight: 600;")
             layout.addWidget(lbl_added)
 
             # Detailed breakdown: basic first, then image clozes, then text clozes
             if total_added > 0:
                 if report.created_basic_count > 0:
                     lbl_bc = QLabel(f"   • Basic: <b>{report.created_basic_count}</b>")
-                    lbl_bc.setStyleSheet("color: #abb2bf; font-size: 11px;")
                     layout.addWidget(lbl_bc)
 
                 lbl_ic = QLabel(f"   • Image Clozes: <b>{report.created_image_cloze_count}</b>")
-                lbl_ic.setStyleSheet("color: #abb2bf; font-size: 11px;")
                 layout.addWidget(lbl_ic)
 
                 lbl_tc = QLabel(f"   • Text Clozes: <b>{report.created_text_cloze_count}</b>")
-                lbl_tc.setStyleSheet("color: #abb2bf; font-size: 11px;")
                 layout.addWidget(lbl_tc)
 
             # d) Cards updated (at a sync with update)
             if include_updates:
                 lbl_upd = QLabel(f"<b>Updated:</b> {total_updated} card{'s' if total_updated != 1 else ''}")
-                lbl_upd.setStyleSheet("color: #e5c07b; font-weight: 600;")
                 layout.addWidget(lbl_upd)
 
             # Additional details: Media files
             if report.media_added_count > 0:
                 lbl_med = QLabel(f"<b>Media:</b> {report.media_added_count} file{'s' if report.media_added_count != 1 else ''}")
-                lbl_med.setStyleSheet("color: #61afef; font-size: 11px;")
                 layout.addWidget(lbl_med)
 
             # Additional details: Deck movements
             if report.deck_moved_count > 0:
                 lbl_mov = QLabel(f"<b>Moved Decks:</b> {report.deck_moved_count} card{'s' if report.deck_moved_count != 1 else ''}")
-                lbl_mov.setStyleSheet("color: #c678dd; font-size: 11px;")
                 layout.addWidget(lbl_mov)
 
             # Additional details: Warnings / Skipped
             issue_count = len(report.warnings) + len(report.skipped_files)
             if issue_count > 0:
                 lbl_warn = QLabel(f"<b>Warnings:</b> {issue_count} (see Logs tab)")
-                lbl_warn.setStyleSheet("color: #e06c75; font-size: 11px; font-weight: 600;")
                 layout.addWidget(lbl_warn)
 
         # Auto-dismiss after 10 seconds
