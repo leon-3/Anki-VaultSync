@@ -19,6 +19,7 @@ from markdown2anki.models import (
     MODEL_NAME_IMAGE_OCCLUSION,
 )
 from markdown2anki.occlusions import export_occlusions
+from markdown2anki.parser import Card
 from markdown2anki.vault import collect
 
 from .bridge import (
@@ -444,6 +445,7 @@ def execute_sync_plan(
                 pass
 
     cards_to_suspend: list[int] = []
+    flagged_cards: list[Card] = []
 
     for file_plan in plan.file_plans:
         has_creates = len(file_plan.creates) > 0
@@ -482,6 +484,7 @@ def execute_sync_plan(
                             (file_plan.file_path, f"Flag write mismatch: {'; '.join(problems)}")
                         )
                         continue
+                    flagged_cards.extend(c for c, _ in flags_to_write)
                 except OSError as exc:
                     report.skipped_files.append(
                         (file_plan.file_path, f"Failed to write ADDED flags: {exc}")
@@ -579,6 +582,7 @@ def execute_sync_plan(
                 out_dir, flags, staged = export_occlusions(plan.occlusions_to_stage, base_dir)
                 if flags:
                     write_flags(flags)
+                    flagged_cards.extend(c for c, _ in flags)
                 total_imgs = sum(len(imgs) for imgs in staged.values())
                 report.occlusions_staged_count = total_imgs
                 report.created_image_cloze_count += len(plan.occlusions_to_stage)
@@ -601,4 +605,10 @@ def execute_sync_plan(
     except Exception:
         pass
     _merge_undo()
+
+    report.flagged_cards = flagged_cards
+    if undo_id is not None:
+        from .undo import register_sync_added_cards
+        register_sync_added_cards(flagged_cards)
+
     return report

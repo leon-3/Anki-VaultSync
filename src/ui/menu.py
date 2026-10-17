@@ -14,6 +14,7 @@ from .config_window import ConfigWindow
 from .main_window import MainWindow
 from .shortcuts import find_shortcut_conflict
 from .notification import show_sync_notification
+from ..undo import clear_sync_undo_stack
 
 _main_window_instance: MainWindow | None = None
 _config_window_instance: ConfigWindow | None = None
@@ -271,3 +272,4 @@ def on_profile_will_close() -> None:
     if _config_window_instance is not None:
         _config_window_instance.close()
         _config_window_instance = None
+    clear_sync_undo_stack()

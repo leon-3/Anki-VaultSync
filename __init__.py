@@ -16,10 +16,12 @@ try:
         on_profile_did_open,
         on_profile_will_close,
     )
+    from .src.undo import on_state_did_undo
 
     gui_hooks.main_window_did_init.append(on_main_window_did_init)
     gui_hooks.profile_did_open.append(on_profile_did_open)
     gui_hooks.profile_will_close.append(on_profile_will_close)
+    gui_hooks.state_did_undo.append(on_state_did_undo)
 except ImportError:
     # Running outside Anki (e.g. headless unit testing)
     pass

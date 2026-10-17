@@ -150,3 +150,4 @@ class SyncReport:
     skipped_files: list[tuple[Path, str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     externally_modified_files: list[Path] = field(default_factory=list)
+    flagged_cards: list[Card] = field(default_factory=list)
