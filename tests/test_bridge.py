@@ -173,3 +173,70 @@ def test_note_lifecycle_and_single_pass_index():
 
         finally:
             col.close()
+
+
+def test_filtered_deck_movement():
+    """Verify that cards in a filtered deck have odid updated rather than corrupting did."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        col_path = Path(tmp_dir) / "collection.anki2"
+        col = Collection(str(col_path))
+        try:
+            model_ids = ensure_models(col)
+            initial_deck_id = col.decks.id("OriginalDeck")
+            filtered_deck_id = col.decks.id("FilteredDeck")
+
+            create_op = NoteCreateOp(
+                card_id="flt101",
+                model_name="M2A Basic",
+                target_deck_name="OriginalDeck",
+                fields={
+                    "Front": "Question 1",
+                    "Back": "Answer 1<!--m2a:flt101-->",
+                },
+                tags=["tag1"],
+                source_file=Path("/vault/note.md"),
+                source_line=1,
+                media_refs=[],
+            )
+            apply_note_create(col, create_op, model_ids)
+
+            note_id = col.find_notes("deck:OriginalDeck")[0]
+            note = col.get_note(note_id)
+            card = note.cards()[0]
+
+            # Simulate card being in a filtered deck
+            card.did = filtered_deck_id
+            card.odid = initial_deck_id
+            col.update_card(card)
+
+            # Update note with target deck changed to TargetDeck
+            update_op = NoteUpdateOp(
+                note_id=note_id,
+                card_id="flt101",
+                model_name="M2A Basic",
+                target_deck_name="TargetDeck",
+                old_deck_names=["OriginalDeck"],
+                old_fields={"Front": "Question 1", "Back": "Answer 1<!--m2a:flt101-->"},
+                new_fields={"Front": "Question 1", "Back": "Answer 1<!--m2a:flt101-->"},
+                old_tags=["tag1"],
+                new_tags=["tag1"],
+                deck_changed=True,
+                fields_changed=False,
+                tags_changed=False,
+                source_file=Path("/vault/note.md"),
+                source_line=1,
+                media_refs=[],
+                approved=True,
+            )
+
+            _, deck_moved = apply_note_update(col, update_op)
+            assert deck_moved is True
+
+            target_deck_id = col.decks.id("TargetDeck")
+            reloaded_card = col.get_card(card.id)
+            # The card should remain in the filtered deck (did unchanged),
+            # but its home deck (odid) must be updated to target_deck_id!
+            assert reloaded_card.did == filtered_deck_id
+            assert reloaded_card.odid == target_deck_id
+        finally:
+            col.close()

@@ -82,7 +82,7 @@ def log_error(message: str) -> None:
     log(message, level="ERROR")
 
 
-def read_log_entries(newest_first: bool = True) -> list[str]:
+def read_log_entries(newest_first: bool = True, max_lines: int | None = None) -> list[str]:
     log_file = get_log_file_path()
     if not log_file.is_file():
         return []
@@ -90,13 +90,15 @@ def read_log_entries(newest_first: bool = True) -> list[str]:
         lines = log_file.read_text(encoding="utf-8").splitlines()
         if newest_first:
             lines.reverse()
+        if max_lines is not None:
+            lines = lines[:max_lines]
         return lines
     except Exception:
         return []
 
 
-def read_log_text(newest_first: bool = True) -> str:
-    entries = read_log_entries(newest_first=newest_first)
+def read_log_text(newest_first: bool = True, max_lines: int | None = None) -> str:
+    entries = read_log_entries(newest_first=newest_first, max_lines=max_lines)
     return "\n".join(entries)
 
 

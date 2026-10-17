@@ -213,7 +213,17 @@ def apply_note_update(col: Collection, op: NoteUpdateOp) -> tuple[int, bool]:
     deck_moved = False
     if op.deck_changed:
         target_deck_id = col.decks.id(op.target_deck_name)
-        cids_to_move = [c.id for c in note.cards() if c.did != target_deck_id]
+        cids_to_move: list[int] = []
+        for card in note.cards():
+            if card.odid != 0:
+                # Card is in a filtered deck; update its home deck (odid)
+                if card.odid != target_deck_id:
+                    card.odid = target_deck_id
+                    col.update_card(card)
+                    deck_moved = True
+            elif card.did != target_deck_id:
+                cids_to_move.append(card.id)
+
         if cids_to_move:
             col.set_deck(cids_to_move, target_deck_id)
             deck_moved = True

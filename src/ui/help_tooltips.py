@@ -12,12 +12,16 @@ TOOLTIPS: dict[str, str] = {
         "(e.g. /your_folder/occlusions/). An index.md mapping each tag to its generated image files will also be created inside that folder."
     ),
     "default_deck": (
-        "Fallback Anki deck where cards will be placed if no course, folder routing rule, "
+        "Fallback Anki deck where cards will be placed if no folder routing rule "
         "or note-specific deck declaration matches."
     ),
     "base_tag": (
         "An optional prefix added to all generated hierarchical tags. "
-        "For example, setting 'University' creates tags like 'University::CompSci::Algorithms'."
+        "For example, setting 'Knowledge' creates tags like 'Knowledge::TopicA::SubtopicB'."
+    ),
+    "pad_single_digit_tags": (
+        "Automatically zero-pads single-digit prefix numbers in tag segments (e.g. '1. Topic' -> '01_Topic'). "
+        "Numbers inside words or decimals (e.g. '2D', 'v1.2') are preserved."
     ),
     "hash_media": (
         "Renames embedded images using a deterministic 8-character lowercase hex hash (e.g. 472d6b17_01.png). "
@@ -57,13 +61,19 @@ TOOLTIPS: dict[str, str] = {
         "VaultSync will use this note type's existing styling, templates, and field layout "
         "instead of generating a new note type."
     ),
+    "deck_routing": (
+        "Folder routing rules that map relative vault folder paths to specific target Anki decks using "
+        "longest prefix matching (e.g. 'TopicA' -> 'Domain::TopicA', 'TopicA/SubtopicB' -> 'Domain::SubtopicB')."
+    ),
     "decks": (
-        "Folder routing rules that map relative vault folders or courses to specific target Anki decks. "
-        "For example, 'everyday' -> '01. everyday (focus)'."
+        "Folder routing rules that map relative vault folder paths to specific target Anki decks."
+    ),
+    "tag_aliases": (
+        "Path-based tag aliases that rename or suppress specific vault folders when generating hierarchical Anki tags. "
+        "For example, 'TopicA/SubtopicB' -> 'CustomTag', or 'Notes' -> '' to suppress."
     ),
     "subdirectories": (
-        "Legacy subdirectory mapping for academic mode (maps subfolders like 'Anki - Lectures' to tag 'Lectures'). "
-        "An empty table enables full recursive walking at arbitrary depth."
+        "Legacy subdirectory mapping table. Replaced by modern recursive traversal and deck routing."
     ),
     "ignore": (
         "List of folders or glob patterns to ignore during vault traversal. "

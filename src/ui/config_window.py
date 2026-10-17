@@ -26,6 +26,7 @@ from aqt.qt import (
     QPalette,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -126,7 +127,7 @@ class ConfigWindow(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Settings")
-        self.resize(780, 620)
+        self.resize(800, 680)
 
         self._manager = profile_manager
         self._profile_name = profile_name
@@ -192,10 +193,10 @@ class ConfigWindow(QDialog):
         self._init_tab_general()
         self.tabs.addTab(self.tab_general, "General")
 
-        # Tab 2: Decks and Routing
+        # Tab 2: Deck Routing & Aliases
         self.tab_routing = QWidget()
         self._init_tab_routing()
-        self.tabs.addTab(self.tab_routing, "Decks and Routing")
+        self.tabs.addTab(self.tab_routing, "Deck Routing & Aliases")
 
         # Tab 3: Card Rules and Media
         self.tab_rules = QWidget()
@@ -313,10 +314,10 @@ class ConfigWindow(QDialog):
         card_dirs_l.addWidget(occ_hint)
         layout.addWidget(card_dirs)
 
-        # Section 2: Sync Preferences
+        # Section 2: Sync Preferences & Tags
         card_sync, card_sync_l = _create_section_card(
             "Sync Behavior & Tags",
-            "General synchronization preferences applied across all cards.",
+            "General synchronization preferences and hierarchical tag formatting.",
         )
 
         self.show_diff_cb = QCheckBox("Show Diff Preview Dialog Before Updating Modified Cards")
@@ -352,11 +353,25 @@ class ConfigWindow(QDialog):
         tag_row.addStretch()
         card_sync_l.addLayout(tag_row)
 
+        self.pad_single_digits_cb = QCheckBox("Pad Single-Digit Tag Numbers (e.g. '1. Topic' -> '01_Topic')")
+        row_pad = QHBoxLayout()
+        row_pad.addWidget(self.pad_single_digits_cb)
+        row_pad.addWidget(self._help_button("pad_single_digit_tags"))
+        row_pad.addStretch()
+        card_sync_l.addLayout(row_pad)
+
         layout.addWidget(card_sync)
         layout.addStretch()
 
     def _init_tab_routing(self) -> None:
-        layout = QVBoxLayout(self.tab_routing)
+        outer_layout = QVBoxLayout(self.tab_routing)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_content = QWidget()
+        layout = QVBoxLayout(scroll_content)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(14)
 
@@ -367,6 +382,21 @@ class ConfigWindow(QDialog):
                 border-radius: 6px;
                 border: 1px solid rgba(255, 255, 255, 0.15);
                 min-height: 22px;
+            }
+        """
+        table_style = """
+            QTableWidget {
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
+                font-size: 12px;
+                gridline-color: rgba(255, 255, 255, 0.05);
+            }
+            QHeaderView::section {
+                font-size: 12px;
+                font-weight: bold;
+                padding: 6px;
+                border: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.15);
             }
         """
 
@@ -396,33 +426,19 @@ class ConfigWindow(QDialog):
         card_def_l.addLayout(deck_row)
         layout.addWidget(card_def)
 
-        # Section 2: Subdirectory Routing Rules
+        # Section 2: Deck Routing Rules
         card_rules, card_rules_l = _create_section_card(
-            "Subdirectory Routing Rules",
-            "Map subfolders in your Obsidian vault directly to specific target Anki decks (relative to vault root).",
+            "Deck Routing",
+            "Map vault folder paths directly to target Anki decks using longest prefix matching.",
         )
 
         self.routing_table = QTableWidget(0, 2)
-        self.routing_table.setHorizontalHeaderLabels(["Vault Subfolder", "Target Anki Deck"])
+        self.routing_table.setHorizontalHeaderLabels(["Vault Folder / Path", "Target Anki Deck"])
         self.routing_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.routing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.routing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.routing_table.setMinimumHeight(170)
-        self.routing_table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 6px;
-                font-size: 12px;
-                gridline-color: rgba(255, 255, 255, 0.05);
-            }
-            QHeaderView::section {
-                font-size: 12px;
-                font-weight: bold;
-                padding: 6px;
-                border: none;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-            }
-        """)
+        self.routing_table.setMinimumHeight(140)
+        self.routing_table.setStyleSheet(table_style)
         card_rules_l.addWidget(self.routing_table)
 
         btn_row = QHBoxLayout()
@@ -430,17 +446,60 @@ class ConfigWindow(QDialog):
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_btn.clicked.connect(self._add_routing_row)
 
+        browse_btn = QPushButton("Browse Folder...")
+        browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        browse_btn.clicked.connect(self._browse_routing_folder)
+
         remove_btn = QPushButton("Remove Selected Rule")
         remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         remove_btn.clicked.connect(self._remove_routing_row)
 
         btn_row.addWidget(add_btn)
+        btn_row.addWidget(browse_btn)
         btn_row.addWidget(remove_btn)
-        btn_row.addWidget(self._help_button("decks"))
+        btn_row.addWidget(self._help_button("deck_routing"))
         btn_row.addStretch()
         card_rules_l.addLayout(btn_row)
-
         layout.addWidget(card_rules)
+
+        # Section 3: Tag Path Aliases
+        card_aliases, card_aliases_l = _create_section_card(
+            "Tag Path Aliases",
+            "Map vault folder paths to custom tag replacements (or leave target empty to suppress tag emission).",
+        )
+
+        self.alias_table = QTableWidget(0, 2)
+        self.alias_table.setHorizontalHeaderLabels(["Vault Folder / Path", "Tag Alias / Replacement"])
+        self.alias_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.alias_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.alias_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.alias_table.setMinimumHeight(140)
+        self.alias_table.setStyleSheet(table_style)
+        card_aliases_l.addWidget(self.alias_table)
+
+        alias_btn_row = QHBoxLayout()
+        add_alias_btn = QPushButton("Add Tag Alias")
+        add_alias_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        add_alias_btn.clicked.connect(self._add_alias_row)
+
+        browse_alias_btn = QPushButton("Browse Folder...")
+        browse_alias_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        browse_alias_btn.clicked.connect(self._browse_alias_folder)
+
+        remove_alias_btn = QPushButton("Remove Selected Alias")
+        remove_alias_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        remove_alias_btn.clicked.connect(self._remove_alias_row)
+
+        alias_btn_row.addWidget(add_alias_btn)
+        alias_btn_row.addWidget(browse_alias_btn)
+        alias_btn_row.addWidget(remove_alias_btn)
+        alias_btn_row.addWidget(self._help_button("tag_aliases"))
+        alias_btn_row.addStretch()
+        card_aliases_l.addLayout(alias_btn_row)
+        layout.addWidget(card_aliases)
+
+        scroll.setWidget(scroll_content)
+        outer_layout.addWidget(scroll)
 
     def _init_tab_rules(self) -> None:
         layout = QVBoxLayout(self.tab_rules)
@@ -550,7 +609,7 @@ class ConfigWindow(QDialog):
         self.cloze_model_combo.addItem("Default (M2A Cloze)", userData=None)
         if mw is not None and hasattr(mw, "col") and mw.col is not None:
             for m in mw.col.models.all():
-                if m.get("type", 0) == 1:  # cloze model
+                if m.get("type", 1) == 1:  # cloze model
                     self.cloze_model_combo.addItem(m["name"], userData=int(m["id"]))
         c_row.addWidget(self.cloze_model_combo)
         c_row.addWidget(self._help_button("cloze_model_id"))
@@ -600,78 +659,62 @@ class ConfigWindow(QDialog):
         header.addWidget(desc)
         header.addStretch()
 
-        btn_style = "QPushButton { font-size: 12px; padding: 4px 10px; border-radius: 4px; }"
+        open_folder_btn = QPushButton("Open Logs Folder")
+        open_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        open_folder_btn.setStyleSheet("QPushButton { font-size: 12px; padding: 4px 10px; border-radius: 4px; }")
+        open_folder_btn.clicked.connect(self._open_log_folder)
+        header.addWidget(open_folder_btn)
 
-        refresh_btn = QPushButton("Refresh")
-        refresh_btn.setStyleSheet(btn_style)
-        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        refresh_btn.clicked.connect(self._refresh_logs)
-        header.addWidget(refresh_btn)
-
-        copy_btn = QPushButton("Copy All")
-        copy_btn.setStyleSheet(btn_style)
-        copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        copy_btn.clicked.connect(self._copy_logs)
-        header.addWidget(copy_btn)
-
-        open_file_btn = QPushButton("Open File")
-        open_file_btn.setStyleSheet(btn_style)
-        open_file_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        open_file_btn.clicked.connect(self._open_log_file)
-        header.addWidget(open_file_btn)
-
-        clear_btn = QPushButton("Clear Log")
-        clear_btn.setStyleSheet(btn_style)
+        clear_btn = QPushButton("Clear Logs")
         clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        clear_btn.setStyleSheet("QPushButton { font-size: 12px; padding: 4px 10px; border-radius: 4px; }")
         clear_btn.clicked.connect(self._clear_logs)
         header.addWidget(clear_btn)
-
         layout.addLayout(header)
 
-        self.log_edit = QPlainTextEdit()
-        self.log_edit.setReadOnly(True)
-        self.log_edit.setStyleSheet("""
+        # Log content display
+        self.log_viewer = QPlainTextEdit()
+        self.log_edit = self.log_viewer
+        self.log_viewer.setReadOnly(True)
+        self.log_viewer.setStyleSheet("""
             QPlainTextEdit {
                 font-family: monospace;
                 font-size: 12px;
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 6px;
+                background-color: rgba(0, 0, 0, 0.2);
                 padding: 8px;
-                background: palette(alternate-base);
             }
         """)
-        layout.addWidget(self.log_edit)
+        layout.addWidget(self.log_viewer)
 
         self._refresh_logs()
 
-    def _refresh_logs(self) -> None:
-        text = read_log_text(newest_first=True)
-        self.log_edit.setPlainText(text or "(Log is currently empty)")
-
-    def _copy_logs(self) -> None:
-        clipboard = QApplication.clipboard()
-        if clipboard:
-            clipboard.setText(self.log_edit.toPlainText())
-            QMessageBox.information(self, "Copied", "Log contents copied to clipboard.")
-
-    def _open_log_file(self) -> None:
+    def _open_log_folder(self) -> None:
         log_path = get_log_file_path()
-        if not log_path.exists():
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            log_path.touch()
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path)))
+        if log_path.exists():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path.parent)))
+        else:
+            QMessageBox.information(self, "Logs", "Log folder does not exist yet.")
 
     def _clear_logs(self) -> None:
-        res = QMessageBox.question(
+        reply = QMessageBox.question(
             self,
-            "Clear Log",
-            "Are you sure you want to clear the entire log history?",
+            "Clear Logs",
+            "Are you sure you want to clear the entire log file history?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
-        if res == QMessageBox.StandardButton.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             clear_log()
             self._refresh_logs()
+
+    def _refresh_logs(self) -> None:
+        log_text = read_log_text(newest_first=True, max_lines=1000)
+        if not log_text.strip():
+            self.log_viewer.setPlainText("(No log records recorded yet)")
+        else:
+            self.log_viewer.setPlainText(log_text)
 
     def _view_orphans_in_browser(self) -> None:
         if mw is None or not hasattr(mw, "col") or mw.col is None:
@@ -742,16 +785,63 @@ class ConfigWindow(QDialog):
         if dir_path:
             self.occlusion_edit.setText(dir_path)
 
+    def _browse_routing_folder(self) -> None:
+        curr = self.routing_table.currentRow()
+        if curr < 0:
+            return
+        vault_str = self.vault_edit.text().strip()
+        start_dir = vault_str if vault_str and Path(vault_str).is_dir() else None
+        dir_path = QFileDialog.getExistingDirectory(self, "Select Vault Folder for Routing", start_dir or "")
+        if dir_path:
+            p = Path(dir_path)
+            if start_dir:
+                try:
+                    rel = p.relative_to(Path(start_dir)).as_posix()
+                    self.routing_table.setItem(curr, 0, QTableWidgetItem(rel))
+                    return
+                except ValueError:
+                    pass
+            self.routing_table.setItem(curr, 0, QTableWidgetItem(p.name))
+
+    def _browse_alias_folder(self) -> None:
+        curr = self.alias_table.currentRow()
+        if curr < 0:
+            return
+        vault_str = self.vault_edit.text().strip()
+        start_dir = vault_str if vault_str and Path(vault_str).is_dir() else None
+        dir_path = QFileDialog.getExistingDirectory(self, "Select Vault Folder for Tag Alias", start_dir or "")
+        if dir_path:
+            p = Path(dir_path)
+            if start_dir:
+                try:
+                    rel = p.relative_to(Path(start_dir)).as_posix()
+                    self.alias_table.setItem(curr, 0, QTableWidgetItem(rel))
+                    return
+                except ValueError:
+                    pass
+            self.alias_table.setItem(curr, 0, QTableWidgetItem(p.name))
+
     def _add_routing_row(self) -> None:
         row = self.routing_table.rowCount()
         self.routing_table.insertRow(row)
-        self.routing_table.setItem(row, 0, QTableWidgetItem("folder_name"))
+        self.routing_table.setItem(row, 0, QTableWidgetItem("folder_path"))
         self.routing_table.setItem(row, 1, QTableWidgetItem("Target Deck"))
 
     def _remove_routing_row(self) -> None:
         curr = self.routing_table.currentRow()
         if curr >= 0:
             self.routing_table.removeRow(curr)
+
+    def _add_alias_row(self) -> None:
+        row = self.alias_table.rowCount()
+        self.alias_table.insertRow(row)
+        self.alias_table.setItem(row, 0, QTableWidgetItem("folder_path"))
+        self.alias_table.setItem(row, 1, QTableWidgetItem("tag_alias"))
+
+    def _remove_alias_row(self) -> None:
+        curr = self.alias_table.currentRow()
+        if curr >= 0:
+            self.alias_table.removeRow(curr)
 
     def _repair_templates(self) -> None:
         if mw is None or not hasattr(mw, "col") or mw.col is None:
@@ -832,22 +922,32 @@ class ConfigWindow(QDialog):
 
     def _populate_vault_fields(self) -> None:
         if self._vault_cfg is None:
+            self.pad_single_digits_cb.setChecked(True)
             self.hash_media_cb.setChecked(True)
             self.cloze_cb.setChecked(True)
             return
 
         self.deck_combo.setCurrentText(self._vault_cfg.deck)
         self.tag_edit.setText(self._vault_cfg.base_tag)
+        self.pad_single_digits_cb.setChecked(self._vault_cfg.pad_single_digit_tags)
         self.hash_media_cb.setChecked(self._vault_cfg.hash_media)
         self.cloze_cb.setChecked(self._vault_cfg.cloze_notes)
+        self.re_stage_occlusions = self._vault_cfg.re_stage_occlusions
         self.re_stage_cb.setChecked(self._vault_cfg.re_stage_occlusions)
 
         # Deck routing
-        decks = self._vault_cfg.decks or {}
-        self.routing_table.setRowCount(len(decks))
-        for r, (folder, target_deck) in enumerate(decks.items()):
+        routing = self._vault_cfg.deck_routing or {}
+        self.routing_table.setRowCount(len(routing))
+        for r, (folder, target_deck) in enumerate(routing.items()):
             self.routing_table.setItem(r, 0, QTableWidgetItem(folder))
             self.routing_table.setItem(r, 1, QTableWidgetItem(target_deck))
+
+        # Tag aliases
+        aliases = self._vault_cfg.tag_aliases or {}
+        self.alias_table.setRowCount(len(aliases))
+        for r, (folder, alias) in enumerate(aliases.items()):
+            self.alias_table.setItem(r, 0, QTableWidgetItem(folder))
+            self.alias_table.setItem(r, 1, QTableWidgetItem(alias))
 
         # Ignore globs
         ignore_lines = "\n".join(self._vault_cfg.ignore or [])
@@ -863,6 +963,16 @@ class ConfigWindow(QDialog):
             rules.append((f_text, d_text))
         return rules
 
+    def _get_alias_table_data(self) -> list[tuple[str, str]]:
+        rules: list[tuple[str, str]] = []
+        for r in range(self.alias_table.rowCount()):
+            f_item = self.alias_table.item(r, 0)
+            a_item = self.alias_table.item(r, 1)
+            f_text = f_item.text().strip() if f_item else ""
+            a_text = a_item.text().strip() if a_item else ""
+            rules.append((f_text, a_text))
+        return rules
+
     def _snapshot_state(self) -> dict[str, Any]:
         return {
             "vault": self.vault_edit.text().strip(),
@@ -871,6 +981,7 @@ class ConfigWindow(QDialog):
             "auto_close": self.auto_close_cb.isChecked(),
             "sync_on_startup": self.sync_on_startup_cb.isChecked(),
             "tag": self.tag_edit.text().strip(),
+            "pad_single_digits": self.pad_single_digits_cb.isChecked(),
             "deck": self.deck_combo.currentText().strip(),
             "cloze": self.cloze_cb.isChecked(),
             "hash_media": self.hash_media_cb.isChecked(),
@@ -879,6 +990,7 @@ class ConfigWindow(QDialog):
             "basic_model": self._get_selected_model_id(self.basic_model_combo),
             "cloze_model": self._get_selected_model_id(self.cloze_model_combo),
             "routing": self._get_routing_table_data(),
+            "aliases": self._get_alias_table_data(),
         }
 
     def _has_unsaved_changes(self) -> bool:
@@ -919,6 +1031,49 @@ class ConfigWindow(QDialog):
         basic_id = self._get_selected_model_id(self.basic_model_combo)
         cloze_id = self._get_selected_model_id(self.cloze_model_combo)
 
+        # Validate duplicate path keys in routing and alias tables
+        def _norm_path_key(k: str) -> str:
+            parts = tuple(p for p in k.replace("\\", "/").strip().split("/") if p and p != ".")
+            return "/".join(parts) if parts else "."
+
+        deck_routing: dict[str, str] = {}
+        for r in range(self.routing_table.rowCount()):
+            f_item = self.routing_table.item(r, 0)
+            d_item = self.routing_table.item(r, 1)
+            raw_folder = f_item.text().strip() if f_item else ""
+            target_deck = d_item.text().strip() if d_item else ""
+            if not raw_folder:
+                continue
+            norm_key = _norm_path_key(raw_folder)
+            if norm_key in deck_routing:
+                QMessageBox.warning(
+                    self,
+                    "Duplicate Deck Routing Rule",
+                    f"The folder path '{norm_key}' is configured more than once in Deck Routing.\n"
+                    "Please remove or merge duplicate rules before saving.",
+                )
+                return
+            deck_routing[norm_key] = target_deck
+
+        tag_aliases: dict[str, str] = {}
+        for r in range(self.alias_table.rowCount()):
+            f_item = self.alias_table.item(r, 0)
+            a_item = self.alias_table.item(r, 1)
+            raw_folder = f_item.text().strip() if f_item else ""
+            alias_val = a_item.text().strip() if a_item else ""
+            if not raw_folder:
+                continue
+            norm_key = _norm_path_key(raw_folder)
+            if norm_key in tag_aliases:
+                QMessageBox.warning(
+                    self,
+                    "Duplicate Tag Alias",
+                    f"The folder path '{norm_key}' is configured more than once in Tag Path Aliases.\n"
+                    "Please remove or merge duplicate aliases before saving.",
+                )
+                return
+            tag_aliases[norm_key] = alias_val
+
         # 1. Save profile settings
         new_settings = AddonProfileSettings(
             profile_name=self._profile_name,
@@ -938,21 +1093,12 @@ class ConfigWindow(QDialog):
                 cfg = self._manager.load_vault(vault_path)
                 cfg.deck = self.deck_combo.currentText().strip() or "Default"
                 cfg.base_tag = self.tag_edit.text().strip()
+                cfg.pad_single_digit_tags = self.pad_single_digits_cb.isChecked()
                 cfg.hash_media = self.hash_media_cb.isChecked()
                 cfg.cloze_notes = self.cloze_cb.isChecked()
                 cfg.re_stage_occlusions = self.re_stage_cb.isChecked()
-
-                # Collect deck routing
-                decks: dict[str, str] = {}
-                for r in range(self.routing_table.rowCount()):
-                    f_item = self.routing_table.item(r, 0)
-                    d_item = self.routing_table.item(r, 1)
-                    if f_item and d_item and f_item.text().strip():
-                        decks[f_item.text().strip()] = d_item.text().strip()
-                cfg.decks = decks
-
-                if getattr(cfg, "subdirectories", None) == {"Anki - Lectures": "Lectures", "Anki - Exercises": "Exercises"}:
-                    cfg.subdirectories = {}
+                cfg.deck_routing = deck_routing
+                cfg.tag_aliases = tag_aliases
 
                 # Collect ignore
                 ignore_text = self.ignore_edit.toPlainText().strip()

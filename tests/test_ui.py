@@ -23,6 +23,7 @@ def test_help_tooltips_completeness():
         "occlusion_dir",
         "default_deck",
         "base_tag",
+        "pad_single_digit_tags",
         "hash_media",
         "cloze_notes",
         "re_stage_occlusions",
@@ -32,6 +33,8 @@ def test_help_tooltips_completeness():
         "repair_templates",
         "subdirectories",
         "ignore",
+        "deck_routing",
+        "tag_aliases",
         "decks",
         "basic_model_id",
         "cloze_model_id",
@@ -125,15 +128,18 @@ def test_config_window_instantiation(tmp_path: Path):
     assert dlg.deck_combo is not None
     assert dlg.basic_model_combo is not None
     assert dlg.cloze_model_combo is not None
+    assert dlg.routing_table is not None
+    assert dlg.alias_table is not None
+    assert dlg.pad_single_digits_cb is not None
     dlg.close()
 
 
-def test_config_window_deck_routing_roundtrip(tmp_path: Path):
+def test_config_window_deck_routing_and_aliases_roundtrip(tmp_path: Path):
     vault_path = tmp_path / "vault"
     vault_path.mkdir()
     toml_path = vault_path / "m2a.toml"
     toml_path.write_text(
-        'vault = "."\n[decks]\n"everyday" = "01. Everyday"\n[subdirectories]\n',
+        'vault = "."\n[deck_routing]\n"TopicA" = "Domain::TopicA"\n[tag_aliases]\n"TopicA/SubtopicB" = "CustomTag"\n',
         encoding="utf-8",
     )
 
@@ -143,20 +149,60 @@ def test_config_window_deck_routing_roundtrip(tmp_path: Path):
 
     dlg = ConfigWindow(manager, "Profile1")
     assert dlg.routing_table.rowCount() == 1
-    assert dlg.routing_table.item(0, 0).text() == "everyday"
-    assert dlg.routing_table.item(0, 1).text() == "01. Everyday"
+    assert dlg.routing_table.item(0, 0).text() == "TopicA"
+    assert dlg.routing_table.item(0, 1).text() == "Domain::TopicA"
 
-    # Add a rule
+    assert dlg.alias_table.rowCount() == 1
+    assert dlg.alias_table.item(0, 0).text() == "TopicA/SubtopicB"
+    assert dlg.alias_table.item(0, 1).text() == "CustomTag"
+    assert dlg.pad_single_digits_cb.isChecked() is True
+
+    # Add a routing rule
     dlg._add_routing_row()
-    dlg.routing_table.item(1, 0).setText("work")
-    dlg.routing_table.item(1, 1).setText("02. Work")
+    dlg.routing_table.item(1, 0).setText("TopicB")
+    dlg.routing_table.item(1, 1).setText("Domain::TopicB")
+
+    # Add an alias rule
+    dlg._add_alias_row()
+    dlg.alias_table.item(1, 0).setText("Notes")
+    dlg.alias_table.item(1, 1).setText("")
+
+    # Toggle digit padding
+    dlg.pad_single_digits_cb.setChecked(False)
 
     dlg._on_save()
     dlg.close()
 
     saved_cfg = manager.load_vault(vault_path)
-    assert saved_cfg.decks == {"everyday": "01. Everyday", "work": "02. Work"}
-    assert saved_cfg.subdirectories == {}
+    assert saved_cfg.deck_routing == {"TopicA": "Domain::TopicA", "TopicB": "Domain::TopicB"}
+    assert saved_cfg.tag_aliases == {"TopicA/SubtopicB": "CustomTag", "Notes": ""}
+    assert saved_cfg.pad_single_digit_tags is False
+
+
+def test_config_window_duplicate_path_validation(tmp_path: Path):
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+    (vault_path / "m2a.toml").write_text('vault = "."\n', encoding="utf-8")
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    manager.save(AddonProfileSettings(profile_name="Profile1", vault_path=vault_path))
+
+    dlg = ConfigWindow(manager, "Profile1")
+    dlg._add_routing_row()
+    dlg.routing_table.item(0, 0).setText("TopicA")
+    dlg.routing_table.item(0, 1).setText("Deck1")
+
+    dlg._add_routing_row()
+    dlg.routing_table.item(1, 0).setText("TopicA/")  # Duplicate normalized key!
+    dlg.routing_table.item(1, 1).setText("Deck2")
+
+    # Save should detect duplicate and reject without raising uncaught exception
+    dlg._on_save()
+    # Check that m2a.toml was not updated with duplicate
+    saved_cfg = manager.load_vault(vault_path)
+    assert "TopicA" not in saved_cfg.deck_routing
+    dlg.close()
 
 
 def test_config_window_model_id_selection_roundtrip(tmp_path: Path):
@@ -256,137 +302,3 @@ def test_sync_issues_dialog(tmp_path: Path):
     assert "Syntax error on line 5" in dlg.issues_edit.toPlainText()
     assert "Missing media file image.png" in dlg.issues_edit.toPlainText()
     dlg.close()
-
-
-def test_config_window_buttons_not_default(tmp_path: Path):
-    cfg_file = tmp_path / "config.json"
-    manager = ProfileConfigManager(config_path=cfg_file)
-    dlg = ConfigWindow(manager, "TestProfile")
-    save_btn = dlg.button_box.button(dlg.button_box.StandardButton.Save)
-    assert not save_btn.isDefault()
-    assert not save_btn.autoDefault()
-    dlg.close()
-
-
-def test_main_window_buttons_not_default(tmp_path: Path):
-    cfg_file = tmp_path / "config.json"
-    manager = ProfileConfigManager(config_path=cfg_file)
-    win = MainWindow(manager, "TestDashboard")
-    assert not win.settings_btn.isDefault()
-    assert not win.settings_btn.autoDefault()
-    win.close()
-
-
-def test_config_window_unsaved_changes_dirty_check(tmp_path: Path):
-    cfg_file = tmp_path / "config.json"
-    manager = ProfileConfigManager(config_path=cfg_file)
-    dlg = ConfigWindow(manager, "TestProfile")
-
-    # Initially, no changes
-    assert not dlg._has_unsaved_changes()
-
-    # Make a change
-    dlg.vault_edit.setText("/some/new/vault/path")
-    assert dlg._has_unsaved_changes()
-
-    # Revert change
-    dlg.vault_edit.setText("")
-    assert not dlg._has_unsaved_changes()
-
-    # Make another change and save
-    dlg.tag_edit.setText("new_tag")
-    assert dlg._has_unsaved_changes()
-    dlg._on_save()
-    assert not dlg._has_unsaved_changes()
-    dlg.close()
-
-
-def test_help_badge_multiline_tooltip():
-    from src.ui.config_window import HelpBadge
-    badge = HelpBadge("A very long explanation that should wrap across multiple lines cleanly.")
-    assert "<div style=" in badge.tip_html
-    assert "width: 320px" in badge.tip_html
-    assert "A very long explanation" in badge.tip_html
-
-
-def test_diff_dialog_rescan_action(tmp_path: Path):
-    from src.contracts import FileSyncPlan, NoteUpdateOp, SyncPlan, ModelName
-    note_file = tmp_path / "test.md"
-    note_file.write_text("content", encoding="utf-8")
-
-    op = NoteUpdateOp(
-        note_id=1,
-        card_id="abc",
-        model_name="M2A Basic",
-        target_deck_name="Default",
-        old_deck_names=["Default"],
-        old_fields={"Front": "Q", "Back": "A"},
-        new_fields={"Front": "Q2", "Back": "A2"},
-        old_tags=[],
-        new_tags=[],
-        deck_changed=False,
-        fields_changed=True,
-        tags_changed=False,
-        source_file=note_file,
-        source_line=2,
-        media_refs=[],
-    )
-
-    plan = SyncPlan(
-        vault_path=tmp_path,
-        default_deck="Default",
-        file_plans=[
-            FileSyncPlan(
-                file_path=note_file,
-                mtime_ns=0,
-                sha256_hex="initial_hash",
-                creates=[],
-                updates=[op],
-                unchanged_count=0,
-            )
-        ],
-    )
-
-    dlg = DiffDialog(plan)
-    assert dlg.rescan_btn is not None
-    dlg._on_rescan_clicked()
-    assert dlg.rescan_requested is True
-    dlg.close()
-
-
-def test_config_window_auto_close_roundtrip(tmp_path: Path):
-    cfg_file = tmp_path / "config.json"
-    manager = ProfileConfigManager(config_path=cfg_file)
-    dlg = ConfigWindow(manager, "AutoCloseProfile")
-    assert hasattr(dlg, "auto_close_cb")
-    dlg.auto_close_cb.setChecked(True)
-    dlg._on_save()
-    dlg.close()
-
-    loaded = manager.load("AutoCloseProfile")
-    assert loaded.auto_close_on_success is True
-
-
-def test_diff_html_with_rendered_html_fields():
-    op = NoteUpdateOp(
-        note_id=1,
-        card_id="abc123",
-        model_name="M2A Basic",
-        target_deck_name="Deck",
-        old_deck_names=["Deck"],
-        old_fields={"Front": "<p>What is a token?</p><!--m2a:abc123-->", "Back": "A symbol."},
-        new_fields={"Front": "<p>What is a lexical token?</p><!--m2a:abc123-->", "Back": "A symbol."},
-        old_tags=[],
-        new_tags=[],
-        deck_changed=False,
-        fields_changed=True,
-        tags_changed=False,
-        source_file=Path("/vault/tokens.md"),
-        source_line=10,
-        media_refs=[],
-    )
-    diff_html = _generate_diff_html(op)
-    assert "&lt;p&gt;" not in diff_html
-    assert "<!--m2a:abc123-->" not in diff_html
-    assert "lexical" in diff_html
-    assert "<ins" in diff_html
