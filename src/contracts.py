@@ -134,7 +134,13 @@ class SyncPlan:
 @dataclass
 class SyncReport:
     created_count: int = 0
+    created_image_cloze_count: int = 0
+    created_text_cloze_count: int = 0
+    created_basic_count: int = 0
     updated_count: int = 0
+    updated_image_cloze_count: int = 0
+    updated_text_cloze_count: int = 0
+    updated_basic_count: int = 0
     deck_moved_count: int = 0
     media_added_count: int = 0
     occlusions_staged_count: int = 0

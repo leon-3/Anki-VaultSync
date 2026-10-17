@@ -507,8 +507,15 @@ def execute_sync_plan(
                 is_io_note = (
                     create_op.model_name == MODEL_NAME_IMAGE_OCCLUSION
                     or "occlusion" in str(create_op.model_name).lower()
-                    or (create_op.card is not None and getattr(create_op.card, "kind", None) == "Image Occlusion")
+                    or (create_op.card is not None and getattr(create_op.card, "kind", None) in ("image_occlusion", "Image Occlusion"))
                 )
+                if is_io_note:
+                    report.created_image_cloze_count += 1
+                elif is_cloze_note:
+                    report.created_text_cloze_count += 1
+                else:
+                    report.created_basic_count += 1
+
                 if (is_io_note and plan.suspend_new_occlusions) or (is_cloze_note and plan.suspend_new_clozes):
                     cards_to_suspend.extend(created_card_ids)
                 _merge_undo()
@@ -525,6 +532,27 @@ def execute_sync_plan(
                 report.media_added_count += media_added
                 if deck_moved:
                     report.deck_moved_count += 1
+
+                is_cloze_up = (
+                    update_op.model_name == MODEL_NAME_CLOZE
+                    or "cloze" in str(update_op.model_name).lower()
+                    or (update_op.card is not None and (
+                        getattr(update_op.card, "kind", None) in ("cloze", "Cloze")
+                        or getattr(update_op.card, "has_cloze_markers", False)
+                    ))
+                )
+                is_io_up = (
+                    update_op.model_name == MODEL_NAME_IMAGE_OCCLUSION
+                    or "occlusion" in str(update_op.model_name).lower()
+                    or (update_op.card is not None and getattr(update_op.card, "kind", None) in ("image_occlusion", "Image Occlusion"))
+                )
+                if is_io_up:
+                    report.updated_image_cloze_count += 1
+                elif is_cloze_up:
+                    report.updated_text_cloze_count += 1
+                else:
+                    report.updated_basic_count += 1
+
                 _merge_undo()
             except Exception as exc:
                 report.warnings.append(
@@ -553,6 +581,8 @@ def execute_sync_plan(
                     write_flags(flags)
                 total_imgs = sum(len(imgs) for imgs in staged.values())
                 report.occlusions_staged_count = total_imgs
+                report.created_image_cloze_count += len(plan.occlusions_to_stage)
+                report.created_count += len(plan.occlusions_to_stage)
                 report.staged_occlusions_by_tag = staged
                 report.occlusion_dir = out_dir
 

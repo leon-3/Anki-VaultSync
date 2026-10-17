@@ -13,6 +13,7 @@ from ..worker import build_sync_plan, execute_sync_plan
 from .config_window import ConfigWindow
 from .main_window import MainWindow
 from .shortcuts import find_shortcut_conflict
+from .notification import show_sync_notification
 
 _main_window_instance: MainWindow | None = None
 _config_window_instance: ConfigWindow | None = None
@@ -192,12 +193,7 @@ def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
         for warn in report.warnings:
             logger.log_warning(warn)
 
-        total_changed = report.created_count + report.updated_count
-        if report.skipped_files or report.warnings:
-            issues_count = len(report.skipped_files) + len(report.warnings)
-            tooltip(f"⚠️ VaultSync: {report.created_count} added, {report.updated_count} updated ({issues_count} warning(s) - see Logs)")
-        elif total_changed > 0 or not is_startup:
-            tooltip(f"VaultSync: {report.created_count} added, {report.updated_count} updated.")
+        show_sync_notification(report, parent=mw, include_updates=include_updates, is_startup=is_startup)
 
     def _on_failure(exc: Exception) -> None:
         logger.log_error(f"Menu sync failed: {exc}")

@@ -36,6 +36,7 @@ from ..worker import build_sync_plan, execute_sync_plan
 from .config_window import ConfigWindow
 from .diff_dialog import DiffDialog
 from .sync_report_dialog import SyncIssuesDialog
+from .notification import show_sync_notification
 
 
 class MainWindow(QDialog):
@@ -410,6 +411,7 @@ class MainWindow(QDialog):
     def _start_sync(self, include_updates: bool) -> None:
         if self._is_busy or self._current_plan is None:
             return
+        self._last_sync_included_updates = include_updates
 
         # Check if diff preview is requested before updating
         if include_updates and self._settings.show_diff_before_update and self._current_plan.total_updates > 0:
@@ -466,7 +468,7 @@ class MainWindow(QDialog):
         for warn in report.warnings:
             self._log(f"WARNING: {warn}", level="WARNING")
 
-        tooltip(f"VaultSync: {report.created_count} added, {report.updated_count} updated.")
+        show_sync_notification(report, parent=mw or self, include_updates=getattr(self, "_last_sync_included_updates", True))
 
         has_issues = bool(report.skipped_files or report.warnings)
         if has_issues:

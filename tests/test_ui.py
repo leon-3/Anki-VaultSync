@@ -855,3 +855,52 @@ def test_config_window_shortcuts_configuration(monkeypatch, tmp_path: Path):
 
     dlg.close()
 
+def test_sync_notification_popup(monkeypatch):
+    from aqt.qt import QLabel, QMainWindow
+    from src.contracts import SyncReport
+    from src.ui.notification import SyncNotification, show_sync_notification
+    import src.ui.notification as notif_mod
+
+    dummy_mw = QMainWindow()
+    dummy_mw.resize(1000, 700)
+    monkeypatch.setattr(notif_mod, "mw", dummy_mw)
+
+    report = SyncReport(
+        created_count=5,
+        created_image_cloze_count=2,
+        created_text_cloze_count=3,
+        created_basic_count=0,
+        updated_count=2,
+        media_added_count=4,
+        warnings=["Test warning"],
+    )
+
+    notif = SyncNotification(report, parent=dummy_mw, include_updates=True)
+    # Check 10-second timer
+    assert notif._timer.interval() == 10000
+    assert notif._timer.isSingleShot()
+
+    # Verify text content in labels
+    all_texts = " ".join(lbl.text() for lbl in notif.findChildren(QLabel))
+    assert "Added:</b> 5" in all_texts
+    assert "Image Clozes: <b>2" in all_texts
+    assert "Text Clozes: <b>3" in all_texts
+    assert "Updated:</b> 2" in all_texts
+    assert "Media:</b> 4" in all_texts
+    assert "Warnings:</b> 1" in all_texts
+
+    # Test dismissal
+    notif.close()
+
+    # Startup sync with no changes should be quiet (returns None)
+    empty_report = SyncReport()
+    res_startup = show_sync_notification(empty_report, parent=dummy_mw, is_startup=True)
+    assert res_startup is None
+
+    # Manual sync with no changes should display 'Everything up to date'
+    res_manual = show_sync_notification(empty_report, parent=dummy_mw, is_startup=False)
+    assert res_manual is not None
+    manual_texts = " ".join(lbl.text() for lbl in res_manual.findChildren(QLabel))
+    assert "Everything up to date" in manual_texts
+    res_manual.close()
+
