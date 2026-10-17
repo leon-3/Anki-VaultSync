@@ -595,3 +595,132 @@ def test_config_window_maintenance_tab_operations(tmp_path: Path):
     assert len(dlg._get_selected_missing_records()) == 1
 
     dlg.close()
+
+def test_config_window_non_modal_and_view_orphans(tmp_path: Path, monkeypatch):
+    from unittest.mock import MagicMock
+    from aqt.qt import Qt
+    from src.contracts import OrphanNoteRecord
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    orphan = OrphanNoteRecord(
+        note_id=42,
+        card_id="cid42",
+        model_name="M2A Basic",
+        preview_question="What is Qt?",
+    )
+    plan = SyncPlan(
+        vault_path=tmp_path,
+        default_deck="Default",
+        file_plans=[],
+        orphans=[orphan],
+    )
+
+    dlg = ConfigWindow(manager, "TestNonModal", sync_plan=plan, initial_tab=ConfigWindow.TAB_MAINTENANCE)
+    assert dlg.windowModality() == Qt.WindowModality.NonModal
+
+    # Tab switching
+    dlg.switch_to_tab("General")
+    assert dlg.tabs.currentIndex() == ConfigWindow.TAB_GENERAL
+    dlg.switch_to_tab(ConfigWindow.TAB_MAINTENANCE)
+    assert dlg.tabs.currentIndex() == ConfigWindow.TAB_MAINTENANCE
+
+    # Default deck fallback
+    assert dlg._default_deck_name == "Default"
+
+    # View orphans in browser triggers browser focus
+    mock_browser = MagicMock()
+    mock_dialogs = MagicMock()
+    mock_dialogs.open.return_value = mock_browser
+    import aqt
+    monkeypatch.setattr(aqt, "dialogs", mock_dialogs)
+    from src.ui import config_window
+    monkeypatch.setattr(config_window, "dialogs", mock_dialogs)
+
+    dlg._on_view_orphans()
+    mock_dialogs.open.assert_called_once_with("Browser", aqt.mw)
+    mock_browser.search_for.assert_called_once_with("nid:42")
+    mock_browser.activateWindow.assert_called_once()
+    mock_browser.raise_.assert_called_once()
+    dlg.close()
+
+
+def test_config_window_resync_missing_calls_sync_without_attribute_error(tmp_path: Path, monkeypatch):
+    from unittest.mock import MagicMock
+    from src.contracts import MissingInAnkiRecord, SyncReport
+    from markdown2anki.parser import Card
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    vault_dir = tmp_path / "vault"
+    vault_dir.mkdir()
+    settings = manager.load("TestResync")
+    settings.vault_path = vault_dir
+    manager.save(settings)
+
+    fake_card = Card(file=vault_dir / "test.md", line=1, question="Q", answer="A", tag="", added=True, card_id="resync_id")
+    missing = MissingInAnkiRecord(
+        card_id="resync_id",
+        file_path=vault_dir / "test.md",
+        line=1,
+        preview_question="Q",
+        target_deck="Default",
+        tags=[],
+        card=fake_card,
+    )
+    plan = SyncPlan(
+        vault_path=vault_dir,
+        default_deck="Default",
+        file_plans=[],
+        missing_in_anki=[missing],
+    )
+
+    dlg = ConfigWindow(manager, "TestResync", sync_plan=plan, initial_tab=ConfigWindow.TAB_MAINTENANCE)
+
+    mock_build_plan = MagicMock()
+    mock_execute_plan = MagicMock(return_value=SyncReport(created_count=1, updated_count=0))
+    from src.ui import config_window
+    monkeypatch.setattr(config_window, "build_sync_plan", mock_build_plan)
+    monkeypatch.setattr(config_window, "execute_sync_plan", mock_execute_plan)
+
+    fake_mw = MagicMock()
+    fake_mw.col = MagicMock()
+    monkeypatch.setattr(config_window, "mw", fake_mw)
+
+    # Select row and resync
+    dlg._on_select_all_missing(True)
+    dlg._on_resync_missing()
+
+    assert mock_build_plan.call_count == 2
+    # First call is resync with recreate_missing_ids
+    first_call_kwargs = mock_build_plan.call_args_list[0].kwargs
+    assert "default_deck" in first_call_kwargs
+    assert first_call_kwargs["recreate_missing_ids"] == {"resync_id"}
+    # Second call is refresh without recreate_missing_ids
+    second_call_kwargs = mock_build_plan.call_args_list[1].kwargs
+    assert "default_deck" in second_call_kwargs
+    mock_execute_plan.assert_called_once()
+    dlg.close()
+
+
+def test_main_window_open_settings_modeless(tmp_path: Path):
+    from aqt.qt import Qt
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    win = MainWindow(manager, "TestModeless")
+
+    win._open_settings(tab_index=ConfigWindow.TAB_MAINTENANCE)
+    assert win._config_dlg is not None
+    assert win._config_dlg.windowModality() == Qt.WindowModality.NonModal
+    assert win._config_dlg.tabs.currentIndex() == ConfigWindow.TAB_MAINTENANCE
+
+    # Calling again switches tab and raises existing instance
+    first_dlg = win._config_dlg
+    win._open_settings(tab_index=ConfigWindow.TAB_GENERAL)
+    assert win._config_dlg is first_dlg
+    assert win._config_dlg.tabs.currentIndex() == ConfigWindow.TAB_GENERAL
+
+    win._config_dlg.close()
+    win.close()
+

@@ -39,8 +39,12 @@ def open_dashboard() -> None:
 def open_settings() -> None:
     global _config_window_instance
     profile_name = _get_active_profile()
-    _config_window_instance = ConfigWindow(_manager, profile_name, mw)
-    _config_window_instance.exec()
+    if _config_window_instance is None or not _config_window_instance.isVisible():
+        _config_window_instance = ConfigWindow(_manager, profile_name, mw)
+        _config_window_instance.show()
+    else:
+        _config_window_instance.activateWindow()
+        _config_window_instance.raise_()
 
 
 def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:

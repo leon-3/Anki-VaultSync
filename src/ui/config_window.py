@@ -38,7 +38,7 @@ from aqt.qt import (
     QVBoxLayout,
     QWidget,
 )
-from ..logger import clear_log, get_log_file_path, read_log_text
+from ..logger import clear_log, get_log_file_path, log_error, read_log_text
 
 def _is_deleted(widget: Any) -> bool:
     if sip is not None and hasattr(sip, "isdeleted"):
@@ -155,6 +155,7 @@ class ConfigWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("VaultSync Settings")
         self.resize(820, 700)
+        self.setWindowModality(Qt.WindowModality.NonModal)
 
         self._manager = profile_manager
         self._profile_name = profile_name
@@ -182,13 +183,24 @@ class ConfigWindow(QDialog):
             self._refresh_maintenance_data()
 
         if initial_tab is not None:
-            if isinstance(initial_tab, str):
-                for idx in range(self.tabs.count()):
-                    if self.tabs.tabText(idx).strip().lower() == initial_tab.strip().lower():
-                        self.tabs.setCurrentIndex(idx)
-                        break
-            elif isinstance(initial_tab, int) and 0 <= initial_tab < self.tabs.count():
-                self.tabs.setCurrentIndex(initial_tab)
+            self.switch_to_tab(initial_tab)
+
+    def switch_to_tab(self, tab: int | str) -> None:
+        if isinstance(tab, str):
+            for idx in range(self.tabs.count()):
+                if self.tabs.tabText(idx).strip().lower() == tab.strip().lower():
+                    self.tabs.setCurrentIndex(idx)
+                    return
+        elif isinstance(tab, int) and 0 <= tab < self.tabs.count():
+            self.tabs.setCurrentIndex(tab)
+
+    @property
+    def _default_deck_name(self) -> str:
+        if self._vault_cfg and getattr(self._vault_cfg, "deck", None):
+            return self._vault_cfg.deck
+        if hasattr(self, "deck_combo") and self.deck_combo.currentText().strip():
+            return self.deck_combo.currentText().strip()
+        return "Default"
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -1123,14 +1135,14 @@ class ConfigWindow(QDialog):
                 plan = build_sync_plan(
                     mw.col,
                     self._profile_settings.vault_path,
-                    default_deck=self._profile_settings.default_deck,
+                    default_deck=self._default_deck_name,
                     basic_model_id=self._profile_settings.basic_model_id,
                     cloze_model_id=self._profile_settings.cloze_model_id,
                 )
                 self.set_maintenance_plan(plan)
                 return
-            except Exception:
-                pass
+            except Exception as exc:
+                log_error(f"Failed to refresh maintenance data: {exc}")
 
         self.orphans_status_label.setText("0 orphaned note(s) detected in Anki.")
         self.view_orphans_btn.setEnabled(False)
@@ -1148,6 +1160,9 @@ class ConfigWindow(QDialog):
         query = f"nid:{','.join(nids)}"
         browser = dialogs.open("Browser", mw)
         browser.search_for(query)
+        browser.activateWindow()
+        browser.raise_()
+        self.lower()
 
     def _on_suspend_orphans(self) -> None:
         if not self._current_orphans or mw is None or mw.col is None:
@@ -1224,7 +1239,7 @@ class ConfigWindow(QDialog):
         plan = build_sync_plan(
             mw.col,
             self._profile_settings.vault_path,
-            default_deck=self._profile_settings.default_deck,
+            default_deck=self._default_deck_name,
             basic_model_id=self._profile_settings.basic_model_id,
             cloze_model_id=self._profile_settings.cloze_model_id,
             recreate_missing_ids=selected_ids,
@@ -1342,6 +1357,9 @@ class ConfigWindow(QDialog):
             query = f"nid:{','.join(nids)}"
             browser = dialogs.open("Browser", mw)
             browser.search_for(query)
+            browser.activateWindow()
+            browser.raise_()
+            self.lower()
 
         def _failure(exc):
             if _is_deleted(self):

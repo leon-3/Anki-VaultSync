@@ -53,6 +53,7 @@ class MainWindow(QDialog):
         self._current_plan: SyncPlan | None = None
         self._last_report: SyncReport | None = None
         self._is_busy = False
+        self._config_dlg: ConfigWindow | None = None
 
         self._init_ui()
         self._refresh_header()
@@ -516,9 +517,27 @@ class MainWindow(QDialog):
         self._open_settings(tab_index=ConfigWindow.TAB_MAINTENANCE)
 
     def _open_settings(self, tab_index: int | str | None = None) -> None:
-        dlg = ConfigWindow(self._manager, self._profile_name, self, initial_tab=tab_index, sync_plan=self._current_plan)
-        if dlg.exec():
-            self._settings = self._manager.load(self._profile_name)
-            self._refresh_header()
-            if self._settings.vault_path and self._settings.vault_path.is_dir():
-                self._start_scan()
+        if self._config_dlg is None or not self._config_dlg.isVisible():
+            self._config_dlg = ConfigWindow(
+                self._manager,
+                self._profile_name,
+                parent=mw if mw is not None else self,
+                initial_tab=tab_index,
+                sync_plan=self._current_plan,
+            )
+
+            def _on_accepted() -> None:
+                self._settings = self._manager.load(self._profile_name)
+                self._refresh_header()
+                if self._settings.vault_path and self._settings.vault_path.is_dir():
+                    self._start_scan()
+
+            self._config_dlg.accepted.connect(_on_accepted)
+            self._config_dlg.show()
+        else:
+            if tab_index is not None:
+                self._config_dlg.switch_to_tab(tab_index)
+            if self._current_plan is not None:
+                self._config_dlg.set_maintenance_plan(self._current_plan)
+            self._config_dlg.activateWindow()
+            self._config_dlg.raise_()
