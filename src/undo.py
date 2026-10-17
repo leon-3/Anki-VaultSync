@@ -59,7 +59,7 @@ def on_state_did_undo(changes: Any) -> None:
             from aqt import mw
             from aqt.utils import tooltip
             if mw is not None and cleared > 0:
-                tooltip(f"VaultSync: Flags für {cleared} Karte(n) in Obsidian entfernt.", parent=mw, period=3000)
+                tooltip(f"VaultSync: Cleared flags for {cleared} card(s) in Obsidian.", parent=mw, period=3000)
         except Exception:
             pass
     except Exception as exc:
