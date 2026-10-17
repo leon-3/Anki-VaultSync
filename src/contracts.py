@@ -91,6 +91,8 @@ class SyncPlan:
     occlusions_to_stage: list[ImageOcclusion] = field(default_factory=list)
     orphans: list[OrphanNoteRecord] = field(default_factory=list)
     diagnostics: list[str] = field(default_factory=list)
+    suspend_new_occlusions: bool = True
+    suspend_new_clozes: bool = False
 
     @property
     def total_files(self) -> int:
@@ -120,6 +122,7 @@ class SyncReport:
     deck_moved_count: int = 0
     media_added_count: int = 0
     occlusions_staged_count: int = 0
+    suspended_count: int = 0
     staged_occlusions_by_tag: dict[str, list[str]] = field(default_factory=dict)
     occlusion_dir: Path | None = None
     skipped_files: list[tuple[Path, str]] = field(default_factory=list)

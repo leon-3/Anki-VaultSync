@@ -417,6 +417,15 @@ class ConfigWindow(QDialog):
         row_startup.addStretch()
         card_sync_l.addLayout(row_startup)
 
+        self.suspend_new_clozes_cb = QCheckBox("Suspend Newly Created Text-Cloze Cards by Default")
+        self.suspend_new_clozes_cb.setStyleSheet("font-size: 13px;")
+        row_cloze_susp = QHBoxLayout()
+        row_cloze_susp.setSpacing(8)
+        row_cloze_susp.addWidget(self.suspend_new_clozes_cb)
+        row_cloze_susp.addWidget(self._help_button("suspend_new_clozes"))
+        row_cloze_susp.addStretch()
+        card_sync_l.addLayout(row_cloze_susp)
+
         layout.addWidget(card_sync)
 
         # Section 3: Tag Formatting & Rules
@@ -710,7 +719,71 @@ class ConfigWindow(QDialog):
 
         layout.addWidget(card_media)
 
-        # Section 2: Ignore Patterns
+        # Section 2: Image Occlusion Settings
+        card_io, card_io_l = _create_section_card(
+            "Image Occlusion Settings",
+            "Configure how image cloze notes are created, masked, and protected in Anki.",
+        )
+
+        lbl_io_mode = QLabel("Image Occlusion Mode:")
+        lbl_io_mode.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        card_io_l.addWidget(lbl_io_mode)
+
+        row_io_mode = QHBoxLayout()
+        row_io_mode.setSpacing(8)
+        self.image_occlusion_mode_combo = QComboBox()
+        self.image_occlusion_mode_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 13px;
+                padding: 6px 10px;
+                border-radius: 6px;
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                min-width: 320px;
+                min-height: 24px;
+            }
+        """)
+        self.image_occlusion_mode_combo.addItem("Direct Native Image Occlusions (Recommended)", userData="native")
+        self.image_occlusion_mode_combo.addItem("Folder Staging (Legacy / Manual)", userData="stage")
+        row_io_mode.addWidget(self.image_occlusion_mode_combo)
+        row_io_mode.addWidget(self._help_button("image_occlusion_mode"))
+        row_io_mode.addStretch()
+        card_io_l.addLayout(row_io_mode)
+
+        card_io_l.addSpacing(6)
+
+        self.suspend_new_occlusions_cb = QCheckBox("Automatically Suspend New Image Occlusion Cards Until Masked")
+        self.suspend_new_occlusions_cb.setStyleSheet("font-size: 13px;")
+        row_io_susp = QHBoxLayout()
+        row_io_susp.setSpacing(8)
+        row_io_susp.addWidget(self.suspend_new_occlusions_cb)
+        row_io_susp.addWidget(self._help_button("suspend_new_occlusions"))
+        row_io_susp.addStretch()
+        card_io_l.addLayout(row_io_susp)
+
+        self.freeze_image_occlusions_cb = QCheckBox("Completely Freeze Added Image Occlusion Cards (Skip Updates)")
+        self.freeze_image_occlusions_cb.setStyleSheet("font-size: 13px;")
+        row_io_freeze = QHBoxLayout()
+        row_io_freeze.setSpacing(8)
+        row_io_freeze.addWidget(self.freeze_image_occlusions_cb)
+        row_io_freeze.addWidget(self._help_button("freeze_image_occlusions"))
+        row_io_freeze.addStretch()
+        card_io_l.addLayout(row_io_freeze)
+
+        card_io_l.addSpacing(6)
+
+        mask_info = QLabel(
+            "<b>ℹ️ Mask Protection:</b> Once an Image Occlusion card is created, user-drawn masks and images in Anki are strictly frozen and protected from being overwritten by Markdown syncs. Deck routing and tag updates continue to sync cleanly."
+        )
+        mask_info.setWordWrap(True)
+        mask_info.setStyleSheet(
+            "background-color: rgba(33, 150, 243, 0.12); color: palette(text); border: 1px solid rgba(33, 150, 243, 0.35); "
+            "border-radius: 6px; padding: 10px; font-size: 12px; line-height: 1.4;"
+        )
+        card_io_l.addWidget(mask_info)
+
+        layout.addWidget(card_io)
+
+        # Section 3: Ignore Patterns
         card_ign, card_ign_l = _create_section_card(
             "Ignored Directories & Files",
             "Folders or glob patterns to skip during vault scanning (one per line, e.g. .obsidian, templates/*, archive).",
@@ -1149,6 +1222,10 @@ class ConfigWindow(QDialog):
             self.pad_single_digits_cb.setChecked(True)
             self.hash_media_cb.setChecked(True)
             self.cloze_cb.setChecked(True)
+            self.suspend_new_clozes_cb.setChecked(False)
+            self.image_occlusion_mode_combo.setCurrentIndex(0)
+            self.suspend_new_occlusions_cb.setChecked(True)
+            self.freeze_image_occlusions_cb.setChecked(False)
             return
 
         self.deck_combo.setCurrentText(self._vault_cfg.deck)
@@ -1156,6 +1233,13 @@ class ConfigWindow(QDialog):
         self.pad_single_digits_cb.setChecked(self._vault_cfg.pad_single_digit_tags)
         self.hash_media_cb.setChecked(self._vault_cfg.hash_media)
         self.cloze_cb.setChecked(self._vault_cfg.cloze_notes)
+        self.suspend_new_clozes_cb.setChecked(getattr(self._vault_cfg, "suspend_new_clozes", False))
+
+        mode = getattr(self._vault_cfg, "image_occlusion_mode", "native")
+        self.image_occlusion_mode_combo.setCurrentIndex(1 if mode == "stage" else 0)
+        self.suspend_new_occlusions_cb.setChecked(getattr(self._vault_cfg, "suspend_new_occlusions", True))
+        self.freeze_image_occlusions_cb.setChecked(getattr(self._vault_cfg, "freeze_image_occlusions", False))
+
         self.re_stage_occlusions = self._vault_cfg.re_stage_occlusions
         self.re_stage_cb.setChecked(self._vault_cfg.re_stage_occlusions)
 
@@ -1208,6 +1292,10 @@ class ConfigWindow(QDialog):
             "pad_single_digits": self.pad_single_digits_cb.isChecked(),
             "deck": self.deck_combo.currentText().strip(),
             "cloze": self.cloze_cb.isChecked(),
+            "suspend_new_clozes": self.suspend_new_clozes_cb.isChecked(),
+            "image_occlusion_mode": self.image_occlusion_mode_combo.currentData() or "native",
+            "suspend_new_occlusions": self.suspend_new_occlusions_cb.isChecked(),
+            "freeze_image_occlusions": self.freeze_image_occlusions_cb.isChecked(),
             "hash_media": self.hash_media_cb.isChecked(),
             "re_stage": self.re_stage_cb.isChecked(),
             "ignore": self.ignore_edit.toPlainText().strip(),
@@ -1320,6 +1408,10 @@ class ConfigWindow(QDialog):
                 cfg.pad_single_digit_tags = self.pad_single_digits_cb.isChecked()
                 cfg.hash_media = self.hash_media_cb.isChecked()
                 cfg.cloze_notes = self.cloze_cb.isChecked()
+                cfg.suspend_new_clozes = self.suspend_new_clozes_cb.isChecked()
+                cfg.image_occlusion_mode = self.image_occlusion_mode_combo.currentData() or "native"
+                cfg.suspend_new_occlusions = self.suspend_new_occlusions_cb.isChecked()
+                cfg.freeze_image_occlusions = self.freeze_image_occlusions_cb.isChecked()
                 cfg.re_stage_occlusions = self.re_stage_cb.isChecked()
                 cfg.deck_routing = deck_routing
                 cfg.tag_aliases = tag_aliases

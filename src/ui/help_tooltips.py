@@ -2,6 +2,24 @@
 from __future__ import annotations
 
 TOOLTIPS: dict[str, str] = {
+    "suspend_new_clozes": (
+        "When enabled, newly created Text-Cloze cards are added in a suspended state. "
+        "This allows you to pace your study and selectively unsuspend cards in Anki when ready."
+    ),
+    "image_occlusion_mode": (
+        "Controls how Image Occlusion cards (Image Cloze) are processed. "
+        "'Direct Native Image Occlusions' creates notes using Anki's built-in Image Occlusion notetype "
+        "with image assets placed directly into collection.media. 'Folder Staging' exports images to "
+        "an external occlusions/ folder for manual import."
+    ),
+    "suspend_new_occlusions": (
+        "Automatically suspends newly created Image Occlusion cards until you draw masks in Anki's editor. "
+        "This prevents 'Empty Card' review errors while preserving full deck routing and tagging."
+    ),
+    "freeze_image_occlusions": (
+        "When enabled, once an Image Occlusion card has been synced and flagged, routine syncs will skip it entirely "
+        "and never check for updates."
+    ),
     "vault_path": (
         "The root directory of your Obsidian or Markdown vault where your flashcard notes are located. "
         "VaultSync scans this directory and its subfolders for cards."

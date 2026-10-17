@@ -10,6 +10,7 @@ from src.bridge import (
     apply_note_create,
     apply_note_update,
     build_existing_note_index,
+    ensure_image_occlusion_model,
     ensure_models,
     import_media_and_rewrite_fields,
 )
@@ -120,8 +121,9 @@ def test_note_lifecycle_and_single_pass_index():
                 source_line=15,
                 media_refs=[],
             )
-            media_count = apply_note_create(col, create_op, model_ids)
+            media_count, card_ids = apply_note_create(col, create_op, model_ids)
             assert media_count == 0
+            assert len(card_ids) == 1
 
             # Verify deck was created
             deck_id = col.decks.id("Course::Algorithms")
@@ -517,5 +519,39 @@ def test_custom_note_type_with_less_than_2_fields_raises_error():
 
             assert "has only 1 field" in str(exc_info.value)
             assert "requires at least 2 fields" in str(exc_info.value)
+        finally:
+            col.close()
+
+
+def test_ensure_image_occlusion_model_resolution_and_fallback():
+    """Verify standard 'Image Occlusion' model resolution and backend restoration if deleted."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        col = Collection(str(Path(tmp_dir) / "collection.anki2"))
+        try:
+            # 1. Standard resolution on fresh collection
+            io_mid = ensure_image_occlusion_model(col, create=False)
+            assert io_mid is not None
+            model = col.models.get(NotetypeId(io_mid))
+            assert model is not None
+            assert model["name"] == "Image Occlusion"
+            assert [f["name"] for f in model["flds"]] == [
+                "Occlusion", "Image", "Header", "Back Extra", "Comments"
+            ]
+
+            # 2. ensure_models registers Image Occlusion in returned dictionary
+            model_ids = ensure_models(col, create=False)
+            assert "Image Occlusion" in model_ids
+            assert model_ids["Image Occlusion"] == io_mid
+
+            # 3. If model is removed from collection, create=False returns None
+            col.models.remove(NotetypeId(io_mid))
+            assert ensure_image_occlusion_model(col, create=False) is None
+
+            # 4. create=True restores / recreates standard stock Image Occlusion notetype
+            restored_mid = ensure_image_occlusion_model(col, create=True)
+            assert restored_mid is not None
+            restored = col.models.get(NotetypeId(restored_mid))
+            assert restored is not None
+            assert restored["name"] == "Image Occlusion"
         finally:
             col.close()

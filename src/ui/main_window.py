@@ -145,9 +145,11 @@ class MainWindow(QDialog):
 
         lbl_occ = QLabel("Image occlusions:")
         lbl_occ.setStyleSheet("font-size: 13px; font-weight: normal; border: none; background: transparent;")
-        lbl_occ.setToolTip("Occlusion cards to stage from your configured occlusion folder.")
+        lbl_occ.setToolTip("Occlusion cards. In native mode, click count to view unmasked cards in Anki Browser.")
         self.occlusions_val_label = QLabel("0")
         self.occlusions_val_label.setStyleSheet("font-size: 13px; font-weight: bold; border: none; background: transparent;")
+        self.occlusions_val_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.occlusions_val_label.mousePressEvent = lambda event: self._view_unmasked_occlusions()
         self.occlusions_label = self.occlusions_val_label
         status_grid.addWidget(lbl_occ, 2, 0)
         status_grid.addWidget(self.occlusions_val_label, 2, 1, Qt.AlignmentFlag.AlignRight)
@@ -355,7 +357,39 @@ class MainWindow(QDialog):
         # Update card count values in aligned column
         self.new_val_label.setText(str(plan.total_creates))
         self.modified_val_label.setText(str(plan.total_updates))
-        self.occlusions_val_label.setText(str(len(plan.occlusions_to_stage)))
+
+        # Count native image occlusions in plan
+        new_io_count = sum(
+            1 for fp in plan.file_plans
+            for op in fp.creates
+            if op.model_name == "Image Occlusion"
+        )
+        unmasked_in_anki = 0
+        if mw is not None and getattr(mw, "col", None) is not None:
+            try:
+                unmasked_in_anki = len(mw.col.find_notes("tag:TODO_PROCESS_OCCLUSION"))
+            except Exception:
+                unmasked_in_anki = 0
+
+        if len(plan.occlusions_to_stage) > 0:
+            self.occlusions_val_label.setText(str(len(plan.occlusions_to_stage)))
+            self.occlusions_val_label.setToolTip("Image occlusion cards to stage into export folder.")
+        elif new_io_count > 0:
+            self.occlusions_val_label.setText(str(new_io_count))
+            tip = f"{new_io_count} new native image occlusion(s) to create."
+            if unmasked_in_anki > 0:
+                tip += f"\n({unmasked_in_anki} unmasked cards currently in Anki - click to view in Browser)"
+            self.occlusions_val_label.setToolTip(tip)
+        elif unmasked_in_anki > 0:
+            self.occlusions_val_label.setText(str(unmasked_in_anki))
+            self.occlusions_val_label.setToolTip(
+                f"{unmasked_in_anki} card(s) awaiting masks in Anki (tag:TODO_PROCESS_OCCLUSION).\n"
+                "Click to view in Anki Browser."
+            )
+        else:
+            self.occlusions_val_label.setText("0")
+            self.occlusions_val_label.setToolTip("No pending or unmasked image occlusions.")
+
         self.orphans_val_label.setText(str(len(plan.orphans)))
 
         self._log(
@@ -485,6 +519,12 @@ class MainWindow(QDialog):
             on_rescan=self._start_scan,
         )
         dlg.exec()
+
+    def _view_unmasked_occlusions(self) -> None:
+        if mw is not None and getattr(mw, "col", None) is not None:
+            query = "tag:TODO_PROCESS_OCCLUSION"
+            browser = dialogs.open("Browser", mw)
+            browser.search_for(query)
 
     def _view_orphans(self) -> None:
         if self._current_plan is None or not self._current_plan.orphans:

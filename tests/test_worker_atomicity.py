@@ -205,7 +205,7 @@ def test_image_hash_normalization_prevents_false_updates():
         note_dir = vault_path / "Topic"
         note_dir.mkdir()
         img_file = note_dir / "pasted image 123.png"
-        img_file.write_bytes(b"dummy_image_content")
+        img_file.write_bytes(b"fake_png_data")
 
         note_file = note_dir / "note.md"
         note_file.write_text(
@@ -260,14 +260,14 @@ def test_occlusions_filtering_respects_added_and_restage():
         occ_dir.mkdir()
 
         (vault_path / "m2a.toml").write_text(
-            'vault = "."\ndeck = "Anatomy"\nre_stage_occlusions = false\n[subdirectories]\n',
+            'vault = "."\ndeck = "Anatomy"\nimage_occlusion_mode = "stage"\nre_stage_occlusions = false\n[subdirectories]\n',
             encoding="utf-8",
         )
 
         note_dir = vault_path / "Topic"
         note_dir.mkdir()
         img_file = note_dir / "diagram.png"
-        img_file.write_bytes(b"\x89PNG\r\n\x1a\nfakeimage")
+        img_file.write_bytes(b"fake_png_data")
 
         note_file = note_dir / "occlusion.md"
         note_file.write_text(
@@ -300,7 +300,7 @@ def test_occlusions_filtering_respects_added_and_restage():
 
             # 4. If re_stage_occlusions is explicitly enabled in config:
             (vault_path / "m2a.toml").write_text(
-                'vault = "."\ndeck = "Anatomy"\nre_stage_occlusions = true\n[subdirectories]\n',
+                'vault = "."\ndeck = "Anatomy"\nimage_occlusion_mode = "stage"\nre_stage_occlusions = true\n[subdirectories]\n',
                 encoding="utf-8",
             )
             plan3 = build_sync_plan(col, vault_path)
@@ -434,5 +434,336 @@ def test_duplicate_markdown_card_id_is_skipped_and_diagnosed():
             # Only the first card should be planned; the duplicate must be skipped!
             assert plan.total_creates == 1
             assert any("Duplicate card ID 'dup999'" in d for d in diagnostics)
+        finally:
+            col.close()
+
+
+def test_native_image_occlusion_creation_and_suspension():
+    """Verify native Image Occlusion creation, media copy, Comments ID marker, and card suspension."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "Anatomy"\nimage_occlusion_mode = "native"\nsuspend_new_occlusions = true\n',
+            encoding="utf-8",
+        )
+
+        note_dir = vault_path / "Topic"
+        note_dir.mkdir()
+        img_file = note_dir / "brain.png"
+        img_file.write_bytes(b"fake_png_data")
+
+        note_file = note_dir / "brain_note.md"
+        note_file.write_text(
+            "# Neuroanatomy\n---\nImage Cloze\n![[brain.png]]\n",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            plan = build_sync_plan(col, vault_path)
+            assert plan.total_creates == 1
+            create_op = plan.file_plans[0].creates[0]
+            assert create_op.model_name == "Image Occlusion"
+            assert create_op.target_deck_name == "Anatomy"
+            assert "TODO_PROCESS_OCCLUSION" in create_op.tags
+            assert "<!--m2a:" in create_op.fields["Comments"]
+            assert create_op.fields["Occlusion"] == ""
+            assert "<img src=" in create_op.fields["Image"]
+
+            report = execute_sync_plan(col, plan)
+            assert report.created_count == 1
+            assert report.media_added_count == 1
+            assert report.suspended_count == 1
+
+            # Verify note in Anki
+            nids = col.find_notes("deck:Anatomy")
+            assert len(nids) == 1
+            note = col.get_note(nids[0])
+            assert note.note_type()["name"] == "Image Occlusion"
+            assert "TODO_PROCESS_OCCLUSION" in note.tags
+            assert "<!--m2a:" in note["Comments"]
+
+            # Verify card is suspended
+            cards = note.cards()
+            assert len(cards) == 1
+            assert cards[0].queue == -1
+
+            # Verify media exists in collection.media
+            media_files = list(Path(col.media.dir()).glob("*.png"))
+            assert len(media_files) == 1
+
+            # Verify markdown file was flagged with ADDED
+            assert "ADDED: Image Cloze %%" in note_file.read_text(encoding="utf-8")
+        finally:
+            col.close()
+
+
+def test_native_image_occlusion_selective_field_freeze_and_tag_safety():
+    """Verify that existing Occlusion SVG masks are never overwritten and tag is not re-added."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "Anatomy"\nimage_occlusion_mode = "native"\n',
+            encoding="utf-8",
+        )
+
+        note_dir = vault_path / "Topic"
+        note_dir.mkdir()
+        img_file = note_dir / "diagram.png"
+        img_file.write_bytes(b"fake_png_data")
+
+        note_file = note_dir / "diagram.md"
+        note_file.write_text(
+            "# Chapter\n---\nImage Cloze\n![[diagram.png]]\n",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            # 1. Initial creation
+            plan1 = build_sync_plan(col, vault_path)
+            execute_sync_plan(col, plan1)
+
+            nids = col.find_notes("deck:Anatomy")
+            note = col.get_note(nids[0])
+
+            # 2. Simulate user drawing masks in Anki and removing TODO_PROCESS_OCCLUSION tag
+            user_mask_svg = "<svg><rect x=10 y=10 width=50 height=50/></svg>{{c1::}}"
+            note["Occlusion"] = user_mask_svg
+            note.tags = [t for t in note.tags if t != "TODO_PROCESS_OCCLUSION"]
+            col.update_note(note)
+
+            # 3. Rescan without changes in Obsidian: must be a pure No-Op
+            plan2 = build_sync_plan(col, vault_path)
+            assert plan2.total_creates == 0
+            assert plan2.total_updates == 0
+            assert plan2.total_unchanged == 1
+
+            # 4. User updates note Header / question in Obsidian
+            content = note_file.read_text(encoding="utf-8")
+            updated_content = content.replace("Image Cloze", "Image Cloze - Anatomy Question")
+            note_file.write_text(updated_content, encoding="utf-8")
+
+            plan3 = build_sync_plan(col, vault_path)
+            assert plan3.total_updates == 1
+            update_op = plan3.file_plans[0].updates[0]
+            # Occlusion field in new_fields must match the Anki user mask
+            assert update_op.new_fields["Occlusion"] == user_mask_svg
+            # TODO_PROCESS_OCCLUSION must NOT be re-added
+            assert "TODO_PROCESS_OCCLUSION" not in update_op.new_tags
+
+            report3 = execute_sync_plan(col, plan3)
+            assert report3.updated_count == 1
+
+            # 5. Verify Anki note fields after update
+            reloaded_note = col.get_note(nids[0])
+            assert reloaded_note["Occlusion"] == user_mask_svg
+            assert "TODO_PROCESS_OCCLUSION" not in reloaded_note.tags
+            assert "Anatomy Question" in reloaded_note["Header"]
+        finally:
+            col.close()
+
+
+def test_freeze_image_occlusions_setting():
+    """Verify that freeze_image_occlusions=true skips updates entirely."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "Anatomy"\nimage_occlusion_mode = "native"\nfreeze_image_occlusions = true\n',
+            encoding="utf-8",
+        )
+
+        note_dir = vault_path / "Topic"
+        note_dir.mkdir()
+        img_file = note_dir / "diagram.png"
+        img_file.write_bytes(b"fake_png_data")
+
+        note_file = note_dir / "diagram.md"
+        note_file.write_text(
+            "# Chapter\n---\nImage Cloze\n![[diagram.png]]\n",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            plan1 = build_sync_plan(col, vault_path)
+            execute_sync_plan(col, plan1)
+
+            # Modify Markdown
+            content = note_file.read_text(encoding="utf-8")
+            note_file.write_text(content.replace("# Chapter", "# Modified"), encoding="utf-8")
+
+            # Scan should treat as unchanged because freeze_image_occlusions is True
+            plan2 = build_sync_plan(col, vault_path)
+            assert plan2.total_creates == 0
+            assert plan2.total_updates == 0
+            assert plan2.total_unchanged == 1
+        finally:
+            col.close()
+
+
+def test_batch_suspension_text_clozes():
+    """Verify suspend_new_clozes suspends cloze cards, while basic cards remain active."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "TestDeck"\ncloze_notes = true\nsuspend_new_clozes = true\n',
+            encoding="utf-8",
+        )
+
+        note_file = vault_path / "notes.md"
+        note_file.write_text(
+            "# Chapter\n---\nBasic Q\nBasic A\n---\nCloze\n{{c1::alpha}} and {{c2::beta}}\n",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            plan = build_sync_plan(col, vault_path)
+            assert plan.total_creates == 2
+            report = execute_sync_plan(col, plan)
+            assert report.created_count == 2
+            # The cloze note generated 2 cards (c1, c2), both suspended
+            assert report.suspended_count == 2
+
+            # Basic note card should be active (queue == 0)
+            all_deck_cards = [col.get_card(cid) for cid in col.find_cards("deck:TestDeck")]
+            basic_cards = [c for c in all_deck_cards if c.note().note_type()["name"] == "M2A Basic"]
+            assert len(basic_cards) == 1
+            assert basic_cards[0].queue == 0
+
+            # Cloze note cards should be suspended (queue == -1)
+            cloze_cards = [c for c in all_deck_cards if c.note().note_type()["name"] == "M2A Cloze"]
+            assert len(cloze_cards) == 2
+            assert all(c.queue == -1 for c in cloze_cards)
+        finally:
+            col.close()
+
+
+def test_native_image_occlusion_folder_relocation_updates_deck_without_touching_masks():
+    """Verify moving note in Obsidian updates Anki deck while preserving Occlusion SVG mask."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "RootDeck"\nimage_occlusion_mode = "native"\n'
+            '[deck_routing]\n"FolderA" = "Deck::FolderA"\n"FolderB" = "Deck::FolderB"\n',
+            encoding="utf-8",
+        )
+
+        dir_a = vault_path / "FolderA"
+        dir_a.mkdir()
+        img_file = dir_a / "diagram.png"
+        img_file.write_bytes(b"fake_png_data")
+
+        note_file_a = dir_a / "diagram.md"
+        note_file_a.write_text(
+            "# Chapter\n---\nImage Cloze\n![[diagram.png]]\n",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            # 1. Initial sync to FolderA -> Deck::FolderA
+            plan1 = build_sync_plan(col, vault_path)
+            execute_sync_plan(col, plan1)
+
+            nids = col.find_notes("deck:Deck::FolderA")
+            assert len(nids) == 1
+            note = col.get_note(nids[0])
+
+            # 2. User draws mask in Anki
+            user_mask_svg = "<svg><circle cx=20 cy=20 r=15/></svg>{{c1::}}"
+            note["Occlusion"] = user_mask_svg
+            col.update_note(note)
+
+            # 3. User moves file to FolderB in Obsidian
+            dir_b = vault_path / "FolderB"
+            dir_b.mkdir()
+            # Move image and markdown
+            (dir_b / "diagram.png").write_bytes(img_file.read_bytes())
+            img_file.unlink()
+            note_content = note_file_a.read_text(encoding="utf-8")
+            note_file_a.unlink()
+            (dir_b / "diagram.md").write_text(note_content, encoding="utf-8")
+
+            # 4. Sync should detect deck move
+            plan2 = build_sync_plan(col, vault_path)
+            assert plan2.total_creates == 0
+            assert plan2.total_updates == 1
+            update_op = plan2.file_plans[0].updates[0]
+            assert update_op.deck_changed is True
+            assert update_op.target_deck_name == "Deck::FolderB"
+            assert update_op.new_fields["Occlusion"] == user_mask_svg
+
+            report2 = execute_sync_plan(col, plan2)
+            assert report2.updated_count == 1
+            assert report2.deck_moved_count == 1
+
+            # 5. Verify card is now in Deck::FolderB with mask intact
+            nids_old = col.find_notes("deck:Deck::FolderA")
+            assert len(nids_old) == 0
+            nids_new = col.find_notes("deck:Deck::FolderB")
+            assert len(nids_new) == 1
+            reloaded_note = col.get_note(nids_new[0])
+            assert reloaded_note["Occlusion"] == user_mask_svg
+        finally:
+            col.close()
+
+
+def test_orphan_detection_flags_deleted_image_occlusions():
+    """Verify orphan detection correctly flags deleted Image Occlusion cards in Obsidian."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "Anatomy"\nimage_occlusion_mode = "native"\n',
+            encoding="utf-8",
+        )
+
+        dir_topic = vault_path / "Topic"
+        dir_topic.mkdir()
+        img = dir_topic / "kidney.png"
+        img.write_bytes(b"fake_kidney_bytes")
+
+        note_file = dir_topic / "kidney.md"
+        note_file.write_text(
+            "# Chapter\n---\nImage Cloze: Kidney Anatomy\n![[kidney.png]]\n",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            plan = build_sync_plan(col, vault_path)
+            assert plan.total_creates == 1
+            report = execute_sync_plan(col, plan)
+            assert report.created_count == 1
+
+            # Delete the markdown file in Obsidian
+            note_file.unlink()
+
+            # Rescan
+            plan2 = build_sync_plan(col, vault_path)
+            assert len(plan2.orphans) == 1
+            orphan = plan2.orphans[0]
+            assert orphan.model_name == "Image Occlusion"
+            assert "Kidney Anatomy" in orphan.preview_question
+            assert "Anatomy" in orphan.deck_names
         finally:
             col.close()

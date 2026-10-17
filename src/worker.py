@@ -8,11 +8,16 @@ from typing import Callable
 import urllib.parse
 
 from anki.collection import Collection
-from markdown2anki.build import MODEL_CLOZE, build
+from markdown2anki.build import MODEL_CLOZE, MODEL_IMAGE_OCCLUSION, build
 from markdown2anki.config import load_vault_config
+from markdown2anki.constants import OCCLUSION_TAG
 from markdown2anki.flags import write_flags
 from markdown2anki.ids import new_card_id, with_marker
-from markdown2anki.models import MODEL_NAME_BASIC, MODEL_NAME_CLOZE
+from markdown2anki.models import (
+    MODEL_NAME_BASIC,
+    MODEL_NAME_CLOZE,
+    MODEL_NAME_IMAGE_OCCLUSION,
+)
 from markdown2anki.occlusions import export_occlusions
 from markdown2anki.vault import collect
 
@@ -149,6 +154,7 @@ def build_sync_plan(
         vault_cfg.cloze_notes,
         vault_root=vault_cfg.vault,
         hash_media=vault_cfg.hash_media,
+        image_occlusion_mode=vault_cfg.image_occlusion_mode,
     )
 
     # Group rendered notes by source file
@@ -181,9 +187,13 @@ def build_sync_plan(
                     trace_fn(msg)
                 continue
 
-            model_name: ModelName = (
-                MODEL_NAME_CLOZE if note.model == MODEL_CLOZE else MODEL_NAME_BASIC
-            )
+            if note.model == MODEL_IMAGE_OCCLUSION:
+                model_name: ModelName = MODEL_NAME_IMAGE_OCCLUSION
+            elif note.model == MODEL_CLOZE:
+                model_name: ModelName = MODEL_NAME_CLOZE
+            else:
+                model_name: ModelName = MODEL_NAME_BASIC
+
             target_deck = note.deck or vault_cfg.deck or default_deck
 
             media_refs: list[MediaItem] = [
@@ -200,11 +210,26 @@ def build_sync_plan(
                 # New card
                 assigned_id = card_id if card_id else new_card_id()
                 seen_card_ids.add(assigned_id)
-                field_names = ("Text", "Back Extra") if model_name == MODEL_NAME_CLOZE else ("Front", "Back")
-                fields = {
-                    field_names[0]: note.fields[0] if len(note.fields) > 0 else "",
-                    field_names[1]: with_marker(note.fields[1] if len(note.fields) > 1 else "", assigned_id),
-                }
+                if model_name == MODEL_NAME_IMAGE_OCCLUSION:
+                    fields = {
+                        "Occlusion": note.fields[0] if len(note.fields) > 0 else "",
+                        "Image": note.fields[1] if len(note.fields) > 1 else "",
+                        "Header": note.fields[2] if len(note.fields) > 2 else "",
+                        "Back Extra": note.fields[3] if len(note.fields) > 3 else "",
+                        "Comments": with_marker(note.fields[4] if len(note.fields) > 4 else "", assigned_id),
+                    }
+                elif model_name == MODEL_NAME_CLOZE:
+                    field_names = ("Text", "Back Extra")
+                    fields = {
+                        field_names[0]: note.fields[0] if len(note.fields) > 0 else "",
+                        field_names[1]: with_marker(note.fields[1] if len(note.fields) > 1 else "", assigned_id),
+                    }
+                else:
+                    field_names = ("Front", "Back")
+                    fields = {
+                        field_names[0]: note.fields[0] if len(note.fields) > 0 else "",
+                        field_names[1]: with_marker(note.fields[1] if len(note.fields) > 1 else "", assigned_id),
+                    }
                 creates.append(
                     NoteCreateOp(
                         card_id=assigned_id,
@@ -223,11 +248,33 @@ def build_sync_plan(
                 seen_card_ids.add(card_id)
                 rec = existing_index[card_id]
 
-                field_names = ("Text", "Back Extra") if model_name == MODEL_NAME_CLOZE else ("Front", "Back")
-                new_fields = {
-                    field_names[0]: note.fields[0] if len(note.fields) > 0 else "",
-                    field_names[1]: with_marker(note.fields[1] if len(note.fields) > 1 else "", card_id),
-                }
+                if model_name == MODEL_NAME_IMAGE_OCCLUSION and getattr(vault_cfg, "freeze_image_occlusions", False):
+                    unchanged_count += 1
+                    continue
+
+                if model_name == MODEL_NAME_IMAGE_OCCLUSION:
+                    new_fields = {
+                        "Occlusion": rec.fields.get("Occlusion", ""),
+                        "Image": rec.fields.get("Image", ""),
+                        "Header": note.fields[2] if len(note.fields) > 2 else "",
+                        "Back Extra": note.fields[3] if len(note.fields) > 3 else "",
+                        "Comments": with_marker(note.fields[4] if len(note.fields) > 4 else "", card_id),
+                    }
+                    new_tags = [t for t in note.tags if t != OCCLUSION_TAG or OCCLUSION_TAG in rec.tags]
+                elif model_name == MODEL_NAME_CLOZE:
+                    field_names = ("Text", "Back Extra")
+                    new_fields = {
+                        field_names[0]: note.fields[0] if len(note.fields) > 0 else "",
+                        field_names[1]: with_marker(note.fields[1] if len(note.fields) > 1 else "", card_id),
+                    }
+                    new_tags = list(note.tags)
+                else:
+                    field_names = ("Front", "Back")
+                    new_fields = {
+                        field_names[0]: note.fields[0] if len(note.fields) > 0 else "",
+                        field_names[1]: with_marker(note.fields[1] if len(note.fields) > 1 else "", card_id),
+                    }
+                    new_tags = list(note.tags)
 
                 normalized_rec_fields = {
                     fname: _normalize_html_for_diff(fval, media_refs)
@@ -235,8 +282,15 @@ def build_sync_plan(
                 }
 
                 # Diff detection
-                fields_changed = new_fields != normalized_rec_fields
-                tags_changed = set(note.tags) != set(rec.tags)
+                if model_name == MODEL_NAME_IMAGE_OCCLUSION:
+                    fields_changed = any(
+                        new_fields.get(k, "") != normalized_rec_fields.get(k, "")
+                        for k in ("Header", "Back Extra", "Comments")
+                    )
+                else:
+                    fields_changed = new_fields != normalized_rec_fields
+
+                tags_changed = set(new_tags) != set(rec.tags)
 
                 target_deck_id = _get_deck_id_readonly(target_deck)
                 deck_changed = (target_deck_id is None) or (target_deck_id not in rec.deck_ids)
@@ -253,7 +307,7 @@ def build_sync_plan(
                             old_fields=normalized_rec_fields,
                             new_fields=new_fields,
                             old_tags=rec.tags,
-                            new_tags=list(note.tags),
+                            new_tags=new_tags,
                             deck_changed=deck_changed,
                             fields_changed=fields_changed,
                             tags_changed=tags_changed,
@@ -284,7 +338,10 @@ def build_sync_plan(
     for oid in sorted(orphan_ids):
         rec = existing_index[oid]
         deck_names = [_get_deck_name(did) for did in rec.deck_ids]
-        preview = next(iter(rec.fields.values()), "") if rec.fields else ""
+        if rec.model_name == MODEL_NAME_IMAGE_OCCLUSION:
+            preview = rec.fields.get("Header") or rec.fields.get("Image", "")
+        else:
+            preview = next(iter(rec.fields.values()), "") if rec.fields else ""
         orphans.append(
             OrphanNoteRecord(
                 note_id=rec.note_id,
@@ -310,6 +367,8 @@ def build_sync_plan(
         occlusions_to_stage=occlusions_to_stage,
         orphans=orphans,
         diagnostics=[str(d) for d in collected.diagnostics],
+        suspend_new_occlusions=vault_cfg.suspend_new_occlusions,
+        suspend_new_clozes=vault_cfg.suspend_new_clozes,
     )
 
 
@@ -336,6 +395,8 @@ def execute_sync_plan(
                 col.merge_undo_entries(undo_id)
             except Exception:
                 pass
+
+    cards_to_suspend: list[int] = []
 
     for file_plan in plan.file_plans:
         has_creates = len(file_plan.creates) > 0
@@ -383,9 +444,11 @@ def execute_sync_plan(
         # 3. Apply Note Creations in Anki
         for create_op in file_plan.creates:
             try:
-                media_added = apply_note_create(col, create_op, model_ids)
+                media_added, created_card_ids = apply_note_create(col, create_op, model_ids)
                 report.created_count += 1
                 report.media_added_count += media_added
+                if (create_op.model_name == MODEL_NAME_IMAGE_OCCLUSION and plan.suspend_new_occlusions) or                    (create_op.model_name == MODEL_NAME_CLOZE and plan.suspend_new_clozes):
+                    cards_to_suspend.extend(created_card_ids)
                 _merge_undo()
             except Exception as exc:
                 report.warnings.append(
@@ -405,6 +468,18 @@ def execute_sync_plan(
                 report.warnings.append(
                     f"{file_plan.file_path.name}:{update_op.source_line} ({update_op.card_id}): {exc}"
                 )
+
+    # Batch initial card suspension (Image Occlusions and/or Clozes)
+    if cards_to_suspend:
+        try:
+            if hasattr(col.sched, "suspend_cards"):
+                col.sched.suspend_cards(cards_to_suspend)
+            elif hasattr(col.sched, "suspendCards"):
+                col.sched.suspendCards(cards_to_suspend)
+            report.suspended_count += len(cards_to_suspend)
+            _merge_undo()
+        except Exception as exc:
+            report.warnings.append(f"Card suspension error: {exc}")
 
     # 5. Stage Image Occlusions
     if plan.occlusions_to_stage:

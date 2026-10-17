@@ -12,16 +12,56 @@ from anki.utils import split_fields
 from markdown2anki.models import (
     BASIC_FIELDS,
     CLOZE_FIELDS,
+    IMAGE_OCCLUSION_FIELDS,
     KIND_BASIC,
     KIND_CLOZE,
+    KIND_IMAGE_OCCLUSION,
     MODEL_NAME_BASIC,
     MODEL_NAME_CLOZE,
+    MODEL_NAME_IMAGE_OCCLUSION,
     load_template,
 )
 
 from .contracts import ExistingNoteRecord, MediaItem, NoteCreateOp, NoteUpdateOp
 
 M2A_MARKER_RE = re.compile(r"<!--m2a:([a-zA-Z0-9_-]+)-->")
+
+
+def ensure_image_occlusion_model(col: Collection, create: bool = True) -> int | None:
+    """Resolves the stock 'Image Occlusion' notetype ID.
+
+    Strictly uses 'Image Occlusion' as the sole model name and identifier.
+    If absent, falls back to stock kind 6 (standard in Anki 23.10+ / 24+).
+    When create=True and absent, initializes via backend add_image_occlusion_notetype().
+    """
+    # 1. Direct lookup by standard model name "Image Occlusion"
+    m = col.models.by_name(MODEL_NAME_IMAGE_OCCLUSION)
+    if m is not None:
+        return int(m["id"])
+
+    # 2. Lookup by original stock kind (6 for Image Occlusion in Anki 23.10+)
+    for candidate in col.models.all():
+        if getattr(candidate, "originalStockKind", None) == 6 or candidate.get("originalStockKind") == 6:
+            return int(candidate["id"])
+
+    if not create:
+        return None
+
+    # 3. Programmatic initialization via stock notetype factory if absent
+    if hasattr(col.models, "add_image_occlusion"):
+        created = col.models.add_image_occlusion()
+        if created:
+            return int(created["id"])
+    elif hasattr(col, "_backend") and hasattr(col._backend, "add_image_occlusion_notetype"):
+        try:
+            col._backend.add_image_occlusion_notetype()
+            created = col.models.by_name(MODEL_NAME_IMAGE_OCCLUSION)
+            if created:
+                return int(created["id"])
+        except Exception:
+            pass
+
+    raise RuntimeError("Standard 'Image Occlusion' note type not found in collection.")
 
 
 def ensure_models(
@@ -54,7 +94,7 @@ def ensure_models(
             flds = existing.get("flds", [])
             if len(flds) < 2:
                 raise ValueError(
-                    f"Note type '{existing.get("name")}' (ID {existing.get("id")}) has only {len(flds)} field(s). "
+                    f"Note type '{existing.get('name')}' (ID {existing.get('id')}) has only {len(flds)} field(s). "
                     "VaultSync requires at least 2 fields to store the synchronization ID marker."
                 )
             # Use the existing note type definition and styling
@@ -90,6 +130,10 @@ def ensure_models(
         if created is None:
             raise RuntimeError(f"Failed to create note type '{model_name}' in collection")
         model_ids[model_name] = int(created["id"])
+
+    io_mid = ensure_image_occlusion_model(col, create=create)
+    if io_mid is not None:
+        model_ids[MODEL_NAME_IMAGE_OCCLUSION] = io_mid
 
     return model_ids
 
@@ -199,18 +243,28 @@ def apply_note_create(
     col: Collection,
     op: NoteCreateOp,
     model_ids: dict[str, int] | None = None,
-) -> int:
-    """Creates a new Anki note and places all generated cards in the target deck."""
+) -> tuple[int, list[int]]:
+    """Creates a new Anki note and places all generated cards in the target deck.
+
+    Returns:
+        tuple of (media_added_count, list_of_card_ids).
+    """
     if model_ids is not None:
         target_mid = model_ids.get(op.model_name)
         if target_mid is None:
-            target_mid = model_ids.get(MODEL_NAME_CLOZE if "Cloze" in op.model_name else MODEL_NAME_BASIC)
+            target_mid = model_ids.get(
+                MODEL_NAME_CLOZE if "Cloze" in op.model_name
+                else (MODEL_NAME_IMAGE_OCCLUSION if "Occlusion" in op.model_name else MODEL_NAME_BASIC)
+            )
     else:
         m = col.models.by_name(op.model_name)
         if m is not None:
             target_mid = int(m["id"])
         else:
-            fallback = col.models.by_name(MODEL_NAME_CLOZE if "Cloze" in op.model_name else MODEL_NAME_BASIC)
+            fallback = col.models.by_name(
+                MODEL_NAME_CLOZE if "Cloze" in op.model_name
+                else (MODEL_NAME_IMAGE_OCCLUSION if "Occlusion" in op.model_name else MODEL_NAME_BASIC)
+            )
             target_mid = int(fallback["id"]) if fallback else None
 
     if target_mid is None:
@@ -236,7 +290,8 @@ def apply_note_create(
     note.tags = col.tags.split(col.tags.join(op.tags))
     deck_id = col.decks.id(op.target_deck_name)
     col.add_note(note, deck_id)
-    return media_count
+    card_ids = [c.id for c in note.cards()]
+    return media_count, card_ids
 
 
 def apply_note_update(
@@ -251,13 +306,19 @@ def apply_note_update(
     if model_ids is not None:
         target_mid = model_ids.get(op.model_name)
         if target_mid is None:
-            target_mid = model_ids.get(MODEL_NAME_CLOZE if "Cloze" in op.model_name else MODEL_NAME_BASIC)
+            target_mid = model_ids.get(
+                MODEL_NAME_CLOZE if "Cloze" in op.model_name
+                else (MODEL_NAME_IMAGE_OCCLUSION if "Occlusion" in op.model_name else MODEL_NAME_BASIC)
+            )
     else:
         m = col.models.by_name(op.model_name)
         if m is not None:
             target_mid = int(m["id"])
         else:
-            fallback = col.models.by_name(MODEL_NAME_CLOZE if "Cloze" in op.model_name else MODEL_NAME_BASIC)
+            fallback = col.models.by_name(
+                MODEL_NAME_CLOZE if "Cloze" in op.model_name
+                else (MODEL_NAME_IMAGE_OCCLUSION if "Occlusion" in op.model_name else MODEL_NAME_BASIC)
+            )
             target_mid = int(fallback["id"]) if fallback else None
 
     # Handle model conversion (e.g. Basic <-> Cloze)

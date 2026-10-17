@@ -434,3 +434,49 @@ def test_config_window_surfaces_toml_parse_error(tmp_path: Path):
     assert dlg.error_banner is not None
     assert "Warning: Failed to parse vault configuration" in dlg.error_banner.text()
     dlg.close()
+
+
+def test_config_window_image_occlusion_and_suspension_settings_roundtrip(tmp_path: Path):
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+    toml_path = vault_path / "m2a.toml"
+    toml_path.write_text(
+        'vault = "."\nimage_occlusion_mode = "native"\nsuspend_new_occlusions = true\nsuspend_new_clozes = false\nfreeze_image_occlusions = false\n',
+        encoding="utf-8",
+    )
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    manager.save(AddonProfileSettings(profile_name="ProfileIO", vault_path=vault_path))
+
+    dlg = ConfigWindow(manager, "ProfileIO")
+    assert dlg.suspend_new_clozes_cb.isChecked() is False
+    assert dlg.image_occlusion_mode_combo.currentData() == "native"
+    assert dlg.suspend_new_occlusions_cb.isChecked() is True
+    assert dlg.freeze_image_occlusions_cb.isChecked() is False
+
+    # Modify settings in UI
+    dlg.suspend_new_clozes_cb.setChecked(True)
+    dlg.image_occlusion_mode_combo.setCurrentIndex(1)  # "stage"
+    dlg.suspend_new_occlusions_cb.setChecked(False)
+    dlg.freeze_image_occlusions_cb.setChecked(True)
+
+    dlg._on_save()
+    dlg.close()
+
+    # Verify saved back to m2a.toml
+    saved_cfg = manager.load_vault(vault_path)
+    assert saved_cfg.suspend_new_clozes is True
+    assert saved_cfg.image_occlusion_mode == "stage"
+    assert saved_cfg.suspend_new_occlusions is False
+    assert saved_cfg.freeze_image_occlusions is True
+
+
+def test_main_window_occlusions_label_reflects_native_mode(tmp_path: Path):
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    win = MainWindow(manager, "TestIO")
+    assert win.occlusions_val_label is not None
+    # Verify click handler does not crash when mw is headless / none
+    win._view_unmasked_occlusions()
+    win.close()

@@ -1,6 +1,4 @@
 # Specs and agent instructions
-SPEC.md
-DECOUPLING_SPEC.md
 .agents/
 .gemini/
 .idea/
