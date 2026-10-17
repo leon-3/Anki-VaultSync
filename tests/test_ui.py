@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import tempfile
 from pathlib import Path
 
@@ -317,4 +318,119 @@ def test_sync_issues_dialog(tmp_path: Path):
     assert "bad.md" in dlg.issues_edit.toPlainText()
     assert "Syntax error on line 5" in dlg.issues_edit.toPlainText()
     assert "Missing media file image.png" in dlg.issues_edit.toPlainText()
+    dlg.close()
+
+
+def test_main_window_busy_state_disables_settings_and_actions(tmp_path: Path):
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    win = MainWindow(manager, "TestBusy")
+
+    # Initial state
+    assert win.settings_btn.isEnabled() is True
+    assert win.rescan_btn.isEnabled() is True
+
+    # Set busy
+    win._set_buttons_busy(True)
+    assert win._is_busy is True
+    assert win.settings_btn.isEnabled() is False
+    assert win.rescan_btn.isEnabled() is False
+    assert win.diff_btn.isEnabled() is False
+    assert win.sync_btn.isEnabled() is False
+
+    # Unset busy
+    win._set_buttons_busy(False)
+    assert win._is_busy is False
+    assert win.settings_btn.isEnabled() is True
+    assert win.rescan_btn.isEnabled() is True
+    win.close()
+
+
+def test_main_window_op_failure_resets_busy_and_reports_error(tmp_path: Path):
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    win = MainWindow(manager, "TestFailure")
+
+    win._set_buttons_busy(True)
+    assert win._is_busy is True
+
+    # Trigger failure callback
+    err = RuntimeError("Simulated background database lock")
+    win._on_op_failure(err)
+
+    assert win._is_busy is False
+    assert win.settings_btn.isEnabled() is True
+    assert win.rescan_btn.isEnabled() is True
+    assert "Operation failed: Simulated background database lock" in win.status_label.text()
+    assert "#F44336" in win.status_dot.styleSheet()
+    win.close()
+
+
+def test_diff_dialog_is_file_externally_modified_fast_mtime(tmp_path: Path):
+    file_path = tmp_path / "note.md"
+    file_path.write_text("Hello World", encoding="utf-8")
+    mtime_ns = file_path.stat().st_mtime_ns
+    sha256_hex = hashlib.sha256(b"Hello World").hexdigest()
+
+    op = NoteUpdateOp(
+        note_id=1,
+        card_id="test1",
+        model_name="M2A Basic",
+        target_deck_name="Default",
+        old_deck_names=["Default"],
+        old_fields={"Front": "Old", "Back": "Old"},
+        new_fields={"Front": "New", "Back": "New"},
+        old_tags=[],
+        new_tags=[],
+        deck_changed=False,
+        fields_changed=True,
+        tags_changed=False,
+        source_file=file_path,
+        source_line=1,
+        media_refs=[],
+    )
+    fp = FileSyncPlan(
+        file_path=file_path,
+        mtime_ns=mtime_ns,
+        sha256_hex=sha256_hex,
+        creates=[],
+        updates=[op],
+        unchanged_count=0,
+    )
+    plan = SyncPlan(
+        vault_path=tmp_path,
+        default_deck="Default",
+        file_plans=[fp],
+    )
+
+    dlg = DiffDialog(plan)
+    assert file_path in dlg._file_plan_by_path
+    # Unmodified: st_mtime_ns matches fp.mtime_ns -> False immediately
+    assert dlg._is_file_externally_modified(op) is False
+
+    # Simulate modification outside (with distinct mtime)
+    file_path.write_text("Hello Modified World", encoding="utf-8")
+    import os
+    os.utime(file_path, ns=(mtime_ns + 100_000_000, mtime_ns + 100_000_000))
+    assert dlg._is_file_externally_modified(op) is True
+    dlg.close()
+
+
+def test_config_window_surfaces_toml_parse_error(tmp_path: Path):
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+
+    vault_dir = tmp_path / "vault_broken"
+    vault_dir.mkdir()
+    (vault_dir / "m2a.toml").write_text("deck = [invalid toml syntax", encoding="utf-8")
+
+    # Set profile to point to broken vault
+    settings = manager.load("BrokenProfile")
+    settings.vault_path = vault_dir
+    manager.save(settings)
+
+    dlg = ConfigWindow(manager, "BrokenProfile")
+    assert hasattr(dlg, "error_banner")
+    assert dlg.error_banner is not None
+    assert "Warning: Failed to parse vault configuration" in dlg.error_banner.text()
     dlg.close()

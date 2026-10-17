@@ -367,3 +367,72 @@ def test_write_occlusion_index_appends_batches(tmp_path):
     assert "Tag2" in text2
     assert "img1.png" in text2
     assert "img3.png" in text2
+
+
+def test_stage1_scan_is_strictly_read_only():
+    """Verify that Stage 1 build_sync_plan does NOT mutate Anki (no new decks, no new models)."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "NonExistentDeck::SubDeck"\n[subdirectories]\n',
+            encoding="utf-8",
+        )
+
+        note_dir = vault_path / "Topic"
+        note_dir.mkdir()
+        note_file = note_dir / "card.md"
+        note_file.write_text(
+            "# Chapter\n---\nNew Question\nNew Answer\n",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            assert col.decks.by_name("NonExistentDeck::SubDeck") is None
+            assert col.models.by_name("M2A Basic") is None
+            assert col.models.by_name("M2A Cloze") is None
+
+            plan = build_sync_plan(col, vault_path, default_deck="NonExistentDeck::SubDeck")
+            assert plan.total_creates == 1
+
+            # Ensure neither the target deck nor models were created during scan
+            assert col.decks.by_name("NonExistentDeck::SubDeck") is None
+            assert col.models.by_name("M2A Basic") is None
+            assert col.models.by_name("M2A Cloze") is None
+        finally:
+            col.close()
+
+
+def test_duplicate_markdown_card_id_is_skipped_and_diagnosed():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "Uni"\n[subdirectories]\n',
+            encoding="utf-8",
+        )
+
+        note_dir = vault_path / "Topic"
+        note_dir.mkdir()
+        note_file = note_dir / "dups.md"
+        # Two cards with identical %%dup999%% card ID
+        note_file.write_text(
+            "# Chapter\n---\nADDED: First Card %%dup999%%\nFirst Answer\n---\nADDED: Second Duplicate Card %%dup999%%\nSecond Answer\n",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            diagnostics: list[str] = []
+            plan = build_sync_plan(col, vault_path, trace_fn=lambda msg: diagnostics.append(msg))
+
+            # Only the first card should be planned; the duplicate must be skipped!
+            assert plan.total_creates == 1
+            assert any("Duplicate card ID 'dup999'" in d for d in diagnostics)
+        finally:
+            col.close()

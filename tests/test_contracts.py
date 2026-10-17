@@ -81,3 +81,16 @@ def test_sync_plan_properties():
     report = SyncReport(created_count=1, updated_count=1)
     assert report.created_count == 1
     assert report.updated_count == 1
+
+
+def test_custom_model_name_contract_supports_arbitrary_string():
+    record = ExistingNoteRecord(
+        note_id=999,
+        card_id="cst999",
+        model_id=123,
+        model_name="Custom Medical Cloze Model",
+        fields={"Text": "test"},
+        tags=["med"],
+        deck_ids={1},
+    )
+    assert record.model_name == "Custom Medical Cloze Model"

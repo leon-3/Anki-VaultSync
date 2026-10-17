@@ -16,7 +16,17 @@ from aqt.qt import (
     QPushButton,
     Qt,
     QVBoxLayout,
+    sip,
 )
+
+
+def _is_deleted(widget: Any) -> bool:
+    if sip is not None and hasattr(sip, "isdeleted"):
+        try:
+            return sip.isdeleted(widget)
+        except Exception:
+            return False
+    return False
 from aqt.utils import tooltip
 
 from .. import logger
@@ -287,6 +297,7 @@ class MainWindow(QDialog):
 
     def _set_buttons_busy(self, busy: bool) -> None:
         self._is_busy = busy
+        self.settings_btn.setEnabled(not busy)
         self.rescan_btn.setEnabled(not busy)
         self.diff_btn.setEnabled(not busy and (self._current_plan is not None and self._current_plan.total_updates > 0))
         self.sync_btn.setEnabled(
@@ -298,6 +309,14 @@ class MainWindow(QDialog):
                 or len(self._current_plan.occlusions_to_stage) > 0
             )
         )
+
+    def _on_op_failure(self, exc: Exception) -> None:
+        if _is_deleted(self):
+            return
+        self._set_buttons_busy(False)
+        self._set_status(f"Operation failed: {exc}", state="error")
+        self._log(f"ERROR: {exc}", level="ERROR")
+        QMessageBox.critical(self, "VaultSync Error", f"An error occurred:\n\n{exc}")
 
     def _start_scan(self) -> None:
         if self._is_busy:
@@ -325,9 +344,11 @@ class MainWindow(QDialog):
             parent=self,
             op=_scan_op,
             success=self._on_scan_success,
-        ).run_in_background()
+        ).failure(self._on_op_failure).with_progress("Scanning vault...").run_in_background()
 
     def _on_scan_success(self, plan: SyncPlan) -> None:
+        if _is_deleted(self):
+            return
         self._current_plan = plan
         self._set_buttons_busy(False)
 
@@ -402,9 +423,11 @@ class MainWindow(QDialog):
             parent=self,
             op=_sync_op,
             success=self._on_sync_success,
-        ).with_progress("Syncing cards to Anki...").run_in_background()
+        ).failure(self._on_op_failure).with_progress("Syncing cards to Anki...").run_in_background()
 
     def _on_sync_success(self, report: SyncReport) -> None:
+        if _is_deleted(self):
+            return
         self._set_buttons_busy(False)
         self._last_report = report
 

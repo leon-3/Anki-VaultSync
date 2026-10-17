@@ -11,6 +11,7 @@ from src.bridge import (
     apply_note_update,
     build_existing_note_index,
     ensure_models,
+    import_media_and_rewrite_fields,
 )
 from src.contracts import MediaItem, NoteCreateOp, NoteUpdateOp
 
@@ -238,5 +239,283 @@ def test_filtered_deck_movement():
             # but its home deck (odid) must be updated to target_deck_id!
             assert reloaded_card.did == filtered_deck_id
             assert reloaded_card.odid == target_deck_id
+        finally:
+            col.close()
+
+
+def test_filtered_deck_indexing_uses_odid():
+    """Verify that build_existing_note_index indexes odid (home deck) when card is in filtered deck."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        col_path = Path(tmp_dir) / "collection.anki2"
+        col = Collection(str(col_path))
+        try:
+            model_ids = ensure_models(col)
+            initial_deck_id = col.decks.id("RealHomeDeck")
+            filtered_deck_id = col.decks.id("FilteredDeck")
+
+            create_op = NoteCreateOp(
+                card_id="odid999",
+                model_name="M2A Basic",
+                target_deck_name="RealHomeDeck",
+                fields={
+                    "Front": "Question Filtered",
+                    "Back": "Answer Filtered<!--m2a:odid999-->",
+                },
+                tags=["test"],
+                source_file=Path("/vault/test.md"),
+                source_line=1,
+                media_refs=[],
+            )
+            apply_note_create(col, create_op, model_ids)
+
+            note_id = col.find_notes("deck:RealHomeDeck")[0]
+            note = col.get_note(note_id)
+            card = note.cards()[0]
+
+            # Put card in filtered deck
+            card.did = filtered_deck_id
+            card.odid = initial_deck_id
+            col.update_card(card)
+
+            # Build index and verify deck_ids has initial_deck_id, not filtered_deck_id
+            index = build_existing_note_index(col, model_ids)
+            assert "odid999" in index
+            rec = index["odid999"]
+            assert initial_deck_id in rec.deck_ids
+            assert filtered_deck_id not in rec.deck_ids
+        finally:
+            col.close()
+
+
+def test_ensure_models_read_only():
+    """Verify that ensure_models(create=False) does not modify the collection."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        col_path = Path(tmp_dir) / "collection.anki2"
+        col = Collection(str(col_path))
+        try:
+            models_before = col.models.all_names_and_ids()
+            model_ids = ensure_models(col, create=False)
+            assert "M2A Basic" not in model_ids
+            assert "M2A Cloze" not in model_ids
+            models_after = col.models.all_names_and_ids()
+            assert len(models_before) == len(models_after)
+        finally:
+            col.close()
+
+
+def test_apply_note_update_model_conversion():
+    """Verify that apply_note_update converts a note between Basic and Cloze models."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        col_path = Path(tmp_dir) / "collection.anki2"
+        col = Collection(str(col_path))
+        try:
+            model_ids = ensure_models(col)
+            basic_mid = model_ids["M2A Basic"]
+            cloze_mid = model_ids["M2A Cloze"]
+
+            create_op = NoteCreateOp(
+                card_id="conv100",
+                model_name="M2A Basic",
+                target_deck_name="TestDeck",
+                fields={
+                    "Front": "Original Question",
+                    "Back": "Original Answer<!--m2a:conv100-->",
+                },
+                tags=["original"],
+                source_file=Path("/vault/test.md"),
+                source_line=1,
+                media_refs=[],
+            )
+            apply_note_create(col, create_op, model_ids)
+
+            note_id = col.find_notes("deck:TestDeck")[0]
+            note = col.get_note(note_id)
+            assert note.mid == basic_mid
+
+            update_op = NoteUpdateOp(
+                note_id=note_id,
+                card_id="conv100",
+                model_name="M2A Cloze",
+                target_deck_name="TestDeck",
+                old_deck_names=["TestDeck"],
+                old_fields={"Front": "Original Question", "Back": "Original Answer<!--m2a:conv100-->"},
+                new_fields={
+                    "Text": "This is {{c1::cloze}} text<!--m2a:conv100-->",
+                    "Back Extra": "Some extra notes",
+                },
+                old_tags=["original"],
+                new_tags=["converted"],
+                deck_changed=False,
+                fields_changed=True,
+                tags_changed=True,
+                source_file=Path("/vault/test.md"),
+                source_line=1,
+                media_refs=[],
+                approved=True,
+            )
+            apply_note_update(col, update_op, model_ids)
+
+            reloaded_note = col.get_note(note_id)
+            assert reloaded_note.mid == cloze_mid
+            assert "This is {{c1::cloze}}" in reloaded_note["Text"]
+            assert reloaded_note["Back Extra"] == "Some extra notes"
+        finally:
+            col.close()
+
+
+def test_import_media_skips_existing_hashed_files():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        col_path = tmp_path / "collection.anki2"
+        col = Collection(str(col_path))
+        try:
+            img_file = tmp_path / "original.png"
+            img_file.write_bytes(b"image_content_123")
+
+            media_item_hashed = MediaItem(
+                source_path=img_file,
+                staged_filename="hashed_12345.png",
+            )
+
+            # 1. First import writes the file
+            fields = {"Front": "Look at <img src=\"hashed_12345.png\">"}
+            updated_fields, added_count = import_media_and_rewrite_fields(
+                col, fields, [media_item_hashed], hash_media_enabled=True
+            )
+            assert added_count == 1
+            assert (Path(col.media.dir()) / "hashed_12345.png").is_file()
+
+            # 2. Second import of the same hashed file skips write_data
+            updated_fields2, added_count2 = import_media_and_rewrite_fields(
+                col, fields, [media_item_hashed], hash_media_enabled=True
+            )
+            assert added_count2 == 0
+            assert updated_fields2 == fields
+
+            # 3. If unhashed (filename matches source_path.name), it is not skipped
+            media_item_unhashed = MediaItem(
+                source_path=img_file,
+                staged_filename="original.png",
+            )
+            _, added_unhashed1 = import_media_and_rewrite_fields(
+                col, {"Front": "img"}, [media_item_unhashed], hash_media_enabled=True
+            )
+            assert added_unhashed1 == 1
+
+            _, added_unhashed2 = import_media_and_rewrite_fields(
+                col, {"Front": "img"}, [media_item_unhashed], hash_media_enabled=True
+            )
+            assert added_unhashed2 == 1
+        finally:
+            col.close()
+
+
+def test_import_media_pre_validates_missing_files_atomically():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        col_path = tmp_path / "collection.anki2"
+        col = Collection(str(col_path))
+        try:
+            valid_img = tmp_path / "valid.png"
+            valid_img.write_bytes(b"valid_bytes")
+
+            missing_img = tmp_path / "does_not_exist.png"
+
+            item_valid = MediaItem(source_path=valid_img, staged_filename="val_hash.png")
+            item_missing = MediaItem(source_path=missing_img, staged_filename="miss_hash.png")
+
+            # Calling import_media_and_rewrite_fields should raise FileNotFoundError
+            # and NOT write val_hash.png to col.media.dir()
+            import pytest
+            with pytest.raises(FileNotFoundError) as exc_info:
+                import_media_and_rewrite_fields(col, {"Front": "x"}, [item_valid, item_missing])
+
+            assert "Missing media file" in str(exc_info.value)
+            assert not (Path(col.media.dir()) / "val_hash.png").exists()
+        finally:
+            col.close()
+
+
+def test_apply_note_update_skips_media_io_when_fields_unchanged():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        col_path = tmp_path / "collection.anki2"
+        col = Collection(str(col_path))
+        try:
+            model_ids = ensure_models(col)
+
+            img_file = tmp_path / "card_img.png"
+            img_file.write_bytes(b"card_img")
+
+            item = MediaItem(source_path=img_file, staged_filename="card_img_hash.png")
+
+            create_op = NoteCreateOp(
+                card_id="skipmed1",
+                model_name="M2A Basic",
+                target_deck_name="TestDeck",
+                fields={"Front": "Q <img src=\"card_img_hash.png\">", "Back": "A<!--m2a:skipmed1-->"},
+                tags=["tag1"],
+                source_file=Path("/vault/test.md"),
+                source_line=1,
+                media_refs=[item],
+            )
+            apply_note_create(col, create_op, model_ids)
+
+            note_id = col.find_notes("deck:TestDeck")[0]
+
+            # Now provide a broken media_ref whose source_path does NOT exist
+            missing_item = MediaItem(source_path=tmp_path / "gone.png", staged_filename="card_img_hash.png")
+
+            # Update ONLY tags (fields_changed=False)
+            update_op = NoteUpdateOp(
+                note_id=note_id,
+                card_id="skipmed1",
+                model_name="M2A Basic",
+                target_deck_name="TestDeck",
+                old_deck_names=["TestDeck"],
+                old_fields={"Front": "Q <img src=\"card_img_hash.png\">", "Back": "A<!--m2a:skipmed1-->"},
+                new_fields={"Front": "Q <img src=\"card_img_hash.png\">", "Back": "A<!--m2a:skipmed1-->"},
+                old_tags=["tag1"],
+                new_tags=["tag1", "tag2"],
+                deck_changed=False,
+                fields_changed=False,
+                tags_changed=True,
+                source_file=Path("/vault/test.md"),
+                source_line=1,
+                media_refs=[missing_item],
+                approved=True,
+            )
+
+            # Must NOT raise FileNotFoundError because fields_changed=False skips media processing
+            media_count, deck_moved = apply_note_update(col, update_op, model_ids)
+            assert media_count == 0
+            assert deck_moved is False
+
+            reloaded_note = col.get_note(note_id)
+            assert "tag2" in reloaded_note.tags
+        finally:
+            col.close()
+
+
+def test_custom_note_type_with_less_than_2_fields_raises_error():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        col = Collection(str(Path(tmp_dir) / "collection.anki2"))
+        try:
+            # Create a 1-field model with 1 template
+            one_field_model = col.models.new("OneFieldModel")
+            col.models.add_field(one_field_model, col.models.new_field("OnlyField"))
+            card_tpl = col.models.new_template("Card 1")
+            card_tpl["qfmt"] = "{{OnlyField}}"
+            card_tpl["afmt"] = "{{FrontSide}}"
+            col.models.add_template(one_field_model, card_tpl)
+            col.models.add_dict(one_field_model)
+            mid = int(col.models.by_name("OneFieldModel")["id"])
+
+            import pytest
+            with pytest.raises(ValueError) as exc_info:
+                ensure_models(col, basic_model_id=mid)
+
+            assert "has only 1 field" in str(exc_info.value)
+            assert "requires at least 2 fields" in str(exc_info.value)
         finally:
             col.close()

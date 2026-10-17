@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from markdown2anki.build import ImageOcclusion
     from markdown2anki.parser import Card
 
-ModelName = Literal["M2A Basic", "M2A Cloze"]
+ModelName = str
 
 
 @dataclass(frozen=True)

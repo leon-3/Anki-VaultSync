@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import re
 from typing import TYPE_CHECKING
 
@@ -28,6 +29,7 @@ def ensure_models(
     repair_templates: bool = False,
     basic_model_id: int | None = None,
     cloze_model_id: int | None = None,
+    create: bool = True,
 ) -> dict[str, int]:
     """Ensures Basic and Cloze note types exist and returns {model_name: mid}."""
     model_ids: dict[str, int] = {}
@@ -49,6 +51,12 @@ def ensure_models(
         tpl = load_template(tpl_key)
 
         if existing is not None:
+            flds = existing.get("flds", [])
+            if len(flds) < 2:
+                raise ValueError(
+                    f"Note type '{existing.get("name")}' (ID {existing.get("id")}) has only {len(flds)} field(s). "
+                    "VaultSync requires at least 2 fields to store the synchronization ID marker."
+                )
             # Use the existing note type definition and styling
             if repair_templates:
                 existing["type"] = model_type
@@ -58,6 +66,9 @@ def ensure_models(
                     existing["tmpls"][0]["afmt"] = tpl.afmt
                 col.models.update_dict(existing)
             model_ids[model_name] = int(existing["id"])
+            continue
+
+        if not create:
             continue
 
         # 3. Create new model if neither ID nor name found
@@ -76,7 +87,8 @@ def ensure_models(
 
         col.models.add_dict(model)
         created = col.models.by_name(model_name)
-        assert created is not None
+        if created is None:
+            raise RuntimeError(f"Failed to create note type '{model_name}' in collection")
         model_ids[model_name] = int(created["id"])
 
     return model_ids
@@ -109,7 +121,7 @@ def build_existing_note_index(
         *mids,
     )
     card_rows = col.db.all(
-        f"SELECT nid, did FROM cards WHERE nid IN "
+        f"SELECT nid, CASE WHEN odid != 0 THEN odid ELSE did END FROM cards WHERE nid IN "
         f"(SELECT id FROM notes WHERE mid IN ({placeholders}))",
         *mids,
     )
@@ -124,6 +136,9 @@ def build_existing_note_index(
         if not match:
             continue
         card_id = match.group(1)
+        if card_id in index:
+            # Skip duplicate marker in Anki to avoid silent overwriting
+            continue
         field_names = mid_to_fields.get(int(mid), BASIC_FIELDS)
         field_values = split_fields(raw_flds)
         fields_dict = dict(zip(field_names, field_values))
@@ -145,13 +160,30 @@ def import_media_and_rewrite_fields(
     col: Collection,
     fields: dict[str, str],
     media_refs: list[MediaItem],
+    hash_media_enabled: bool = True,
 ) -> tuple[dict[str, str], int]:
     """Copies media files to collection.media and substitutes any collision-renamed filenames."""
-    updated_fields = dict(fields)
-    added_count = 0
+    if not media_refs:
+        return dict(fields), 0
+
+    # 1. Pre-validate all files before mutating collection.media
     for item in media_refs:
         if not item.source_path.is_file():
             raise FileNotFoundError(f"Missing media file: {item.source_path}")
+
+    updated_fields = dict(fields)
+    added_count = 0
+    try:
+        media_dir = Path(col.media.dir())
+    except Exception:
+        media_dir = None
+
+    for item in media_refs:
+        # Content-hashed filenames are immutable; skip disk write if already present
+        if hash_media_enabled and media_dir is not None and item.staged_filename != item.source_path.name:
+            if (media_dir / item.staged_filename).is_file():
+                continue
+
         stored_name = col.media.write_data(item.staged_filename, item.source_path.read_bytes())
         added_count += 1
         if stored_name != item.staged_filename:
@@ -163,15 +195,30 @@ def import_media_and_rewrite_fields(
     return updated_fields, added_count
 
 
-def apply_note_create(col: Collection, op: NoteCreateOp, model_ids: dict[str, int]) -> int:
-    """Creates a new note in Anki, ensuring the target deck exists."""
-    target_mid = model_ids.get(op.model_name)
+def apply_note_create(
+    col: Collection,
+    op: NoteCreateOp,
+    model_ids: dict[str, int] | None = None,
+) -> int:
+    """Creates a new Anki note and places all generated cards in the target deck."""
+    if model_ids is not None:
+        target_mid = model_ids.get(op.model_name)
+        if target_mid is None:
+            target_mid = model_ids.get(MODEL_NAME_CLOZE if "Cloze" in op.model_name else MODEL_NAME_BASIC)
+    else:
+        m = col.models.by_name(op.model_name)
+        if m is not None:
+            target_mid = int(m["id"])
+        else:
+            fallback = col.models.by_name(MODEL_NAME_CLOZE if "Cloze" in op.model_name else MODEL_NAME_BASIC)
+            target_mid = int(fallback["id"]) if fallback else None
+
     if target_mid is None:
-        target_mid = model_ids.get(MODEL_NAME_CLOZE if "Cloze" in op.model_name else MODEL_NAME_BASIC)
-    assert target_mid is not None, f"Model ID for {op.model_name} not found"
+        raise ValueError(f"Model ID for '{op.model_name}' not found")
 
     model = col.models.get(NotetypeId(target_mid))
-    assert model is not None, f"Model {op.model_name} (ID {target_mid}) not found"
+    if model is None:
+        raise ValueError(f"Model '{op.model_name}' (ID {target_mid}) not found in collection")
 
     note = col.new_note(model)
     final_fields, media_count = import_media_and_rewrite_fields(col, op.fields, op.media_refs)
@@ -192,20 +239,55 @@ def apply_note_create(col: Collection, op: NoteCreateOp, model_ids: dict[str, in
     return media_count
 
 
-def apply_note_update(col: Collection, op: NoteUpdateOp) -> tuple[int, bool]:
-    """Updates note fields and tags, and moves cards if target deck changed."""
+def apply_note_update(
+    col: Collection,
+    op: NoteUpdateOp,
+    model_ids: dict[str, int] | None = None,
+) -> tuple[int, bool]:
+    """Updates note fields and tags, converts model if changed, and moves cards if target deck changed."""
     note = col.get_note(NoteId(op.note_id))
-    final_fields, media_count = import_media_and_rewrite_fields(col, op.new_fields, op.media_refs)
 
-    model = note.note_type()
-    model_field_names = [f["name"] for f in model["flds"]] if model else []
-    field_items = list(final_fields.items())
+    # Resolve target model ID
+    if model_ids is not None:
+        target_mid = model_ids.get(op.model_name)
+        if target_mid is None:
+            target_mid = model_ids.get(MODEL_NAME_CLOZE if "Cloze" in op.model_name else MODEL_NAME_BASIC)
+    else:
+        m = col.models.by_name(op.model_name)
+        if m is not None:
+            target_mid = int(m["id"])
+        else:
+            fallback = col.models.by_name(MODEL_NAME_CLOZE if "Cloze" in op.model_name else MODEL_NAME_BASIC)
+            target_mid = int(fallback["id"]) if fallback else None
 
-    for idx, (field_name, val) in enumerate(field_items):
-        if field_name in note:
-            note[field_name] = val
-        elif idx < len(model_field_names):
-            note[model_field_names[idx]] = val
+    # Handle model conversion (e.g. Basic <-> Cloze)
+    model_converted = (target_mid is not None and note.mid != target_mid)
+    if model_converted:
+        old_model = note.note_type()
+        new_model = col.models.get(NotetypeId(target_mid))
+        if old_model is not None and new_model is not None and hasattr(col.models, "change"):
+            fmap = {i: i if i < len(new_model["flds"]) else None for i in range(len(old_model["flds"]))}
+            try:
+                col.models.change(old_model, [note.id], new_model, fmap=fmap, cmap=None)
+                note = col.get_note(NoteId(op.note_id))
+            except Exception:
+                pass
+
+    # Skip media I/O and field updating if fields are untouched
+    if op.fields_changed or model_converted:
+        final_fields, media_count = import_media_and_rewrite_fields(col, op.new_fields, op.media_refs)
+
+        model = note.note_type()
+        model_field_names = [f["name"] for f in model["flds"]] if model else []
+        field_items = list(final_fields.items())
+
+        for idx, (field_name, val) in enumerate(field_items):
+            if field_name in note:
+                note[field_name] = val
+            elif idx < len(model_field_names):
+                note[model_field_names[idx]] = val
+    else:
+        media_count = 0
 
     note.tags = col.tags.split(col.tags.join(op.new_tags))
     col.update_note(note)

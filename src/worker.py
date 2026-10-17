@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import hashlib
 from pathlib import Path
 import re
@@ -76,6 +77,21 @@ def _write_occlusion_index(out_dir: Path, staged: dict[str, list[str]]) -> None:
         pass
 
 
+@functools.lru_cache(maxsize=2048)
+def _get_media_diff_pattern(orig_name: str) -> re.Pattern:
+    escaped_variants = [
+        re.escape(orig_name),
+        re.escape(orig_name.lower()),
+        re.escape(urllib.parse.quote(orig_name)),
+        re.escape(urllib.parse.quote(orig_name.lower())),
+    ]
+    variants_str = "|".join(escaped_variants)
+    return re.compile(
+        r'src=(["\'])(' + variants_str + r')\1',
+        re.IGNORECASE,
+    )
+
+
 def _normalize_html_for_diff(text: str, media_refs: list[MediaItem]) -> str:
     """Normalize unhashed image references in HTML text to their staged hashed names.
 
@@ -89,17 +105,7 @@ def _normalize_html_for_diff(text: str, media_refs: list[MediaItem]) -> str:
     normalized = text
     for item in media_refs:
         if item.staged_filename != item.source_path.name:
-            orig_name = item.source_path.name
-            escaped_variants = [
-                re.escape(orig_name),
-                re.escape(orig_name.lower()),
-                re.escape(urllib.parse.quote(orig_name)),
-                re.escape(urllib.parse.quote(orig_name.lower())),
-            ]
-            pattern = re.compile(
-                rf'src=([\"\'])({"|".join(escaped_variants)})\1',
-                re.IGNORECASE,
-            )
+            pattern = _get_media_diff_pattern(item.source_path.name)
             normalized = pattern.sub(lambda m, s=item.staged_filename: f"src={m.group(1)}{s}{m.group(1)}", normalized)
     return normalized
 
@@ -114,8 +120,26 @@ def build_sync_plan(
 ) -> SyncPlan:
     """Stage 1: Discovers cards in vault, compares against Anki SQLite index, and builds SyncPlan."""
     vault_path = Path(vault_path).expanduser().resolve()
-    model_ids = ensure_models(col, basic_model_id=basic_model_id, cloze_model_id=cloze_model_id)
+    model_ids = ensure_models(col, basic_model_id=basic_model_id, cloze_model_id=cloze_model_id, create=False)
     existing_index = build_existing_note_index(col, model_ids)
+
+    # Deck lookups memoization to avoid redundant FFI round-trips and prevent deck creation on scan
+    deck_id_cache: dict[str, int | None] = {}
+    deck_name_cache: dict[int, str] = {}
+
+    def _get_deck_id_readonly(name: str) -> int | None:
+        if name not in deck_id_cache:
+            if hasattr(col.decks, "id_for_name"):
+                deck_id_cache[name] = col.decks.id_for_name(name)
+            else:
+                d = col.decks.by_name(name)
+                deck_id_cache[name] = d["id"] if d else None
+        return deck_id_cache[name]
+
+    def _get_deck_name(did: int) -> str:
+        if did not in deck_name_cache:
+            deck_name_cache[did] = col.decks.name(did)
+        return deck_name_cache[did]
 
     vault_cfg = load_vault_config(vault_path)
     collected = collect(vault_cfg, trace_fn=trace_fn)
@@ -149,6 +173,14 @@ def build_sync_plan(
         for note in file_notes:
             card = note.card
             card_id = card.card_id
+
+            if card_id is not None and card_id in seen_card_ids:
+                msg = f"Duplicate card ID '{card_id}' in {file_path.name}:{card.line}; skipping duplicate."
+                collected.diagnostics.append(msg)
+                if trace_fn:
+                    trace_fn(msg)
+                continue
+
             model_name: ModelName = (
                 MODEL_NAME_CLOZE if note.model == MODEL_CLOZE else MODEL_NAME_BASIC
             )
@@ -167,6 +199,7 @@ def build_sync_plan(
             if not is_existing:
                 # New card
                 assigned_id = card_id if card_id else new_card_id()
+                seen_card_ids.add(assigned_id)
                 field_names = ("Text", "Back Extra") if model_name == MODEL_NAME_CLOZE else ("Front", "Back")
                 fields = {
                     field_names[0]: note.fields[0] if len(note.fields) > 0 else "",
@@ -205,9 +238,9 @@ def build_sync_plan(
                 fields_changed = new_fields != normalized_rec_fields
                 tags_changed = set(note.tags) != set(rec.tags)
 
-                target_deck_id = col.decks.id(target_deck)
-                deck_changed = target_deck_id not in rec.deck_ids
-                old_deck_names = [col.decks.name(did) for did in rec.deck_ids]
+                target_deck_id = _get_deck_id_readonly(target_deck)
+                deck_changed = (target_deck_id is None) or (target_deck_id not in rec.deck_ids)
+                old_deck_names = [_get_deck_name(did) for did in rec.deck_ids]
 
                 if fields_changed or tags_changed or deck_changed:
                     updates.append(
@@ -250,7 +283,7 @@ def build_sync_plan(
     orphan_ids = set(existing_index.keys()) - seen_card_ids
     for oid in sorted(orphan_ids):
         rec = existing_index[oid]
-        deck_names = [col.decks.name(did) for did in rec.deck_ids]
+        deck_names = [_get_deck_name(did) for did in rec.deck_ids]
         preview = next(iter(rec.fields.values()), "") if rec.fields else ""
         orphans.append(
             OrphanNoteRecord(
@@ -362,7 +395,7 @@ def execute_sync_plan(
         # 4. Apply Approved Note Updates in Anki
         for update_op in approved_updates:
             try:
-                media_added, deck_moved = apply_note_update(col, update_op)
+                media_added, deck_moved = apply_note_update(col, update_op, model_ids)
                 report.updated_count += 1
                 report.media_added_count += media_added
                 if deck_moved:

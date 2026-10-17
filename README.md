@@ -16,9 +16,19 @@ It embeds the decoupled core engine of [**Markdown2Anki**](https://github.com/le
   - One-click **Sync**, **Preview Diff**, and **Rescan Vault** actions with real-time status indicators.
 - **Interactive Diff Inspection**:
   - Visual HTML diff dialog displaying exact word-level changes (`<ins>` / `<del>`), deck moves, and tag changes before applying edits to Anki.
-- **In-Place Note Updates**:
+- **In-Place Note Updates & Type Conversion**:
   - Notes are tracked with persistent 6-character IDs (`%%k3f9qz%%` in Obsidian, `<!--m2a:id-->` in Anki).
   - Updating edited flashcards updates note fields in place without resetting review intervals, ease factors, or learning schedules.
+  - Seamlessly handles **Note Type Conversions** (e.g. Basic $\\leftrightarrow$ Cloze) in-place using Anki's internal schema transition API without losing review history.
+- **Filtered / Cram Deck Integrity**:
+  - Fully aware of Anki's filtered deck mechanics: cards currently studied in dynamic Cram decks retain their true home deck (`odid`), preventing false "deck moved" diff notifications during routine scans.
+- **High-Performance Media & Scan Pipeline**:
+  - **Deduplicated Media Writes**: Immutable content-hashed media files existing in Anki's media folder are never rewritten redundantly.
+  - **Zero Media I/O on Metadata Updates**: Changing tags or deck routing updates SQLite directly without touching disk media.
+  - **Instant Diff Inspection**: Uses nanosecond filesystem timestamps (`st_mtime_ns`) to bypass disk reads when inspecting unmodified files.
+- **Robustness & Collision Protection**:
+  - **Duplicate ID Detection**: Detects and reports duplicated `%%id%%` markers in Markdown and duplicate markers in Anki, preventing accidental data overwrites.
+  - **Non-Blocking Thread Safety**: Background operations run asynchronously via `QueryOp` with modal progress dialogs and automatic exception recovery to prevent UI lockups.
 - **Orphaned Card Detection**:
   - Automatically identifies flashcards in Anki whose source notes were deleted or moved out of the vault.
   - Dedicated **Find & View Orphaned Cards in Browser** button filters orphaned cards directly in Anki's native Card Browser (`nid:...`).

@@ -99,11 +99,15 @@ def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
         elif total_changed > 0 or not is_startup:
             tooltip(f"VaultSync: {report.created_count} added, {report.updated_count} updated.")
 
+    def _on_failure(exc: Exception) -> None:
+        logger.log_error(f"Menu sync failed: {exc}")
+        tooltip(f"⚠️ VaultSync error: {exc}", period=5000)
+
     op = QueryOp(
         parent=mw,
         op=_full_sync_op,
         success=_on_success,
-    )
+    ).failure(_on_failure)
     if not is_startup:
         op = op.with_progress("VaultSync running...")
     op.run_in_background()

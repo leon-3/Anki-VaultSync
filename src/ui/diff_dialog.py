@@ -23,7 +23,7 @@ from aqt.qt import (
 )
 
 if TYPE_CHECKING:
-    from ..contracts import NoteUpdateOp, SyncPlan
+    from ..contracts import FileSyncPlan, NoteUpdateOp, SyncPlan
 
 
 M2A_MARKER_STRIP_RE = re.compile(r"\s*<!--m2a:[a-zA-Z0-9_-]+-->")
@@ -136,6 +136,9 @@ class DiffDialog(QDialog):
         self._all_updates: list[NoteUpdateOp] = []
         for fp in plan.file_plans:
             self._all_updates.extend(fp.updates)
+        self._file_plan_by_path: dict[Path, FileSyncPlan] = {
+            fp.file_path: fp for fp in plan.file_plans
+        }
         self.rescan_requested = False
 
         self._init_ui()
@@ -206,14 +209,19 @@ class DiffDialog(QDialog):
         self.reject()
 
     def _is_file_externally_modified(self, op: NoteUpdateOp) -> bool:
+        fp = self._file_plan_by_path.get(op.source_file)
+        if fp is None:
+            return False
         try:
+            stat = op.source_file.stat()
+            if stat.st_mtime_ns == fp.mtime_ns:
+                return False
             cur_sha = hashlib.sha256(op.source_file.read_bytes()).hexdigest()
-            for fp in self._plan.file_plans:
-                if fp.file_path == op.source_file:
-                    return cur_sha != fp.sha256_hex
+            return cur_sha != fp.sha256_hex
+        except OSError:
+            return True
         except Exception:
-            pass
-        return False
+            return False
 
     def _on_item_selected(self, current: QListWidgetItem | None, previous: QListWidgetItem | None) -> None:
         if current is None:

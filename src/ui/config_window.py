@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from aqt import dialogs, mw
+from aqt.operations import QueryOp
 from aqt.qt import (
+    sip,
     QAbstractItemView,
     QApplication,
     QCheckBox,
@@ -37,6 +39,15 @@ from aqt.qt import (
     QWidget,
 )
 from ..logger import clear_log, get_log_file_path, read_log_text
+
+def _is_deleted(widget: Any) -> bool:
+    if sip is not None and hasattr(sip, "isdeleted"):
+        try:
+            return sip.isdeleted(widget)
+        except Exception:
+            return False
+    return False
+
 
 from ..bridge import ensure_models
 from ..worker import build_sync_plan
@@ -146,11 +157,13 @@ class ConfigWindow(QDialog):
         self._profile_settings = self._manager.load(profile_name)
 
         self._vault_cfg = None
+        self._vault_cfg_error: str | None = None
         if self._profile_settings.vault_path and self._profile_settings.vault_path.is_dir():
             try:
                 self._vault_cfg = self._manager.load_vault(self._profile_settings.vault_path)
-            except Exception:
+            except Exception as exc:
                 self._vault_cfg = None
+                self._vault_cfg_error = str(exc)
 
         self._init_ui()
         self._populate_fields()
@@ -188,6 +201,19 @@ class ConfigWindow(QDialog):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(18, 16, 18, 16)
         main_layout.setSpacing(14)
+
+        if self._vault_cfg_error:
+            self.error_banner = QLabel(
+                f"<b>⚠️ Warning: Failed to parse vault configuration (m2a.toml):</b><br>"
+                f"{html.escape(self._vault_cfg_error)}<br>"
+                f"<small>Default settings loaded. Please verify your m2a.toml syntax.</small>"
+            )
+            self.error_banner.setWordWrap(True)
+            self.error_banner.setStyleSheet(
+                "background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; "
+                "border-radius: 6px; padding: 10px; font-size: 12px; font-family: sans-serif;"
+            )
+            main_layout.addWidget(self.error_banner)
 
         # Tabs container with modern styling
         self.tabs = QTabWidget()
@@ -906,8 +932,12 @@ class ConfigWindow(QDialog):
         basic_id = self._get_selected_model_id(self.basic_model_combo)
         cloze_id = self._get_selected_model_id(self.cloze_model_combo)
 
-        try:
-            plan = build_sync_plan(mw.col, vault_path, basic_model_id=basic_id, cloze_model_id=cloze_id)
+        def _op(col):
+            return build_sync_plan(col, vault_path, basic_model_id=basic_id, cloze_model_id=cloze_id)
+
+        def _success(plan):
+            if _is_deleted(self):
+                return
             if not plan.orphans:
                 QMessageBox.information(
                     self, "No Orphans Found", "All cards in Anki match cards in your Obsidian vault. Zero orphaned cards!"
@@ -918,8 +948,13 @@ class ConfigWindow(QDialog):
             query = f"nid:{','.join(nids)}"
             browser = dialogs.open("Browser", mw)
             browser.search_for(query)
-        except Exception as exc:
+
+        def _failure(exc):
+            if _is_deleted(self):
+                return
             QMessageBox.critical(self, "Error", f"Failed to detect orphaned cards: {exc}")
+
+        QueryOp(parent=self, op=_op, success=_success).failure(_failure).with_progress("Scanning for orphaned cards...").run_in_background()
 
     def _get_selected_model_id(self, combo: QComboBox) -> int | None:
         data = combo.currentData()
@@ -1021,20 +1056,35 @@ class ConfigWindow(QDialog):
         if mw is None or not hasattr(mw, "col") or mw.col is None:
             QMessageBox.warning(self, "Unavailable", "Anki collection is not currently open.")
             return
-        try:
-            basic_id = self._get_selected_model_id(self.basic_model_combo)
-            cloze_id = self._get_selected_model_id(self.cloze_model_combo)
+
+        basic_id = self._get_selected_model_id(self.basic_model_combo)
+        cloze_id = self._get_selected_model_id(self.cloze_model_combo)
+
+        def _op(col):
             ensure_models(
-                mw.col,
+                col,
                 repair_templates=True,
                 basic_model_id=basic_id,
                 cloze_model_id=cloze_id,
             )
-            mw.col.save()
+            if hasattr(col, "save"):
+                try:
+                    col.save()
+                except Exception:
+                    pass
+
+        def _success(_):
+            if _is_deleted(self):
+                return
             mw.reset()
             QMessageBox.information(self, "Success", "Note type templates repaired successfully.")
-        except Exception as exc:
+
+        def _failure(exc):
+            if _is_deleted(self):
+                return
             QMessageBox.critical(self, "Error", f"Failed to repair templates: {exc}")
+
+        QueryOp(parent=self, op=_op, success=_success).failure(_failure).with_progress("Repairing templates...").run_in_background()
 
     def _populate_fields(self) -> None:
         if self._profile_settings.vault_path:
