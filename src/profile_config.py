@@ -10,6 +10,13 @@ from aqt import mw
 from markdown2anki.config import Config, load_vault_config, save_vault_config
 
 
+DEFAULT_SHORTCUTS: dict[str, str] = {
+    "open_dashboard": "Ctrl+Alt+V",
+    "quick_sync": "Ctrl+Alt+S",
+    "full_sync": "Ctrl+Alt+U",
+}
+
+
 @dataclass
 class AddonProfileSettings:
     profile_name: str
@@ -20,6 +27,7 @@ class AddonProfileSettings:
     sync_on_startup: bool = False
     basic_model_id: int | None = None
     cloze_model_id: int | None = None
+    shortcuts: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SHORTCUTS))
 
 
 class ProfileConfigManager:
@@ -87,6 +95,16 @@ class ProfileConfigManager:
         basic_model_id = int(raw_b_id) if raw_b_id is not None and str(raw_b_id).isdigit() else None
         cloze_model_id = int(raw_c_id) if raw_c_id is not None and str(raw_c_id).isdigit() else None
 
+        raw_shortcuts = raw.get("shortcuts")
+        if isinstance(raw_shortcuts, dict):
+            shortcuts = {
+                "open_dashboard": str(raw_shortcuts.get("open_dashboard", DEFAULT_SHORTCUTS["open_dashboard"])),
+                "quick_sync": str(raw_shortcuts.get("quick_sync", DEFAULT_SHORTCUTS["quick_sync"])),
+                "full_sync": str(raw_shortcuts.get("full_sync", DEFAULT_SHORTCUTS["full_sync"])),
+            }
+        else:
+            shortcuts = dict(DEFAULT_SHORTCUTS)
+
         return AddonProfileSettings(
             profile_name=profile_name,
             vault_path=vault_path,
@@ -96,6 +114,7 @@ class ProfileConfigManager:
             sync_on_startup=sync_on_startup,
             basic_model_id=basic_model_id,
             cloze_model_id=cloze_model_id,
+            shortcuts=shortcuts,
         )
 
     def save(self, settings: AddonProfileSettings) -> None:
@@ -103,6 +122,7 @@ class ProfileConfigManager:
         raw["auto_close_on_success"] = settings.auto_close_on_success
         raw["show_diff_before_update"] = settings.show_diff_before_update
         raw["sync_on_startup"] = settings.sync_on_startup
+        raw["shortcuts"] = settings.shortcuts
 
         profiles: dict[str, Any] = raw.setdefault("profiles", {})
         prof_data: dict[str, Any] = profiles.setdefault(settings.profile_name, {})

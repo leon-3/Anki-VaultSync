@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from markdown2anki.config import Config
-from src.profile_config import AddonProfileSettings, ProfileConfigManager
+from src.profile_config import AddonProfileSettings, DEFAULT_SHORTCUTS, ProfileConfigManager
 
 
 def test_profile_config_isolation(tmp_path: Path):
@@ -67,11 +67,11 @@ def test_vault_toml_comment_preservation(tmp_path: Path):
     # Write initial toml with comments
     initial_toml = (
         "# User custom comment for deck\n"
-        "vault = \".\"\n"
-        "deck = \"CustomDeck\"\n"
+        'vault = "."\n'
+        'deck = "CustomDeck"\n'
         "\n"
         "# Another comment\n"
-        "base_tag = \"MyBase\"\n"
+        'base_tag = "MyBase"\n'
     )
     toml_path.write_text(initial_toml, encoding="utf-8")
 
@@ -105,3 +105,25 @@ def test_profile_config_sync_on_startup_roundtrip(tmp_path: Path):
 
     reloaded = manager.load("Default")
     assert reloaded.sync_on_startup is True
+
+
+def test_profile_config_shortcuts_roundtrip(tmp_path: Path):
+    config_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=config_file)
+
+    # Loads defaults initially
+    settings = manager.load("Default")
+    assert settings.shortcuts == DEFAULT_SHORTCUTS
+
+    # Customize shortcuts
+    custom_shortcuts = {
+        "open_dashboard": "Ctrl+Shift+D",
+        "quick_sync": "Ctrl+Shift+Q",
+        "full_sync": "Ctrl+Shift+F",
+    }
+    settings.shortcuts = custom_shortcuts
+    manager.save(settings)
+
+    # Reload from disk
+    reloaded = manager.load("Default")
+    assert reloaded.shortcuts == custom_shortcuts

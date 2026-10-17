@@ -1,21 +1,117 @@
 from __future__ import annotations
 from .. import logger
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aqt import mw
 from aqt.operations import QueryOp
-from aqt.qt import QAction, QMenu
+from aqt.qt import QAction, QKeySequence, QMenu, sip
 from aqt.utils import tooltip
 
-from ..profile_config import ProfileConfigManager
+from ..profile_config import AddonProfileSettings, ProfileConfigManager
 from ..worker import build_sync_plan, execute_sync_plan
 from .config_window import ConfigWindow
 from .main_window import MainWindow
+from .shortcuts import find_shortcut_conflict
 
 _main_window_instance: MainWindow | None = None
 _config_window_instance: ConfigWindow | None = None
 _manager = ProfileConfigManager()
+
+_action_dash: QAction | None = None
+_action_quick: QAction | None = None
+_action_update: QAction | None = None
+
+
+def _is_valid_action(action: Any) -> bool:
+    if action is None:
+        return False
+    if sip is not None and hasattr(sip, "isdeleted"):
+        try:
+            return not sip.isdeleted(action)
+        except Exception:
+            return False
+    return True
+
+
+def get_menu_actions() -> dict[str, QAction | None]:
+    return {
+        "open_dashboard": _action_dash if _is_valid_action(_action_dash) else None,
+        "quick_sync": _action_quick if _is_valid_action(_action_quick) else None,
+        "full_sync": _action_update if _is_valid_action(_action_update) else None,
+    }
+
+
+def apply_menu_shortcuts(settings: AddonProfileSettings | None = None) -> None:
+    """Applies configured shortcuts to VaultSync menu actions.
+
+    If a shortcut is already taken by Anki core, another add-on, or duplicates another
+    VaultSync action, the shortcut is automatically disabled and a warning is logged.
+    """
+    global _action_dash, _action_quick, _action_update
+
+    if not _is_valid_action(_action_dash):
+        _action_dash = None
+    if not _is_valid_action(_action_quick):
+        _action_quick = None
+    if not _is_valid_action(_action_update):
+        _action_update = None
+
+    actions = {
+        "open_dashboard": _action_dash,
+        "quick_sync": _action_quick,
+        "full_sync": _action_update,
+    }
+
+    if not any(actions.values()):
+        return
+
+    if settings is None:
+        profile_name = _get_active_profile()
+        settings = _manager.load(profile_name)
+
+    configured_shortcuts = settings.shortcuts or {}
+    allowed = {act for act in actions.values() if act is not None}
+    assigned_canonical: dict[str, str] = {}
+
+    for key, action in actions.items():
+        if action is None:
+            continue
+
+        sc_str = (configured_shortcuts.get(key) or "").strip()
+        if not sc_str:
+            action.setShortcut(QKeySequence())
+            continue
+
+        seq = QKeySequence(sc_str)
+        if seq.isEmpty():
+            logger.log_warning(f"VaultSync shortcut '{sc_str}' for '{key}' is invalid. Disabling shortcut.")
+            action.setShortcut(QKeySequence())
+            continue
+
+        canonical = seq.toString(QKeySequence.SequenceFormat.PortableText).casefold()
+
+        # Check collision within our own actions
+        if canonical in assigned_canonical:
+            dup_key = assigned_canonical[canonical]
+            logger.log_warning(
+                f"VaultSync shortcut '{sc_str}' for '{key}' duplicates '{dup_key}'. Automatically disabling shortcut."
+            )
+            action.setShortcut(QKeySequence())
+            continue
+
+        # Check collision with Anki or another add-on
+        conflict = find_shortcut_conflict(sc_str, allowed_actions=allowed)
+        if conflict:
+            logger.log_warning(
+                f"VaultSync shortcut '{sc_str}' for '{key}' is already taken by '{conflict}'. Automatically disabling shortcut."
+            )
+            action.setShortcut(QKeySequence())
+            continue
+
+        action.setShortcut(seq)
+        assigned_canonical[canonical] = key
+        logger.log_info(f"VaultSync shortcut '{sc_str}' active for '{key}'.")
 
 
 def _get_active_profile() -> str:
@@ -126,23 +222,25 @@ def sync_and_update_all() -> None:
 
 
 def on_main_window_did_init() -> None:
+    global _action_dash, _action_quick, _action_update
+
     if mw is None or not hasattr(mw, "form") or not hasattr(mw.form, "menubar"):
         return
 
     menubar = mw.form.menubar
     vault_menu = QMenu("VaultSync", menubar)
 
-    action_dash = QAction("Open Dashboard...", vault_menu)
-    action_dash.triggered.connect(open_dashboard)
-    vault_menu.addAction(action_dash)
+    _action_dash = QAction("Open Dashboard...", vault_menu)
+    _action_dash.triggered.connect(open_dashboard)
+    vault_menu.addAction(_action_dash)
 
-    action_quick = QAction("Quick Sync (New Cards)", vault_menu)
-    action_quick.triggered.connect(quick_sync_new)
-    vault_menu.addAction(action_quick)
+    _action_quick = QAction("Quick Sync (New Cards)", vault_menu)
+    _action_quick.triggered.connect(quick_sync_new)
+    vault_menu.addAction(_action_quick)
 
-    action_update = QAction("Sync and Update (Modified Cards)", vault_menu)
-    action_update.triggered.connect(sync_and_update_all)
-    vault_menu.addAction(action_update)
+    _action_update = QAction("Sync and Update (Modified Cards)", vault_menu)
+    _action_update.triggered.connect(sync_and_update_all)
+    vault_menu.addAction(_action_update)
 
     vault_menu.addSeparator()
 
@@ -157,10 +255,13 @@ def on_main_window_did_init() -> None:
     else:
         menubar.addMenu(vault_menu)
 
+    apply_menu_shortcuts()
+
 
 def on_profile_did_open() -> None:
     profile_name = _get_active_profile()
     settings = _manager.load(profile_name)
+    apply_menu_shortcuts(settings)
     if settings.sync_on_startup and settings.vault_path and settings.vault_path.is_dir():
         logger.log_info(f"Auto-sync on startup triggered for profile '{profile_name}'...")
         _run_menu_sync(include_updates=True, is_startup=True)

@@ -24,6 +24,8 @@ from aqt.qt import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QKeySequence,
+    QKeySequenceEdit,
     QMessageBox,
     QPalette,
     QPlainTextEdit,
@@ -53,8 +55,9 @@ from ..bridge import ensure_models
 from ..contracts import MissingInAnkiRecord, OrphanNoteRecord, SyncPlan
 from ..worker import build_sync_plan, execute_sync_plan
 from markdown2anki.flags import write_deleted_flags
-from ..profile_config import AddonProfileSettings, ProfileConfigManager
+from ..profile_config import AddonProfileSettings, DEFAULT_SHORTCUTS, ProfileConfigManager
 from .help_tooltips import TOOLTIPS
+from .shortcuts import find_shortcut_conflict
 
 
 def _dim_placeholder(widget: QLineEdit | QPlainTextEdit) -> None:
@@ -338,7 +341,7 @@ class ConfigWindow(QDialog):
         layout.setSpacing(16)
 
         input_style = """
-            QLineEdit, QComboBox {
+            QLineEdit, QComboBox, QKeySequenceEdit {
                 font-size: 13px;
                 padding: 6px 10px;
                 border-radius: 6px;
@@ -499,7 +502,106 @@ class ConfigWindow(QDialog):
         card_tag_l.addWidget(pad_hint)
 
         layout.addWidget(card_tag)
+
+        # Section 4: Keyboard Shortcuts
+        card_sc, card_sc_l = _create_section_card(
+            "Keyboard Shortcuts",
+            "Configure global keyboard shortcuts for VaultSync operations. Conflicting shortcuts are automatically disabled.",
+        )
+
+        lbl_sc_dash = QLabel("Open Dashboard:")
+        lbl_sc_dash.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        card_sc_l.addWidget(lbl_sc_dash)
+
+        row_dash = QHBoxLayout()
+        row_dash.setSpacing(8)
+        self.sc_dash_edit = QKeySequenceEdit()
+        self.sc_dash_edit.setStyleSheet(input_style)
+        self.sc_dash_edit.setMaximumWidth(260)
+        btn_clear_dash = QPushButton("Clear")
+        btn_clear_dash.setStyleSheet(btn_style)
+        btn_clear_dash.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_clear_dash.clicked.connect(lambda: self.sc_dash_edit.setKeySequence(QKeySequence()))
+        row_dash.addWidget(self.sc_dash_edit)
+        row_dash.addWidget(btn_clear_dash)
+        row_dash.addWidget(self._help_button("shortcuts_open_dashboard"))
+        row_dash.addStretch()
+        card_sc_l.addLayout(row_dash)
+
+        self.sc_dash_warn = QLabel()
+        self.sc_dash_warn.setStyleSheet("font-size: 11px; color: #e5c07b; font-weight: 500;")
+        self.sc_dash_warn.setVisible(False)
+        card_sc_l.addWidget(self.sc_dash_warn)
+
+        card_sc_l.addSpacing(4)
+
+        lbl_sc_quick = QLabel("Quick Sync (New Cards):")
+        lbl_sc_quick.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        card_sc_l.addWidget(lbl_sc_quick)
+
+        row_quick = QHBoxLayout()
+        row_quick.setSpacing(8)
+        self.sc_quick_edit = QKeySequenceEdit()
+        self.sc_quick_edit.setStyleSheet(input_style)
+        self.sc_quick_edit.setMaximumWidth(260)
+        btn_clear_quick = QPushButton("Clear")
+        btn_clear_quick.setStyleSheet(btn_style)
+        btn_clear_quick.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_clear_quick.clicked.connect(lambda: self.sc_quick_edit.setKeySequence(QKeySequence()))
+        row_quick.addWidget(self.sc_quick_edit)
+        row_quick.addWidget(btn_clear_quick)
+        row_quick.addWidget(self._help_button("shortcuts_quick_sync"))
+        row_quick.addStretch()
+        card_sc_l.addLayout(row_quick)
+
+        self.sc_quick_warn = QLabel()
+        self.sc_quick_warn.setStyleSheet("font-size: 11px; color: #e5c07b; font-weight: 500;")
+        self.sc_quick_warn.setVisible(False)
+        card_sc_l.addWidget(self.sc_quick_warn)
+
+        card_sc_l.addSpacing(4)
+
+        lbl_sc_full = QLabel("Sync and Update (Modified Cards):")
+        lbl_sc_full.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        card_sc_l.addWidget(lbl_sc_full)
+
+        row_full = QHBoxLayout()
+        row_full.setSpacing(8)
+        self.sc_full_edit = QKeySequenceEdit()
+        self.sc_full_edit.setStyleSheet(input_style)
+        self.sc_full_edit.setMaximumWidth(260)
+        btn_clear_full = QPushButton("Clear")
+        btn_clear_full.setStyleSheet(btn_style)
+        btn_clear_full.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_clear_full.clicked.connect(lambda: self.sc_full_edit.setKeySequence(QKeySequence()))
+        row_full.addWidget(self.sc_full_edit)
+        row_full.addWidget(btn_clear_full)
+        row_full.addWidget(self._help_button("shortcuts_full_sync"))
+        row_full.addStretch()
+        card_sc_l.addLayout(row_full)
+
+        self.sc_full_warn = QLabel()
+        self.sc_full_warn.setStyleSheet("font-size: 11px; color: #e5c07b; font-weight: 500;")
+        self.sc_full_warn.setVisible(False)
+        card_sc_l.addWidget(self.sc_full_warn)
+
+        card_sc_l.addSpacing(6)
+
+        row_reset = QHBoxLayout()
+        btn_reset_sc = QPushButton("Reset Shortcuts to Defaults")
+        btn_reset_sc.setStyleSheet(btn_style)
+        btn_reset_sc.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_reset_sc.clicked.connect(self._reset_shortcuts_to_defaults)
+        row_reset.addWidget(btn_reset_sc)
+        row_reset.addStretch()
+        card_sc_l.addLayout(row_reset)
+
+        layout.addWidget(card_sc)
         layout.addStretch()
+
+        self.sc_dash_edit.keySequenceChanged.connect(self._validate_shortcuts)
+        self.sc_quick_edit.keySequenceChanged.connect(self._validate_shortcuts)
+        self.sc_full_edit.keySequenceChanged.connect(self._validate_shortcuts)
 
         self._wrap_tab_in_scroll(self.tab_general, content_widget)
 
@@ -1498,6 +1600,54 @@ class ConfigWindow(QDialog):
 
         QueryOp(parent=self, op=_op, success=_success).failure(_failure).with_progress("Repairing templates...").run_in_background()
 
+    def _reset_shortcuts_to_defaults(self) -> None:
+        self.sc_dash_edit.setKeySequence(QKeySequence(DEFAULT_SHORTCUTS["open_dashboard"]))
+        self.sc_quick_edit.setKeySequence(QKeySequence(DEFAULT_SHORTCUTS["quick_sync"]))
+        self.sc_full_edit.setKeySequence(QKeySequence(DEFAULT_SHORTCUTS["full_sync"]))
+        self._validate_shortcuts()
+
+    def _validate_shortcuts(self) -> None:
+        from .menu import get_menu_actions
+        menu_actions = get_menu_actions()
+        allowed = {act for act in menu_actions.values() if act is not None}
+
+        fields = [
+            ("Open Dashboard", self.sc_dash_edit, self.sc_dash_warn),
+            ("Quick Sync", self.sc_quick_edit, self.sc_quick_warn),
+            ("Sync and Update", self.sc_full_edit, self.sc_full_warn),
+        ]
+
+        for i, (name, edit, warn_lbl) in enumerate(fields):
+            seq = edit.keySequence()
+            if seq.isEmpty():
+                warn_lbl.setVisible(False)
+                continue
+
+            seq_str = seq.toString(QKeySequence.SequenceFormat.PortableText)
+            seq_canon = seq_str.casefold()
+
+            # Check mutual conflict with other fields in this dialog
+            mutual_conflict = None
+            for j, (other_name, other_edit, _) in enumerate(fields):
+                if i != j:
+                    other_seq = other_edit.keySequence()
+                    if not other_seq.isEmpty() and other_seq.toString(QKeySequence.SequenceFormat.PortableText).casefold() == seq_canon:
+                        mutual_conflict = other_name
+                        break
+
+            if mutual_conflict:
+                warn_lbl.setText(f"⚠️ Conflicts with '{mutual_conflict}'. Shortcut will be disabled if saved.")
+                warn_lbl.setVisible(True)
+                continue
+
+            # Check conflict with external Anki or add-on actions
+            conflict = find_shortcut_conflict(seq_str, allowed_actions=allowed)
+            if conflict:
+                warn_lbl.setText(f"⚠️ Already taken by '{conflict}'. Shortcut will be disabled if saved.")
+                warn_lbl.setVisible(True)
+            else:
+                warn_lbl.setVisible(False)
+
     def _populate_fields(self) -> None:
         if self._profile_settings.vault_path:
             self.vault_edit.setText(str(self._profile_settings.vault_path))
@@ -1553,6 +1703,18 @@ class ConfigWindow(QDialog):
                 self.cloze_model_combo.setCurrentIndex(self.cloze_model_combo.count() - 1)
         else:
             self.cloze_model_combo.setCurrentIndex(0)
+
+        shortcuts = self._profile_settings.shortcuts or {}
+        self.sc_dash_edit.setKeySequence(
+            QKeySequence(shortcuts.get("open_dashboard", DEFAULT_SHORTCUTS["open_dashboard"]))
+        )
+        self.sc_quick_edit.setKeySequence(
+            QKeySequence(shortcuts.get("quick_sync", DEFAULT_SHORTCUTS["quick_sync"]))
+        )
+        self.sc_full_edit.setKeySequence(
+            QKeySequence(shortcuts.get("full_sync", DEFAULT_SHORTCUTS["full_sync"]))
+        )
+        self._validate_shortcuts()
 
         self._populate_vault_fields()
 
@@ -1627,6 +1789,9 @@ class ConfigWindow(QDialog):
             "show_diff": self.show_diff_cb.isChecked(),
             "auto_close": self.auto_close_cb.isChecked(),
             "sync_on_startup": self.sync_on_startup_cb.isChecked(),
+            "sc_dash": self.sc_dash_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
+            "sc_quick": self.sc_quick_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
+            "sc_full": self.sc_full_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
             "tag": self.tag_edit.text().strip(),
             "pad_single_digits": self.pad_single_digits_cb.isChecked(),
             "deck": self.deck_combo.currentText().strip(),
@@ -1725,6 +1890,12 @@ class ConfigWindow(QDialog):
                 return
             tag_aliases[norm_key] = alias_val
 
+        new_shortcuts = {
+            "open_dashboard": self.sc_dash_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
+            "quick_sync": self.sc_quick_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
+            "full_sync": self.sc_full_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
+        }
+
         # 1. Save profile settings
         new_settings = AddonProfileSettings(
             profile_name=self._profile_name,
@@ -1735,8 +1906,12 @@ class ConfigWindow(QDialog):
             sync_on_startup=self.sync_on_startup_cb.isChecked(),
             basic_model_id=basic_id,
             cloze_model_id=cloze_id,
+            shortcuts=new_shortcuts,
         )
         self._manager.save(new_settings)
+
+        from .menu import apply_menu_shortcuts
+        apply_menu_shortcuts(new_settings)
 
         # 2. Save vault config to m2a.toml if vault path is valid
         if vault_path and vault_path.is_dir():

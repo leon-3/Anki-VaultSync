@@ -724,3 +724,134 @@ def test_main_window_open_settings_modeless(tmp_path: Path):
     win._config_dlg.close()
     win.close()
 
+def test_find_shortcut_conflict_detection(monkeypatch):
+    from aqt.qt import QAction, QMainWindow, QKeySequence
+    from src.ui.shortcuts import find_shortcut_conflict
+    import src.ui.shortcuts
+
+    dummy_mw = QMainWindow()
+    monkeypatch.setattr(src.ui.shortcuts, "mw", dummy_mw)
+
+    # Empty or whitespace sequence
+    assert find_shortcut_conflict("") is None
+    assert find_shortcut_conflict("   ") is None
+
+    # No conflict yet
+    assert find_shortcut_conflict("Ctrl+Alt+V") is None
+
+    # Register an action on mw
+    existing_action = QAction("&Existing Command", dummy_mw)
+    existing_action.setShortcut(QKeySequence("Ctrl+Alt+V"))
+    dummy_mw.addAction(existing_action)
+
+    # Detect conflict
+    assert find_shortcut_conflict("Ctrl+Alt+V") == "Existing Command"
+
+    # With allowed_actions containing the existing action -> no conflict
+    assert find_shortcut_conflict("Ctrl+Alt+V", allowed_actions={existing_action}) is None
+
+    # Non-conflicting shortcut
+    assert find_shortcut_conflict("Ctrl+Alt+Z") is None
+
+
+def test_apply_menu_shortcuts_auto_disables_conflicts(monkeypatch, tmp_path: Path):
+    from aqt.qt import QAction, QMainWindow, QMenuBar, QKeySequence
+    from src.profile_config import AddonProfileSettings, ProfileConfigManager
+    import src.ui.menu as menu_mod
+    import src.ui.shortcuts as shortcuts_mod
+
+    dummy_mw = QMainWindow()
+    class Form:
+        pass
+    dummy_mw.form = Form()
+    dummy_mw.form.menubar = QMenuBar(dummy_mw)
+
+    monkeypatch.setattr(menu_mod, "mw", dummy_mw)
+    monkeypatch.setattr(shortcuts_mod, "mw", dummy_mw)
+
+    # Simulate existing action on mw occupying Ctrl+Alt+S
+    clash_action = QAction("Anki Quick Sync", dummy_mw)
+    clash_action.setShortcut(QKeySequence("Ctrl+Alt+S"))
+    dummy_mw.addAction(clash_action)
+
+    menu_mod.on_main_window_did_init()
+
+    actions = menu_mod.get_menu_actions()
+    dash_act = actions["open_dashboard"]
+    quick_act = actions["quick_sync"]
+    full_act = actions["full_sync"]
+
+    # Open dashboard and full sync should succeed
+    assert dash_act.shortcut().toString() == "Ctrl+Alt+V"
+    assert full_act.shortcut().toString() == "Ctrl+Alt+U"
+
+    # Quick sync conflicted with clash_action -> automatically disabled (empty shortcut)
+    assert quick_act.shortcut().isEmpty()
+
+    # Test internal duplicates: both configured with Ctrl+Alt+V
+    settings = AddonProfileSettings(
+        profile_name="Test",
+        shortcuts={
+            "open_dashboard": "Ctrl+Alt+V",
+            "quick_sync": "Ctrl+Alt+V",
+            "full_sync": "Ctrl+Alt+U",
+        },
+    )
+    # Remove clash_action for this check
+    clash_action.setShortcut(QKeySequence())
+    menu_mod.apply_menu_shortcuts(settings)
+
+    assert dash_act.shortcut().toString() == "Ctrl+Alt+V"
+    # quick_sync duplicates open_dashboard -> disabled
+    assert quick_act.shortcut().isEmpty()
+    assert full_act.shortcut().toString() == "Ctrl+Alt+U"
+
+
+def test_config_window_shortcuts_configuration(monkeypatch, tmp_path: Path):
+    from aqt.qt import QAction, QMainWindow, QKeySequence
+    import src.ui.shortcuts as shortcuts_mod
+
+    dummy_mw = QMainWindow()
+    monkeypatch.setattr(shortcuts_mod, "mw", dummy_mw)
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+
+    dlg = ConfigWindow(manager, "TestShortcutProfile")
+
+    # Verify default shortcuts loaded into GUI
+    assert dlg.sc_dash_edit.keySequence().toString() == "Ctrl+Alt+V"
+    assert dlg.sc_quick_edit.keySequence().toString() == "Ctrl+Alt+S"
+    assert dlg.sc_full_edit.keySequence().toString() == "Ctrl+Alt+U"
+    assert dlg.sc_dash_warn.isHidden()
+    assert dlg.sc_quick_warn.isHidden()
+    assert dlg.sc_full_warn.isHidden()
+
+    # 1. Test intra-dialog collision warning
+    dlg.sc_quick_edit.setKeySequence(QKeySequence("Ctrl+Alt+V"))
+    assert not dlg.sc_quick_warn.isHidden()
+    assert "Conflicts with 'Open Dashboard'" in dlg.sc_quick_warn.text()
+
+    # 2. Test Reset to Defaults button
+    dlg._reset_shortcuts_to_defaults()
+    assert dlg.sc_quick_edit.keySequence().toString() == "Ctrl+Alt+S"
+    assert dlg.sc_quick_warn.isHidden()
+
+    # 3. Test external collision warning
+    ext_action = QAction("&Browse Cards", dummy_mw)
+    ext_action.setShortcut(QKeySequence("Ctrl+Alt+U"))
+    dummy_mw.addAction(ext_action)
+
+    dlg._validate_shortcuts()
+    assert not dlg.sc_full_warn.isHidden()
+    assert "Already taken by 'Browse Cards'" in dlg.sc_full_warn.text()
+
+    # 4. Save custom shortcut and verify persistence
+    dlg.sc_dash_edit.setKeySequence(QKeySequence("Ctrl+Shift+D"))
+    dlg._on_save()
+
+    reloaded = manager.load("TestShortcutProfile")
+    assert reloaded.shortcuts["open_dashboard"] == "Ctrl+Shift+D"
+
+    dlg.close()
+

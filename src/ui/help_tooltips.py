@@ -105,4 +105,13 @@ TOOLTIPS: dict[str, str] = {
     "orphaned_cards": (
         "Finds cards in Anki originally created by VaultSync/Markdown2Anki whose source note was deleted from your Obsidian vault, and opens them in Anki's Card Browser."
     ),
+    "shortcuts_open_dashboard": (
+        "Keyboard shortcut to open the VaultSync Dashboard."
+    ),
+    "shortcuts_quick_sync": (
+        "Keyboard shortcut to quickly sync new cards from your Obsidian vault without updating modified cards."
+    ),
+    "shortcuts_full_sync": (
+        "Keyboard shortcut to sync new cards and update modified cards from your Obsidian vault."
+    ),
 }
