@@ -123,13 +123,14 @@ def test_config_window_instantiation(tmp_path: Path):
     manager = ProfileConfigManager(config_path=cfg_file)
 
     dlg = ConfigWindow(manager, "TestProfile")
-    assert dlg.tabs.count() == 6
+    assert dlg.tabs.count() == 7
     assert dlg.tabs.tabText(0) == "General"
     assert dlg.tabs.tabText(1) == "Deck Routing"
     assert dlg.tabs.tabText(2) == "Tag Aliasing"
     assert dlg.tabs.tabText(3) == "Card Rules and Media"
     assert dlg.tabs.tabText(4) == "Advanced"
-    assert dlg.tabs.tabText(5) == "Logs"
+    assert dlg.tabs.tabText(5) == "Maintenance"
+    assert dlg.tabs.tabText(6) == "Logs"
     assert dlg.vault_edit is not None
     assert dlg.deck_combo is not None
     assert dlg.basic_model_combo is not None
@@ -137,6 +138,13 @@ def test_config_window_instantiation(tmp_path: Path):
     assert dlg.routing_table is not None
     assert dlg.alias_table is not None
     assert dlg.pad_single_digits_cb is not None
+    assert dlg.orphans_status_label is not None
+    assert dlg.view_orphans_btn is not None
+    assert dlg.suspend_orphans_btn is not None
+    assert dlg.delete_orphans_btn is not None
+    assert dlg.missing_table is not None
+    assert dlg.mark_deleted_btn is not None
+    assert dlg.resync_missing_btn is not None
     dlg.close()
 
 
@@ -286,8 +294,8 @@ def test_config_window_logs_tab(tmp_path: Path):
 
         cfg_file = tmp_path / "config.json"
         manager = ProfileConfigManager(config_path=cfg_file)
-        dlg = ConfigWindow(manager, "TestProfile", initial_tab=5)
-        assert dlg.tabs.currentIndex() == 5
+        dlg = ConfigWindow(manager, "TestProfile", initial_tab=ConfigWindow.TAB_LOGS)
+        assert dlg.tabs.currentIndex() == ConfigWindow.TAB_LOGS
         assert hasattr(dlg, "log_edit")
         text = dlg.log_edit.toPlainText()
         # Newest should be on top
@@ -297,7 +305,7 @@ def test_config_window_logs_tab(tmp_path: Path):
 
         # Test initial_tab by name
         dlg_named = ConfigWindow(manager, "TestProfile", initial_tab="Logs")
-        assert dlg_named.tabs.currentIndex() == 5
+        assert dlg_named.tabs.currentIndex() == ConfigWindow.TAB_LOGS
         dlg_named.close()
     finally:
         logger.set_custom_log_path(None)
@@ -528,3 +536,62 @@ def test_main_window_card_counts_separation_and_unprocessed_occlusions(tmp_path:
     assert win.occlusions_val_label.text() == "0"
     assert "No unprocessed image occlusions in Anki." in win.occlusions_val_label.toolTip()
     win.close()
+
+def test_config_window_maintenance_tab_operations(tmp_path: Path):
+    from src.contracts import MissingInAnkiRecord, OrphanNoteRecord
+    from markdown2anki.parser import Card
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+
+    orphan = OrphanNoteRecord(
+        note_id=101,
+        card_id="orph101",
+        model_name="M2A Basic",
+        preview_question="Orphan Question",
+    )
+    fake_card = Card(file=tmp_path / "note.md", line=12, question="Missing Q", answer="Missing A", tag="T", added=True, card_id="miss202")
+    missing = MissingInAnkiRecord(
+        card_id="miss202",
+        file_path=tmp_path / "note.md",
+        line=12,
+        preview_question="Missing Q",
+        target_deck="Default",
+        tags=["T"],
+        card=fake_card,
+    )
+    plan = SyncPlan(
+        vault_path=tmp_path,
+        default_deck="Default",
+        file_plans=[],
+        orphans=[orphan],
+        missing_in_anki=[missing],
+    )
+
+    dlg = ConfigWindow(manager, "TestProfile", sync_plan=plan, initial_tab=ConfigWindow.TAB_MAINTENANCE)
+    assert dlg.tabs.currentIndex() == ConfigWindow.TAB_MAINTENANCE
+    assert "1 orphaned note(s)" in dlg.orphans_status_label.text()
+    assert dlg.view_orphans_btn.isEnabled() is True
+    assert dlg.suspend_orphans_btn.isEnabled() is True
+    assert dlg.delete_orphans_btn.isEnabled() is True
+
+    # Missing table
+    assert dlg.missing_table.rowCount() == 1
+    assert dlg.missing_table.item(0, 1).text() == "note.md"
+    assert dlg.missing_table.item(0, 2).text() == "12"
+    assert dlg.missing_table.item(0, 3).text() == "Missing Q"
+    assert dlg.mark_deleted_btn.isEnabled() is True
+    assert dlg.resync_missing_btn.isEnabled() is True
+
+    # Selection helpers
+    selected = dlg._get_selected_missing_records()
+    assert len(selected) == 1
+    assert selected[0].card_id == "miss202"
+
+    dlg._on_select_all_missing(False)
+    assert len(dlg._get_selected_missing_records()) == 0
+
+    dlg._on_select_all_missing(True)
+    assert len(dlg._get_selected_missing_records()) == 1
+
+    dlg.close()

@@ -431,9 +431,14 @@ def test_duplicate_markdown_card_id_is_skipped_and_diagnosed():
             diagnostics: list[str] = []
             plan = build_sync_plan(col, vault_path, trace_fn=lambda msg: diagnostics.append(msg))
 
-            # Only the first card should be planned; the duplicate must be skipped!
-            assert plan.total_creates == 1
+            # By default, cards marked ADDED but missing in Anki are not recreated (avoid zombie cards)
+            assert plan.total_creates == 0
+            assert len(plan.missing_in_anki) == 1
             assert any("Duplicate card ID 'dup999'" in d for d in diagnostics)
+
+            # When explicit recreation is requested, the first card is planned for creation
+            rec_plan = build_sync_plan(col, vault_path, recreate_missing=True)
+            assert rec_plan.total_creates == 1
         finally:
             col.close()
 
@@ -816,5 +821,74 @@ def test_orphan_detection_flags_deleted_image_occlusions():
             assert orphan.model_name == "Image Occlusion"
             assert "Kidney Anatomy" in orphan.preview_question
             assert "Anatomy" in orphan.deck_names
+        finally:
+            col.close()
+
+def test_card_deleted_in_anki_lifecycle_and_deletion_flag():
+    """Verify that deleting a note in Anki does NOT resurrect it on sync,
+    is reported in missing_in_anki, can be flagged as DELETED in Obsidian,
+    and can optionally be recreated if requested."""
+    from markdown2anki.flags import write_deleted_flags
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "TestDeck"\n[subdirectories]\n',
+            encoding="utf-8",
+        )
+
+        note_file = vault_path / "lifecycle.md"
+        note_file.write_text(
+            "# Science\n---\nWhat is gravity?\nA fundamental interaction.\n",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            # 1. Sync card initially
+            plan1 = build_sync_plan(col, vault_path)
+            assert plan1.total_creates == 1
+            execute_sync_plan(col, plan1)
+
+            # Card is now flagged in Obsidian
+            content1 = note_file.read_text(encoding="utf-8")
+            assert "ADDED: What is gravity? %%" in content1
+
+            # 2. User deletes card in Anki
+            nids = col.find_notes("deck:TestDeck")
+            assert len(nids) == 1
+            col.remove_notes(nids)
+            assert len(col.find_notes("deck:TestDeck")) == 0
+
+            # 3. Next scan: card MUST NOT be recreated automatically (no zombie cards)
+            plan2 = build_sync_plan(col, vault_path)
+            assert plan2.total_creates == 0
+            assert plan2.total_updates == 0
+            assert len(plan2.missing_in_anki) == 1
+            missing_rec = plan2.missing_in_anki[0]
+            assert "gravity" in missing_rec.preview_question
+            assert missing_rec.target_deck == "TestDeck"
+            assert missing_rec.card is not None
+
+            # 4. If explicit recreation requested: planned into creates
+            rec_plan = build_sync_plan(col, vault_path, recreate_missing=True)
+            assert rec_plan.total_creates == 1
+            assert len(rec_plan.missing_in_anki) == 0
+
+            # 5. User marks missing card as DELETED in Obsidian
+            flagged, problems = write_deleted_flags([missing_rec.card])
+            assert flagged == 1 and not problems
+            content2 = note_file.read_text(encoding="utf-8")
+            assert "DELETED: What is gravity? %%" in content2
+
+            # 6. Subsequent scan: card marked DELETED is completely skipped
+            plan3 = build_sync_plan(col, vault_path)
+            assert plan3.total_creates == 0
+            assert plan3.total_updates == 0
+            assert len(plan3.missing_in_anki) == 0
+            assert len(plan3.orphans) == 0
         finally:
             col.close()

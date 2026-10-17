@@ -50,7 +50,9 @@ def _is_deleted(widget: Any) -> bool:
 
 
 from ..bridge import ensure_models
-from ..worker import build_sync_plan
+from ..contracts import MissingInAnkiRecord, OrphanNoteRecord, SyncPlan
+from ..worker import build_sync_plan, execute_sync_plan
+from markdown2anki.flags import write_deleted_flags
 from ..profile_config import AddonProfileSettings, ProfileConfigManager
 from .help_tooltips import TOOLTIPS
 
@@ -139,7 +141,8 @@ class ConfigWindow(QDialog):
     TAB_TAG_ALIASING = 2
     TAB_RULES = 3
     TAB_ADVANCED = 4
-    TAB_LOGS = 5
+    TAB_MAINTENANCE = 5
+    TAB_LOGS = 6
 
     def __init__(
         self,
@@ -147,6 +150,7 @@ class ConfigWindow(QDialog):
         profile_name: str,
         parent=None,
         initial_tab: int | str | None = None,
+        sync_plan: SyncPlan | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Settings")
@@ -165,9 +169,17 @@ class ConfigWindow(QDialog):
                 self._vault_cfg = None
                 self._vault_cfg_error = str(exc)
 
+        self._current_orphans: list[OrphanNoteRecord] = []
+        self._current_missing: list[MissingInAnkiRecord] = []
+
         self._init_ui()
         self._populate_fields()
         self._initial_state = self._snapshot_state()
+
+        if sync_plan is not None:
+            self.set_maintenance_plan(sync_plan)
+        else:
+            self._refresh_maintenance_data()
 
         if initial_tab is not None:
             if isinstance(initial_tab, str):
@@ -269,7 +281,12 @@ class ConfigWindow(QDialog):
         self._init_tab_advanced()
         self.tabs.addTab(self.tab_advanced, "Advanced")
 
-        # Tab 6: Logs
+        # Tab 6: Maintenance
+        self.tab_maintenance = QWidget()
+        self._init_tab_maintenance()
+        self.tabs.addTab(self.tab_maintenance, "Maintenance")
+
+        # Tab 7: Logs
         self.tab_logs = QWidget()
         self._init_tab_logs()
         self.tabs.addTab(self.tab_logs, "Logs")
@@ -918,6 +935,310 @@ class ConfigWindow(QDialog):
         layout.addStretch()
 
         self._wrap_tab_in_scroll(self.tab_advanced, content_widget)
+
+    def _init_tab_maintenance(self) -> None:
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(16)
+
+        btn_style = """
+            QPushButton {
+                font-size: 13px;
+                padding: 6px 14px;
+                border-radius: 6px;
+                min-height: 24px;
+            }
+        """
+        table_style = """
+            QTableWidget {
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
+                gridline-color: rgba(255, 255, 255, 0.06);
+                font-size: 12px;
+            }
+            QHeaderView::section {
+                background: rgba(255, 255, 255, 0.05);
+                padding: 6px;
+                border: none;
+                font-size: 12px;
+                font-weight: 600;
+            }
+        """
+
+        # Section 1: Orphaned Cards in Anki (Deleted from Obsidian)
+        card_orph, card_orph_l = _create_section_card(
+            "Orphaned Cards in Anki (Deleted from Obsidian)",
+            "Cards present in Anki under VaultSync note types whose source was removed from your vault.",
+        )
+
+        self.orphans_status_label = QLabel("0 orphaned note(s) detected in Anki.")
+        self.orphans_status_label.setStyleSheet("font-size: 13px; font-weight: 600;")
+        card_orph_l.addWidget(self.orphans_status_label)
+
+        orph_btns = QHBoxLayout()
+        orph_btns.setSpacing(8)
+
+        self.view_orphans_btn = QPushButton("View in Anki Browser")
+        self.view_orphans_btn.setStyleSheet(btn_style)
+        self.view_orphans_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.view_orphans_btn.clicked.connect(self._on_view_orphans)
+
+        self.suspend_orphans_btn = QPushButton("Suspend All Orphaned Cards")
+        self.suspend_orphans_btn.setStyleSheet(btn_style)
+        self.suspend_orphans_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.suspend_orphans_btn.setToolTip("Suspend all cards of orphaned notes to preserve review history and intervals without active reviews.")
+        self.suspend_orphans_btn.clicked.connect(self._on_suspend_orphans)
+
+        self.delete_orphans_btn = QPushButton("Delete Permanently...")
+        self.delete_orphans_btn.setStyleSheet(btn_style + " QPushButton { color: #ff6b6b; }")
+        self.delete_orphans_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.delete_orphans_btn.setToolTip("Permanently delete orphaned notes from Anki database. Review history will be lost.")
+        self.delete_orphans_btn.clicked.connect(self._on_delete_orphans)
+
+        orph_btns.addWidget(self.view_orphans_btn)
+        orph_btns.addWidget(self.suspend_orphans_btn)
+        orph_btns.addWidget(self.delete_orphans_btn)
+        orph_btns.addWidget(self._help_button("orphaned_cards"))
+        orph_btns.addStretch()
+        card_orph_l.addLayout(orph_btns)
+
+        layout.addWidget(card_orph)
+
+        # Section 2: Cards Deleted in Anki (Still Active in Obsidian)
+        card_del, card_del_l = _create_section_card(
+            "Cards Deleted in Anki (Still Active in Obsidian)",
+            "Cards that have sync IDs in Obsidian but no longer exist in Anki. By default, they will never be recreated automatically.",
+        )
+
+        self.missing_status_label = QLabel("0 card(s) deleted in Anki.")
+        self.missing_status_label.setStyleSheet("font-size: 13px; font-weight: 600;")
+        card_del_l.addWidget(self.missing_status_label)
+
+        self.missing_table = QTableWidget(0, 4)
+        self.missing_table.setHorizontalHeaderLabels(["", "File", "Line", "Question / Preview"])
+        self.missing_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.missing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        self.missing_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.missing_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.missing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.missing_table.setMinimumHeight(240)
+        self.missing_table.setStyleSheet(table_style)
+        card_del_l.addWidget(self.missing_table)
+
+        table_ctrl_row = QHBoxLayout()
+        table_ctrl_row.setSpacing(8)
+
+        sel_all_btn = QPushButton("Select All")
+        sel_all_btn.setStyleSheet(btn_style)
+        sel_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        sel_all_btn.clicked.connect(lambda: self._on_select_all_missing(True))
+
+        desel_all_btn = QPushButton("Deselect All")
+        desel_all_btn.setStyleSheet(btn_style)
+        desel_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        desel_all_btn.clicked.connect(lambda: self._on_select_all_missing(False))
+
+        table_ctrl_row.addWidget(sel_all_btn)
+        table_ctrl_row.addWidget(desel_all_btn)
+        table_ctrl_row.addStretch()
+        card_del_l.addLayout(table_ctrl_row)
+
+        action_row = QHBoxLayout()
+        action_row.setSpacing(8)
+
+        self.mark_deleted_btn = QPushButton("Mark Selected as DELETED in Obsidian")
+        self.mark_deleted_btn.setStyleSheet(btn_style)
+        self.mark_deleted_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mark_deleted_btn.setToolTip("Replaces ADDED: ... %%id%% with DELETED: ... %%id%% so the parser permanently ignores them during regular sync.")
+        self.mark_deleted_btn.clicked.connect(self._on_mark_missing_deleted)
+
+        self.resync_missing_btn = QPushButton("Resync / Recreate Selected in Anki")
+        self.resync_missing_btn.setStyleSheet(btn_style)
+        self.resync_missing_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.resync_missing_btn.setToolTip("Re-creates the selected cards in Anki using their existing IDs.")
+        self.resync_missing_btn.clicked.connect(self._on_resync_missing)
+
+        refresh_maint_btn = QPushButton("↻ Refresh Scan")
+        refresh_maint_btn.setStyleSheet(btn_style)
+        refresh_maint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        refresh_maint_btn.clicked.connect(self._refresh_maintenance_data)
+
+        action_row.addWidget(self.mark_deleted_btn)
+        action_row.addWidget(self.resync_missing_btn)
+        action_row.addWidget(refresh_maint_btn)
+        action_row.addWidget(self._help_button("missing_in_anki"))
+        action_row.addStretch()
+        card_del_l.addLayout(action_row)
+
+        layout.addWidget(card_del)
+        layout.addStretch()
+
+        self._wrap_tab_in_scroll(self.tab_maintenance, content_widget)
+
+    def set_maintenance_plan(self, plan: SyncPlan) -> None:
+        self._current_orphans = list(plan.orphans)
+        self._current_missing = list(plan.missing_in_anki)
+
+        # Section 1: Orphans
+        count_orphans = len(self._current_orphans)
+        self.orphans_status_label.setText(f"{count_orphans} orphaned note(s) detected in Anki.")
+        self.view_orphans_btn.setEnabled(count_orphans > 0)
+        self.suspend_orphans_btn.setEnabled(count_orphans > 0)
+        self.delete_orphans_btn.setEnabled(count_orphans > 0)
+
+        # Section 2: Missing in Anki
+        count_missing = len(self._current_missing)
+        self.missing_status_label.setText(
+            f"{count_missing} card(s) detected with sync IDs in vault that no longer exist in Anki."
+        )
+        self.missing_table.setRowCount(count_missing)
+        for row, rec in enumerate(self._current_missing):
+            chk_item = QTableWidgetItem()
+            chk_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            chk_item.setCheckState(Qt.CheckState.Checked)
+            self.missing_table.setItem(row, 0, chk_item)
+
+            file_item = QTableWidgetItem(rec.file_path.name)
+            file_item.setToolTip(str(rec.file_path))
+            file_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.missing_table.setItem(row, 1, file_item)
+
+            line_item = QTableWidgetItem(str(rec.line))
+            line_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.missing_table.setItem(row, 2, line_item)
+
+            preview_text = rec.preview_question.replace("\n", " ").strip()
+            q_item = QTableWidgetItem(preview_text)
+            q_item.setToolTip(rec.preview_question)
+            q_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.missing_table.setItem(row, 3, q_item)
+
+        self.mark_deleted_btn.setEnabled(count_missing > 0)
+        self.resync_missing_btn.setEnabled(count_missing > 0)
+
+    def _refresh_maintenance_data(self) -> None:
+        if mw is not None and getattr(mw, "col", None) is not None and self._profile_settings.vault_path and self._profile_settings.vault_path.is_dir():
+            try:
+                plan = build_sync_plan(
+                    mw.col,
+                    self._profile_settings.vault_path,
+                    default_deck=self._profile_settings.default_deck,
+                    basic_model_id=self._profile_settings.basic_model_id,
+                    cloze_model_id=self._profile_settings.cloze_model_id,
+                )
+                self.set_maintenance_plan(plan)
+                return
+            except Exception:
+                pass
+
+        self.orphans_status_label.setText("0 orphaned note(s) detected in Anki.")
+        self.view_orphans_btn.setEnabled(False)
+        self.suspend_orphans_btn.setEnabled(False)
+        self.delete_orphans_btn.setEnabled(False)
+        self.missing_status_label.setText("0 card(s) detected with sync IDs in vault that no longer exist in Anki.")
+        self.missing_table.setRowCount(0)
+        self.mark_deleted_btn.setEnabled(False)
+        self.resync_missing_btn.setEnabled(False)
+
+    def _on_view_orphans(self) -> None:
+        if not self._current_orphans:
+            return
+        nids = [str(o.note_id) for o in self._current_orphans]
+        query = f"nid:{','.join(nids)}"
+        browser = dialogs.open("Browser", mw)
+        browser.search_for(query)
+
+    def _on_suspend_orphans(self) -> None:
+        if not self._current_orphans or mw is None or mw.col is None:
+            return
+        all_cids: list[int] = []
+        for o in self._current_orphans:
+            if hasattr(mw.col, "card_ids_of_note"):
+                all_cids.extend(mw.col.card_ids_of_note(o.note_id))
+            else:
+                note = mw.col.get_note(o.note_id)
+                all_cids.extend([c.id for c in note.cards()])
+        if all_cids:
+            mw.col.sched.suspend_cards(all_cids)
+            mw.col.save()
+        QToolTip.showText(QCursor.pos(), f"{len(self._current_orphans)} orphaned note(s) ({len(all_cids)} card(s)) suspended.", self)
+        self.orphans_status_label.setText(f"{len(self._current_orphans)} orphaned note(s) suspended.")
+
+    def _on_delete_orphans(self) -> None:
+        if not self._current_orphans or mw is None or mw.col is None:
+            return
+        count = len(self._current_orphans)
+        reply = QMessageBox.warning(
+            self,
+            "Delete Orphaned Cards?",
+            f"Are you sure you want to permanently delete {count} orphaned note(s) from Anki?\n\n"
+            "All review history, learning intervals, and statistics for these cards will be lost.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        nids = [o.note_id for o in self._current_orphans]
+        mw.col.remove_notes(nids)
+        mw.col.save()
+        QToolTip.showText(QCursor.pos(), f"{count} orphaned note(s) deleted permanently.", self)
+        self._refresh_maintenance_data()
+
+    def _on_select_all_missing(self, select: bool) -> None:
+        for row in range(self.missing_table.rowCount()):
+            item = self.missing_table.item(row, 0)
+            if item:
+                item.setCheckState(Qt.CheckState.Checked if select else Qt.CheckState.Unchecked)
+
+    def _get_selected_missing_records(self) -> list[MissingInAnkiRecord]:
+        selected: list[MissingInAnkiRecord] = []
+        for row in range(self.missing_table.rowCount()):
+            item = self.missing_table.item(row, 0)
+            if item and item.checkState() == Qt.CheckState.Checked:
+                if row < len(self._current_missing):
+                    selected.append(self._current_missing[row])
+        return selected
+
+    def _on_mark_missing_deleted(self) -> None:
+        selected = self._get_selected_missing_records()
+        if not selected:
+            QMessageBox.information(self, "No Cards Selected", "Please select at least one card to mark as DELETED in Obsidian.")
+            return
+        cards_to_flag = [rec.card for rec in selected if rec.card is not None]
+        if cards_to_flag:
+            flagged, problems = write_deleted_flags(cards_to_flag)
+            if problems:
+                QMessageBox.warning(self, "Some Cards Could Not Be Marked", "\n".join(problems[:10]))
+            QToolTip.showText(QCursor.pos(), f"Marked {flagged} card(s) as DELETED in Obsidian.", self)
+        self._refresh_maintenance_data()
+
+    def _on_resync_missing(self) -> None:
+        selected = self._get_selected_missing_records()
+        if not selected:
+            QMessageBox.information(self, "No Cards Selected", "Please select at least one card to resync to Anki.")
+            return
+        if mw is None or mw.col is None or not self._profile_settings.vault_path:
+            return
+        selected_ids = {rec.card_id for rec in selected}
+        plan = build_sync_plan(
+            mw.col,
+            self._profile_settings.vault_path,
+            default_deck=self._profile_settings.default_deck,
+            basic_model_id=self._profile_settings.basic_model_id,
+            cloze_model_id=self._profile_settings.cloze_model_id,
+            recreate_missing_ids=selected_ids,
+        )
+        report = execute_sync_plan(
+            mw.col,
+            plan,
+            include_updates=False,
+            occlusion_dir=self._profile_settings.occlusion_dir,
+            basic_model_id=self._profile_settings.basic_model_id,
+            cloze_model_id=self._profile_settings.cloze_model_id,
+        )
+        QToolTip.showText(QCursor.pos(), f"Recreated {report.created_count} card(s) in Anki.", self)
+        self._refresh_maintenance_data()
 
     def _init_tab_logs(self) -> None:
         layout = QVBoxLayout(self.tab_logs)

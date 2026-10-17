@@ -513,16 +513,10 @@ class MainWindow(QDialog):
             browser.search_for(query)
 
     def _view_orphans(self) -> None:
-        if self._current_plan is None or not self._current_plan.orphans:
-            return
-
-        nids = [str(o.note_id) for o in self._current_plan.orphans]
-        query = f"nid:{','.join(nids)}"
-        browser = dialogs.open("Browser", mw)
-        browser.search_for(query)
+        self._open_settings(tab_index=ConfigWindow.TAB_MAINTENANCE)
 
     def _open_settings(self, tab_index: int | str | None = None) -> None:
-        dlg = ConfigWindow(self._manager, self._profile_name, self, initial_tab=tab_index)
+        dlg = ConfigWindow(self._manager, self._profile_name, self, initial_tab=tab_index, sync_plan=self._current_plan)
         if dlg.exec():
             self._settings = self._manager.load(self._profile_name)
             self._refresh_header()

@@ -97,6 +97,11 @@ TOOLTIPS: dict[str, str] = {
         "List of folders or glob patterns to ignore during vault traversal. "
         "Files inside these directories will not be parsed."
     ),
+    "missing_in_anki": (
+        "Cards that possess sync IDs in Obsidian notes but do not exist in Anki (for instance, because they were deleted in Anki). "
+        "VaultSync never recreates these cards automatically. You can either mark them as DELETED in Obsidian to permanently deactivate them, "
+        "or selectively re-sync them back into Anki."
+    ),
     "orphaned_cards": (
         "Finds cards in Anki originally created by VaultSync/Markdown2Anki whose source note was deleted from your Obsidian vault, and opens them in Anki's Card Browser."
     ),

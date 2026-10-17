@@ -31,6 +31,7 @@ from .contracts import (
     ExistingNoteRecord,
     FileSyncPlan,
     MediaItem,
+    MissingInAnkiRecord,
     ModelName,
     NoteCreateOp,
     NoteUpdateOp,
@@ -122,6 +123,8 @@ def build_sync_plan(
     trace_fn: Callable[[str], None] | None = None,
     basic_model_id: int | None = None,
     cloze_model_id: int | None = None,
+    recreate_missing: bool = False,
+    recreate_missing_ids: set[str] | None = None,
 ) -> SyncPlan:
     """Stage 1: Discovers cards in vault, compares against Anki SQLite index, and builds SyncPlan."""
     vault_path = Path(vault_path).expanduser().resolve()
@@ -164,6 +167,7 @@ def build_sync_plan(
         notes_by_file.setdefault(note.card.file, []).append(note)
 
     file_plans: list[FileSyncPlan] = []
+    missing_in_anki: list[MissingInAnkiRecord] = []
     seen_card_ids: set[str] = set()
 
     for file_path, file_notes in sorted(notes_by_file.items(), key=lambda x: str(x[0])):
@@ -206,9 +210,28 @@ def build_sync_plan(
             ]
 
             is_existing = card_id is not None and card_id in existing_index
+            should_recreate = recreate_missing or (recreate_missing_ids is not None and card_id in recreate_missing_ids)
+
+            if card_id is not None and getattr(card, "added", False) and not is_existing and not should_recreate:
+                # Card was exported previously but no longer exists in Anki database.
+                # Default behavior: do NOT recreate automatically (avoid zombie cards).
+                seen_card_ids.add(card_id)
+                preview = card.question if card and card.question else (note.fields[0] if note.fields else "")
+                missing_in_anki.append(
+                    MissingInAnkiRecord(
+                        card_id=card_id,
+                        file_path=file_path,
+                        line=card.line,
+                        preview_question=preview,
+                        target_deck=target_deck,
+                        tags=list(note.tags),
+                        card=card,
+                    )
+                )
+                continue
 
             if not is_existing:
-                # New card
+                # New card (or user-requested recreation of missing card)
                 assigned_id = card_id if card_id else new_card_id()
                 seen_card_ids.add(assigned_id)
                 if model_name == MODEL_NAME_IMAGE_OCCLUSION:
@@ -355,10 +378,32 @@ def build_sync_plan(
             )
         )
 
+    for occ in result.occlusions:
+        cid = occ.card.card_id
+        if cid:
+            if cid in existing_index:
+                seen_card_ids.add(cid)
+            elif occ.card.added:
+                should_recreate_occ = recreate_missing or (recreate_missing_ids is not None and cid in recreate_missing_ids)
+                if not should_recreate_occ:
+                    seen_card_ids.add(cid)
+                    target_deck = occ.card.deck or vault_cfg.deck or default_deck
+                    missing_in_anki.append(
+                        MissingInAnkiRecord(
+                            card_id=cid,
+                            file_path=occ.card.file,
+                            line=occ.card.line,
+                            preview_question=occ.card.question or "Image Occlusion",
+                            target_deck=target_deck,
+                            tags=[occ.tag] if occ.tag else [],
+                            card=occ.card,
+                        )
+                    )
+
     # Filter image occlusions: only stage if re_stage_occlusions is enabled or if not yet added
     occlusions_to_stage = [
         occ for occ in result.occlusions
-        if vault_cfg.re_stage_occlusions or not occ.card.added
+        if vault_cfg.re_stage_occlusions or not occ.card.added or (recreate_missing or (recreate_missing_ids and occ.card.card_id in recreate_missing_ids))
     ]
 
     return SyncPlan(
@@ -367,6 +412,7 @@ def build_sync_plan(
         file_plans=file_plans,
         occlusions_to_stage=occlusions_to_stage,
         orphans=orphans,
+        missing_in_anki=missing_in_anki,
         diagnostics=[str(d) for d in collected.diagnostics],
         suspend_new_occlusions=vault_cfg.suspend_new_occlusions,
         suspend_new_clozes=vault_cfg.suspend_new_clozes,

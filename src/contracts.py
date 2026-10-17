@@ -83,6 +83,17 @@ class OrphanNoteRecord:
     tags: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class MissingInAnkiRecord:
+    card_id: str
+    file_path: Path
+    line: int
+    preview_question: str
+    target_deck: str
+    tags: list[str] = field(default_factory=list)
+    card: Card | None = None
+
+
 @dataclass
 class SyncPlan:
     vault_path: Path
@@ -90,6 +101,7 @@ class SyncPlan:
     file_plans: list[FileSyncPlan]
     occlusions_to_stage: list[ImageOcclusion] = field(default_factory=list)
     orphans: list[OrphanNoteRecord] = field(default_factory=list)
+    missing_in_anki: list[MissingInAnkiRecord] = field(default_factory=list)
     diagnostics: list[str] = field(default_factory=list)
     suspend_new_occlusions: bool = True
     suspend_new_clozes: bool = False
@@ -113,6 +125,10 @@ class SyncPlan:
     @property
     def total_unchanged(self) -> int:
         return sum(fp.unchanged_count for fp in self.file_plans)
+
+    @property
+    def total_missing_in_anki(self) -> int:
+        return len(self.missing_in_anki)
 
 
 @dataclass
