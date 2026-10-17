@@ -148,10 +148,11 @@ def build_sync_plan(
 
     vault_cfg = load_vault_config(vault_path)
     collected = collect(vault_cfg, trace_fn=trace_fn)
+    effective_cloze_notes = vault_cfg.cloze_notes or vault_cfg.suspend_new_clozes
     result = build(
         collected.cards,
         collected.diagnostics,
-        vault_cfg.cloze_notes,
+        effective_cloze_notes,
         vault_root=vault_cfg.vault,
         hash_media=vault_cfg.hash_media,
         image_occlusion_mode=vault_cfg.image_occlusion_mode,
@@ -189,7 +190,7 @@ def build_sync_plan(
 
             if note.model == MODEL_IMAGE_OCCLUSION:
                 model_name: ModelName = MODEL_NAME_IMAGE_OCCLUSION
-            elif note.model == MODEL_CLOZE:
+            elif note.model == MODEL_CLOZE or (card is not None and getattr(card, "has_cloze_markers", False) and effective_cloze_notes):
                 model_name: ModelName = MODEL_NAME_CLOZE
             else:
                 model_name: ModelName = MODEL_NAME_BASIC
@@ -447,7 +448,22 @@ def execute_sync_plan(
                 media_added, created_card_ids = apply_note_create(col, create_op, model_ids)
                 report.created_count += 1
                 report.media_added_count += media_added
-                if (create_op.model_name == MODEL_NAME_IMAGE_OCCLUSION and plan.suspend_new_occlusions) or                    (create_op.model_name == MODEL_NAME_CLOZE and plan.suspend_new_clozes):
+
+                is_cloze_note = (
+                    create_op.model_name == MODEL_NAME_CLOZE
+                    or "cloze" in str(create_op.model_name).lower()
+                    or (create_op.card is not None and (
+                        getattr(create_op.card, "kind", None) in ("cloze", "Cloze")
+                        or getattr(create_op.card, "has_cloze_markers", False)
+                    ))
+                    or "TODO_PROCESS_CLOZES" in create_op.tags
+                )
+                is_io_note = (
+                    create_op.model_name == MODEL_NAME_IMAGE_OCCLUSION
+                    or "occlusion" in str(create_op.model_name).lower()
+                    or (create_op.card is not None and getattr(create_op.card, "kind", None) == "Image Occlusion")
+                )
+                if (is_io_note and plan.suspend_new_occlusions) or (is_cloze_note and plan.suspend_new_clozes):
                     cards_to_suspend.extend(created_card_ids)
                 _merge_undo()
             except Exception as exc:

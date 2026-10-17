@@ -480,3 +480,51 @@ def test_main_window_occlusions_label_reflects_native_mode(tmp_path: Path):
     # Verify click handler does not crash when mw is headless / none
     win._view_unmasked_occlusions()
     win.close()
+
+
+def test_main_window_card_counts_separation_and_unprocessed_occlusions(tmp_path: Path):
+    from src.contracts import SyncPlan, FileSyncPlan, NoteCreateOp
+    from markdown2anki.build import ImageOcclusion
+    from markdown2anki.parser import Card
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    win = MainWindow(manager, "TestCounts")
+
+    dummy_card = Card(file=tmp_path / "note.md", line=1, question="Cloze", answer="foo", tag="")
+    fp = FileSyncPlan(
+        file_path=tmp_path / "note.md",
+        mtime_ns=0,
+        sha256_hex="abc",
+        creates=[
+            NoteCreateOp(
+                card_id="cid1",
+                model_name="M2A Basic",
+                target_deck_name="Default",
+                fields={"Front": "Q", "Back": "A"},
+                tags=[],
+                source_file=tmp_path / "note.md",
+                source_line=1,
+                media_refs=[],
+            )
+        ],
+        updates=[],
+        unchanged_count=0,
+    )
+    staged = ImageOcclusion(card=dummy_card, images=[tmp_path / "img.png"], tag="tag")
+    plan = SyncPlan(
+        vault_path=tmp_path,
+        default_deck="Default",
+        file_plans=[fp],
+        occlusions_to_stage=[staged],
+        orphans=[],
+        diagnostics=[],
+    )
+
+    win._on_scan_success(plan)
+    # Total new cards = 1 create + 1 staged occlusion = 2
+    assert win.new_val_label.text() == "2"
+    # Unprocessed occlusions label shows 0 since no notes in Anki collection
+    assert win.occlusions_val_label.text() == "0"
+    assert "No unprocessed image occlusions in Anki." in win.occlusions_val_label.toolTip()
+    win.close()

@@ -652,6 +652,57 @@ def test_batch_suspension_text_clozes():
             col.close()
 
 
+
+
+def test_batch_suspension_text_clozes_effective_when_cloze_notes_omitted():
+    """Verify suspend_new_clozes = true enables effective cloze notes and suspends cards."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        # Notice cloze_notes is NOT specified here (defaults to False)
+        (vault_path / "m2a.toml").write_text(
+            """vault = "."
+deck = "TestDeck"
+suspend_new_clozes = true
+""",
+            encoding="utf-8",
+        )
+
+        note_file = vault_path / "notes.md"
+        note_file.write_text(
+            """# Chapter
+---
+Basic Q
+Basic A
+---
+Cloze
+{{c1::alpha}} and {{c2::beta}}
+""",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            plan = build_sync_plan(col, vault_path)
+            assert plan.total_creates == 2
+            report = execute_sync_plan(col, plan)
+            assert report.created_count == 2
+            assert report.suspended_count == 2
+
+            all_deck_cards = [col.get_card(cid) for cid in col.find_cards("deck:TestDeck")]
+            basic_cards = [c for c in all_deck_cards if c.note().note_type()["name"] == "M2A Basic"]
+            assert len(basic_cards) == 1
+            assert basic_cards[0].queue == 0
+
+            cloze_cards = [c for c in all_deck_cards if c.note().note_type()["name"] == "M2A Cloze"]
+            assert len(cloze_cards) == 2
+            assert all(c.queue == -1 for c in cloze_cards)
+        finally:
+            col.close()
+
+
 def test_native_image_occlusion_folder_relocation_updates_deck_without_touching_masks():
     """Verify moving note in Obsidian updates Anki deck while preserving Occlusion SVG mask."""
     with tempfile.TemporaryDirectory() as tmp_dir:

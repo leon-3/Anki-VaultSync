@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aqt import dialogs, mw
 from aqt.operations import QueryOp
@@ -127,7 +127,7 @@ class MainWindow(QDialog):
 
         lbl_new = QLabel("New cards:")
         lbl_new.setStyleSheet("font-size: 13px; font-weight: normal; border: none; background: transparent;")
-        lbl_new.setToolTip("Cards found in Obsidian notes that are not yet in Anki.")
+        lbl_new.setToolTip("Cards found in Obsidian notes that are not yet in Anki (including new Image Clozes).")
         self.new_val_label = QLabel("0")
         self.new_val_label.setStyleSheet("font-size: 13px; font-weight: bold; border: none; background: transparent;")
         self.new_cards_label = self.new_val_label
@@ -143,9 +143,9 @@ class MainWindow(QDialog):
         status_grid.addWidget(lbl_mod, 1, 0)
         status_grid.addWidget(self.modified_val_label, 1, 1, Qt.AlignmentFlag.AlignRight)
 
-        lbl_occ = QLabel("Image occlusions:")
+        lbl_occ = QLabel("Unprocessed occlusions:")
         lbl_occ.setStyleSheet("font-size: 13px; font-weight: normal; border: none; background: transparent;")
-        lbl_occ.setToolTip("Occlusion cards. In native mode, click count to view unmasked cards in Anki Browser.")
+        lbl_occ.setToolTip("Cards in Anki awaiting masks (tag:TODO_PROCESS_OCCLUSION).\nClick count to view in Anki Browser.")
         self.occlusions_val_label = QLabel("0")
         self.occlusions_val_label.setStyleSheet("font-size: 13px; font-weight: bold; border: none; background: transparent;")
         self.occlusions_val_label.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -355,15 +355,11 @@ class MainWindow(QDialog):
         self._set_buttons_busy(False)
 
         # Update card count values in aligned column
-        self.new_val_label.setText(str(plan.total_creates))
+        total_new = plan.total_creates + len(plan.occlusions_to_stage)
+        self.new_val_label.setText(str(total_new))
         self.modified_val_label.setText(str(plan.total_updates))
 
-        # Count native image occlusions in plan
-        new_io_count = sum(
-            1 for fp in plan.file_plans
-            for op in fp.creates
-            if op.model_name == "Image Occlusion"
-        )
+        # Unprocessed / unmasked image occlusions currently in Anki collection
         unmasked_in_anki = 0
         if mw is not None and getattr(mw, "col", None) is not None:
             try:
@@ -371,37 +367,27 @@ class MainWindow(QDialog):
             except Exception:
                 unmasked_in_anki = 0
 
-        if len(plan.occlusions_to_stage) > 0:
-            self.occlusions_val_label.setText(str(len(plan.occlusions_to_stage)))
-            self.occlusions_val_label.setToolTip("Image occlusion cards to stage into export folder.")
-        elif new_io_count > 0:
-            self.occlusions_val_label.setText(str(new_io_count))
-            tip = f"{new_io_count} new native image occlusion(s) to create."
-            if unmasked_in_anki > 0:
-                tip += f"\n({unmasked_in_anki} unmasked cards currently in Anki - click to view in Browser)"
-            self.occlusions_val_label.setToolTip(tip)
-        elif unmasked_in_anki > 0:
-            self.occlusions_val_label.setText(str(unmasked_in_anki))
+        self.occlusions_val_label.setText(str(unmasked_in_anki))
+        if unmasked_in_anki > 0:
             self.occlusions_val_label.setToolTip(
                 f"{unmasked_in_anki} card(s) awaiting masks in Anki (tag:TODO_PROCESS_OCCLUSION).\n"
                 "Click to view in Anki Browser."
             )
         else:
-            self.occlusions_val_label.setText("0")
-            self.occlusions_val_label.setToolTip("No pending or unmasked image occlusions.")
+            self.occlusions_val_label.setToolTip("No unprocessed image occlusions in Anki.")
 
         self.orphans_val_label.setText(str(len(plan.orphans)))
 
         self._log(
             f"Vault scan complete: {plan.total_files} file(s), "
-            f"{plan.total_creates} new card(s), {plan.total_updates} modified, "
+            f"{total_new} new card(s), {plan.total_updates} modified, "
             f"{plan.total_unchanged} unchanged."
         )
         if plan.orphans:
             self._log(f"Detected {len(plan.orphans)} orphaned card(s) in Anki no longer found in vault.")
 
         # Update button labels with counts
-        total_sync_count = plan.total_creates + plan.total_updates + len(plan.occlusions_to_stage)
+        total_sync_count = total_new + plan.total_updates
         self.sync_btn.setText(f"Sync ({total_sync_count})")
         self.diff_btn.setText(f"Preview Diff ({plan.total_updates})")
 
@@ -538,6 +524,7 @@ class MainWindow(QDialog):
     def _open_settings(self, tab_index: int | str | None = None) -> None:
         dlg = ConfigWindow(self._manager, self._profile_name, self, initial_tab=tab_index)
         if dlg.exec():
+            self._settings = self._manager.load(self._profile_name)
             self._refresh_header()
             if self._settings.vault_path and self._settings.vault_path.is_dir():
                 self._start_scan()
