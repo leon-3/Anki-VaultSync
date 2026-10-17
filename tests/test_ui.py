@@ -179,7 +179,7 @@ def test_config_window_deck_routing_and_aliases_roundtrip(tmp_path: Path):
     assert saved_cfg.pad_single_digit_tags is False
 
 
-def test_config_window_duplicate_path_validation(tmp_path: Path):
+def test_config_window_duplicate_path_validation(tmp_path: Path, monkeypatch):
     vault_path = tmp_path / "vault"
     vault_path.mkdir()
     (vault_path / "m2a.toml").write_text('vault = "."\n', encoding="utf-8")
@@ -187,6 +187,10 @@ def test_config_window_duplicate_path_validation(tmp_path: Path):
     cfg_file = tmp_path / "config.json"
     manager = ProfileConfigManager(config_path=cfg_file)
     manager.save(AddonProfileSettings(profile_name="Profile1", vault_path=vault_path))
+
+    warnings: list[str] = []
+    from src.ui import config_window
+    monkeypatch.setattr(config_window.QMessageBox, "warning", lambda parent, title, msg: warnings.append(title))
 
     dlg = ConfigWindow(manager, "Profile1")
     dlg._add_routing_row()
@@ -197,8 +201,10 @@ def test_config_window_duplicate_path_validation(tmp_path: Path):
     dlg.routing_table.item(1, 0).setText("TopicA/")  # Duplicate normalized key!
     dlg.routing_table.item(1, 1).setText("Deck2")
 
-    # Save should detect duplicate and reject without raising uncaught exception
+    # Save should detect duplicate, show warning, and reject without saving
     dlg._on_save()
+    assert warnings == ["Duplicate Deck Routing Rule"]
+
     # Check that m2a.toml was not updated with duplicate
     saved_cfg = manager.load_vault(vault_path)
     assert "TopicA" not in saved_cfg.deck_routing
