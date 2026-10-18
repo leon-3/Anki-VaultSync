@@ -171,3 +171,78 @@ def test_write_raw_config_creates_missing_file_and_dirs(tmp_path: Path):
     assert nested_config.is_file()
     loaded = manager.load("NewProfile")
     assert loaded.vault_path == tmp_path / "Vault"
+
+
+def test_existing_user_migration_skips_onboarding(tmp_path: Path):
+    config_file = tmp_path / "config.json"
+    vault_dir = tmp_path / "ExistingVault"
+    vault_dir.mkdir()
+
+    # Legacy config.json without onboarding_completed key
+    legacy_json = {
+        "profiles": {
+            "LegacyUser": {
+                "vault_path": str(vault_dir),
+                "occlusion_dir": ""
+            }
+        }
+    }
+    config_file.write_text(json.dumps(legacy_json), encoding="utf-8")
+
+    manager = ProfileConfigManager(config_path=config_file)
+    settings = manager.load("LegacyUser")
+    assert settings.onboarding_completed is True
+    assert settings.needs_onboarding() is False
+
+
+def test_new_secondary_profile_triggers_onboarding_despite_default_profile(tmp_path: Path):
+    config_file = tmp_path / "config.json"
+    default_vault = tmp_path / "DefaultVault"
+    default_vault.mkdir()
+
+    # Default profile is fully onboarded
+    initial_json = {
+        "profiles": {
+            "Default": {
+                "vault_path": str(default_vault),
+                "onboarding_completed": True
+            }
+        }
+    }
+    config_file.write_text(json.dumps(initial_json), encoding="utf-8")
+
+    manager = ProfileConfigManager(config_path=config_file)
+    # Default profile does not need onboarding
+    assert manager.load("Default").needs_onboarding() is False
+
+    # Second profile has no config yet -> MUST require onboarding
+    sec_settings = manager.load("Profile2")
+    assert sec_settings.onboarding_completed is False
+    assert sec_settings.needs_onboarding() is True
+
+
+def test_welcome_note_generator_and_parser_compliance(tmp_path: Path):
+    from markdown2anki.parser import parse_file
+    from src.ui.welcome_note import create_welcome_note, WELCOME_NOTE_NAME
+
+    vault_dir = tmp_path / "MyVault"
+    vault_dir.mkdir()
+
+    note_path = create_welcome_note(vault_dir)
+    assert note_path.is_file()
+    assert note_path.name == WELCOME_NOTE_NAME
+
+    # Parse note and verify it produces exactly 2 cards: 1 basic, 1 cloze
+    from markdown2anki.build import build
+    cards = parse_file(note_path)
+    assert len(cards) == 2
+    assert "what is vaultsync" in cards[0].question.lower()
+    res = build(cards, cloze_notes=True)
+    assert len(res.notes) == 2
+    assert res.notes[0].model == "basic"
+    assert res.notes[1].model == "cloze"
+
+    # Second call should not overwrite existing file
+    note_path.write_text("# Modified content", encoding="utf-8")
+    second_path = create_welcome_note(vault_dir)
+    assert second_path.read_text(encoding="utf-8") == "# Modified content"

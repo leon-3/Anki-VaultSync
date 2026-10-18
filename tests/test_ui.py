@@ -1005,3 +1005,39 @@ def test_profile_will_close_cleans_up_windows_and_lock():
 
     menu_mod.on_profile_will_close()
     assert is_sync_running() is False
+
+
+def test_shortcut_config_widget_roundtrip_and_conflicts():
+    from src.ui.shortcuts import ShortcutConfigWidget
+    widget = ShortcutConfigWidget()
+
+    # Initial state should have defaults
+    scs = widget.get_shortcuts()
+    assert scs["open_dashboard"] == "Ctrl+Alt+V"
+    assert scs["quick_sync"] == "Ctrl+Alt+S"
+    assert scs["full_sync"] == "Ctrl+Alt+U"
+    assert widget.validate() is True
+
+    # Set custom shortcuts
+    widget.set_shortcuts({
+        "open_dashboard": "Ctrl+Shift+1",
+        "quick_sync": "Ctrl+Shift+2",
+        "full_sync": "Ctrl+Shift+3",
+    })
+    scs2 = widget.get_shortcuts()
+    assert scs2["open_dashboard"] == "Ctrl+Shift+1"
+    assert scs2["quick_sync"] == "Ctrl+Shift+2"
+    assert scs2["full_sync"] == "Ctrl+Shift+3"
+
+    # Introduce a mutual conflict
+    widget.set_shortcuts({
+        "open_dashboard": "Ctrl+Shift+1",
+        "quick_sync": "Ctrl+Shift+1",
+        "full_sync": "Ctrl+Shift+3",
+    })
+    assert widget.validate() is False
+
+    # Reset to defaults
+    widget.reset_to_defaults()
+    assert widget.validate() is True
+    assert widget.get_shortcuts()["open_dashboard"] == "Ctrl+Alt+V"

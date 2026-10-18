@@ -28,6 +28,13 @@ class AddonProfileSettings:
     basic_model_id: int | None = None
     cloze_model_id: int | None = None
     shortcuts: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SHORTCUTS))
+    onboarding_completed: bool = False
+
+    def needs_onboarding(self) -> bool:
+        """Return True if the onboarding wizard should run for this profile."""
+        if not self.onboarding_completed:
+            return True
+        return self.vault_path is None or not self.vault_path.is_dir()
 
 
 class ProfileConfigManager:
@@ -79,8 +86,19 @@ class ProfileConfigManager:
 
         profiles: dict[str, Any] = raw.get("profiles", {})
         prof_data = profiles.get(profile_name)
-        if not isinstance(prof_data, dict):
+        is_known_profile = isinstance(prof_data, dict)
+        if not is_known_profile:
             prof_data = {}
+
+        # Migration logic & profile isolation:
+        # Check onboarding_completed specifically for this profile before any default fallback
+        if "onboarding_completed" in prof_data:
+            onboarding_completed = bool(prof_data.get("onboarding_completed"))
+        elif is_known_profile and prof_data.get("vault_path"):
+            # Legacy existing user who already had a vault configured
+            onboarding_completed = True
+        else:
+            onboarding_completed = False
 
         if "profiles" in raw:
             auto_close = bool(prof_data.get("auto_close_on_success", False))
@@ -123,6 +141,7 @@ class ProfileConfigManager:
             basic_model_id=basic_model_id,
             cloze_model_id=cloze_model_id,
             shortcuts=shortcuts,
+            onboarding_completed=onboarding_completed,
         )
 
     def save(self, settings: AddonProfileSettings) -> None:
@@ -139,6 +158,7 @@ class ProfileConfigManager:
         prof_data["auto_close_on_success"] = settings.auto_close_on_success
         prof_data["show_diff_before_update"] = settings.show_diff_before_update
         prof_data["shortcuts"] = settings.shortcuts
+        prof_data["onboarding_completed"] = settings.onboarding_completed
 
         self._write_raw_config(raw)
 

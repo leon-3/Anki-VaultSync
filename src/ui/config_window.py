@@ -2035,6 +2035,10 @@ class ConfigWindow(QDialog):
         }
 
         # 1. Save profile settings
+        is_onboarded = (
+            True if (vault_path and vault_path.is_dir())
+            else getattr(self._profile_settings, "onboarding_completed", False)
+        )
         new_settings = AddonProfileSettings(
             profile_name=self._profile_name,
             vault_path=vault_path,
@@ -2045,6 +2049,7 @@ class ConfigWindow(QDialog):
             basic_model_id=basic_id,
             cloze_model_id=cloze_id,
             shortcuts=new_shortcuts,
+            onboarding_completed=is_onboarded,
         )
         self._manager.save(new_settings)
 
