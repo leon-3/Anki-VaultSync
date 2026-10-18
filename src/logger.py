@@ -4,8 +4,10 @@ import datetime
 from pathlib import Path
 
 try:
+    import aqt
     from aqt import mw
 except ImportError:
+    aqt = None
     mw = None
 
 _custom_log_path: Path | None = None
@@ -23,9 +25,10 @@ def get_log_file_path() -> Path:
         return _custom_log_path
 
     # Try Anki profile directory
-    if mw is not None and hasattr(mw, "pm") and mw.pm is not None:
+    live_mw = aqt.mw if (aqt is not None and getattr(aqt, "mw", None) is not None) else mw
+    if live_mw is not None and hasattr(live_mw, "pm") and live_mw.pm is not None:
         try:
-            folder = Path(mw.pm.profileFolder())
+            folder = Path(live_mw.pm.profileFolder())
             if folder.is_dir():
                 return folder / "vaultsync.log"
         except Exception:

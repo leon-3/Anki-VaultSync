@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import aqt
 from aqt import mw
 from aqt.qt import (
     QAction,
@@ -18,7 +19,7 @@ from aqt.qt import (
     sip,
 )
 
-from src.profile_config import DEFAULT_SHORTCUTS
+from ..profile_config import DEFAULT_SHORTCUTS
 
 
 def _is_deleted(obj: Any) -> bool:
@@ -61,12 +62,13 @@ def find_shortcut_conflict(
 
     target_canonical = target_seq.toString(QKeySequence.SequenceFormat.PortableText).casefold()
 
-    if mw is None:
+    live_mw = aqt.mw if getattr(aqt, "mw", None) is not None else mw
+    if live_mw is None:
         return None
 
-    # Check QAction objects under mw
-    if hasattr(mw, "findChildren"):
-        for action in mw.findChildren(QAction):
+    # Check QAction objects under live_mw
+    if hasattr(live_mw, "findChildren"):
+        for action in live_mw.findChildren(QAction):
             if _is_deleted(action):
                 continue
             if allowed_actions and action in allowed_actions:
@@ -89,8 +91,8 @@ def find_shortcut_conflict(
             except RuntimeError:
                 continue
 
-        # Check QShortcut objects under mw
-        for qsc in mw.findChildren(QShortcut):
+        # Check QShortcut objects under live_mw
+        for qsc in live_mw.findChildren(QShortcut):
             if _is_deleted(qsc):
                 continue
             try:

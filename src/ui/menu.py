@@ -3,7 +3,12 @@ from .. import logger
 
 from typing import TYPE_CHECKING, Any
 
+import aqt
 from aqt import mw
+
+
+def _get_mw() -> Any:
+    return aqt.mw if getattr(aqt, "mw", None) is not None else mw
 from aqt.operations import QueryOp
 from aqt.qt import QAction, QKeySequence, QMenu, QTimer, sip
 from aqt.utils import tooltip
@@ -126,17 +131,19 @@ def apply_menu_shortcuts(settings: AddonProfileSettings | None = None) -> None:
 
 
 def _get_active_profile() -> str:
-    if mw is not None and hasattr(mw, "pm") and mw.pm is not None:
-        return mw.pm.name
+    live_mw = _get_mw()
+    if live_mw is not None and hasattr(live_mw, "pm") and live_mw.pm is not None:
+        return live_mw.pm.name
     return "Default"
 
 
 def open_dashboard() -> None:
     global _main_window_instance
     profile_name = _get_active_profile()
+    live_mw = _get_mw()
 
     if _main_window_instance is None or not _main_window_instance.isVisible():
-        _main_window_instance = MainWindow(_manager, profile_name, mw)
+        _main_window_instance = MainWindow(_manager, profile_name, live_mw)
         _main_window_instance.show()
     else:
         _main_window_instance.activateWindow()
@@ -146,12 +153,13 @@ def open_dashboard() -> None:
 def open_onboarding_wizard() -> OnboardingDialog:
     global _onboarding_dialog_instance
     profile_name = _get_active_profile()
+    live_mw = _get_mw()
     if (
         _onboarding_dialog_instance is None
         or _is_deleted(_onboarding_dialog_instance)
         or not _onboarding_dialog_instance.isVisible()
     ):
-        _onboarding_dialog_instance = OnboardingDialog(_manager, profile_name, mw)
+        _onboarding_dialog_instance = OnboardingDialog(_manager, profile_name, live_mw)
         _onboarding_dialog_instance.show()
     else:
         _onboarding_dialog_instance.activateWindow()
@@ -166,11 +174,12 @@ def open_settings(
 ) -> ConfigWindow:
     global _config_window_instance
     profile_name = _get_active_profile()
+    live_mw = _get_mw()
     if _config_window_instance is None or _is_deleted(_config_window_instance) or not _config_window_instance.isVisible():
         _config_window_instance = ConfigWindow(
             _manager,
             profile_name,
-            mw,
+            live_mw,
             initial_tab=tab_index,
             sync_plan=sync_plan,
         )
@@ -230,15 +239,17 @@ def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
         )
         return report
 
+    live_mw = _get_mw()
+
     def _on_success(report):
         release_sync_lock()
-        if mw is not None:
-            if hasattr(mw, "deckBrowser"):
-                mw.deckBrowser.refresh()
-            if hasattr(mw, "update_undo_actions"):
-                mw.update_undo_actions()
-            if hasattr(mw, "reset"):
-                mw.reset()
+        if live_mw is not None:
+            if hasattr(live_mw, "deckBrowser"):
+                live_mw.deckBrowser.refresh()
+            if hasattr(live_mw, "update_undo_actions"):
+                live_mw.update_undo_actions()
+            if hasattr(live_mw, "reset"):
+                live_mw.reset()
 
         logger.log_info(
             f"{tag.capitalize()} finished: {report.created_count} added, {report.updated_count} updated, "
@@ -249,7 +260,7 @@ def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
         for warn in report.warnings:
             logger.log_warning(warn)
 
-        show_sync_notification(report, parent=mw, include_updates=include_updates, is_startup=is_startup)
+        show_sync_notification(report, parent=live_mw, include_updates=include_updates, is_startup=is_startup)
 
     def _on_failure(exc: Exception) -> None:
         release_sync_lock()
@@ -257,7 +268,7 @@ def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
         tooltip(f"⚠️ VaultSync error: {exc}", period=5000)
 
     op = QueryOp(
-        parent=mw,
+        parent=live_mw,
         op=_full_sync_op,
         success=_on_success,
     ).failure(_on_failure)
@@ -277,10 +288,18 @@ def sync_and_update_all() -> None:
 def on_main_window_did_init() -> None:
     global _action_dash, _action_quick, _action_update
 
-    if mw is None or not hasattr(mw, "form") or not hasattr(mw.form, "menubar"):
+    live_mw = _get_mw()
+    if live_mw is None or not hasattr(live_mw, "form") or not hasattr(live_mw.form, "menubar"):
         return
 
-    menubar = mw.form.menubar
+    menubar = live_mw.form.menubar
+
+    # Check if VaultSync menu already exists
+    for action in menubar.actions():
+        menu = action.menu()
+        if menu is not None and menu.title() == "VaultSync":
+            return
+
     vault_menu = QMenu("VaultSync", menubar)
 
     _action_dash = QAction("Open Dashboard...", vault_menu)
@@ -306,7 +325,7 @@ def on_main_window_did_init() -> None:
     vault_menu.addAction(action_settings)
 
     # Insert directly into top-level menubar right before Help (matching AnKing and standard add-ons)
-    help_menu = getattr(mw.form, "menuHelp", None)
+    help_menu = getattr(live_mw.form, "menuHelp", None)
     if help_menu is not None and hasattr(help_menu, "menuAction"):
         menubar.insertMenu(help_menu.menuAction(), vault_menu)
     else:
@@ -317,18 +336,19 @@ def on_main_window_did_init() -> None:
 
 def on_profile_did_open() -> None:
     global _onboarding_timer
+    live_mw = _get_mw()
     profile_name = _get_active_profile()
     settings = _manager.load(profile_name)
     apply_menu_shortcuts(settings)
     from ..undo import attach_redo_hook, attach_undo_hook
-    if mw is not None and hasattr(mw, "col") and mw.col is not None:
-        attach_undo_hook(mw.col)
-        attach_redo_hook(mw.col)
+    if live_mw is not None and hasattr(live_mw, "col") and live_mw.col is not None:
+        attach_undo_hook(live_mw.col)
+        attach_redo_hook(live_mw.col)
 
     # If onboarding is needed, schedule setup wizard and suppress automatic startup sync
     if settings.needs_onboarding():
         logger.log_info(f"Profile '{profile_name}' needs onboarding. Scheduling setup wizard...")
-        if mw is not None:
+        if live_mw is not None:
             _onboarding_timer = QTimer()
             _onboarding_timer.setSingleShot(True)
             _onboarding_timer.timeout.connect(open_onboarding_wizard)

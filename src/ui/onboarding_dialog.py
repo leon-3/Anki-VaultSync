@@ -39,10 +39,10 @@ from aqt.qt import (
 from aqt.utils import openLink
 from markdown2anki.config import Config, load_vault_config, save_vault_config
 
-from src.profile_config import AddonProfileSettings, ProfileConfigManager
-from src.ui.onboarding_state import OnboardingState
-from src.ui.shortcuts import ShortcutConfigWidget
-from src.ui.welcome_note import create_welcome_note
+from ..profile_config import AddonProfileSettings, ProfileConfigManager
+from .onboarding_state import OnboardingState
+from .shortcuts import ShortcutConfigWidget
+from .welcome_note import create_welcome_note
 
 logger = logging.getLogger("anki_vaultsync")
 
@@ -1051,7 +1051,7 @@ class OnboardingDialog(QDialog):
         self._manager.save(profile_settings)
 
         try:
-            from src.ui.menu import apply_menu_shortcuts
+            from .menu import apply_menu_shortcuts
             apply_menu_shortcuts(profile_settings)
         except Exception:
             pass
@@ -1062,7 +1062,7 @@ class OnboardingDialog(QDialog):
         # 5. Optional initial sync triggered after dialog closes
         if self.state.run_initial_sync:
             try:
-                from src.ui.menu import _run_menu_sync
+                from .menu import _run_menu_sync
                 _run_menu_sync(include_updates=True)
             except Exception as exc:
                 logger.error(f"Failed to trigger initial sync after onboarding: {exc}")

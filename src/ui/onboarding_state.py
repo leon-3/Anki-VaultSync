@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from src.profile_config import DEFAULT_SHORTCUTS
+from ..profile_config import DEFAULT_SHORTCUTS
 
 
 @dataclass

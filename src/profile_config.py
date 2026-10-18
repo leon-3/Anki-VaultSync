@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from anki.models import NotetypeId
+import aqt
 from aqt import mw
 from markdown2anki.config import Config, load_vault_config, save_vault_config
 
@@ -51,8 +52,9 @@ class ProfileConfigManager:
             except Exception:
                 return {}
 
-        if mw is not None and hasattr(mw, "addonManager") and mw.addonManager is not None:
-            config = mw.addonManager.getConfig(self._addon_name)
+        live_mw = aqt.mw if getattr(aqt, "mw", None) is not None else mw
+        if live_mw is not None and hasattr(live_mw, "addonManager") and live_mw.addonManager is not None:
+            config = live_mw.addonManager.getConfig(self._addon_name)
             if isinstance(config, dict):
                 return config
 
@@ -70,8 +72,9 @@ class ProfileConfigManager:
             self._config_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
             return
 
-        if mw is not None and hasattr(mw, "addonManager") and mw.addonManager is not None:
-            mw.addonManager.writeConfig(self._addon_name, data)
+        live_mw = aqt.mw if getattr(aqt, "mw", None) is not None else mw
+        if live_mw is not None and hasattr(live_mw, "addonManager") and live_mw.addonManager is not None:
+            live_mw.addonManager.writeConfig(self._addon_name, data)
             return
 
         default_file = Path(__file__).resolve().parent.parent / "config.json"
