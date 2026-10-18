@@ -133,6 +133,10 @@ class SyncPlan:
     def total_missing_in_anki(self) -> int:
         return len(self.missing_in_anki)
 
+    @property
+    def has_changes(self) -> bool:
+        return self.total_creates > 0 or self.total_updates > 0 or len(self.occlusions_to_stage) > 0
+
 
 @dataclass
 class SyncReport:

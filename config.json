@@ -12,5 +12,6 @@
     "open_dashboard": "Ctrl+Alt+V",
     "quick_sync": "Ctrl+Alt+S",
     "full_sync": "Ctrl+Alt+U"
-  }
+  },
+  "backup_before_sync": true
 }

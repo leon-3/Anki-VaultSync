@@ -229,6 +229,9 @@ def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
             basic_model_id=b_mid,
             cloze_model_id=c_mid,
         )
+        if getattr(settings, "backup_before_sync", True) and plan.has_changes:
+            from ..backup import create_safety_backup
+            create_safety_backup(live_mw=live_mw, col=col, reason="sync")
         report = execute_sync_plan(
             col,
             plan,

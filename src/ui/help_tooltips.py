@@ -2,6 +2,11 @@
 from __future__ import annotations
 
 TOOLTIPS: dict[str, str] = {
+    "backup_before_sync": (
+        "Automatically creates an Anki collection backup before modifying or deleting cards in Anki. "
+        "Backups are safely managed by Anki's native backup service and can be restored anytime "
+        "via Anki's profile manager (File -> Switch Profile -> Open Backup)."
+    ),
     "suspend_new_clozes": (
         "When enabled, newly created Text-Cloze cards are added in a suspended state. "
         "This allows you to pace your study and selectively unsuspend cards in Anki when ready."

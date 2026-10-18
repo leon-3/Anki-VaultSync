@@ -30,6 +30,7 @@ class AddonProfileSettings:
     cloze_model_id: int | None = None
     shortcuts: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SHORTCUTS))
     onboarding_completed: bool = False
+    backup_before_sync: bool = True
 
     def needs_onboarding(self) -> bool:
         """Return True if the onboarding wizard should run for this profile."""
@@ -107,11 +108,13 @@ class ProfileConfigManager:
             auto_close = bool(prof_data.get("auto_close_on_success", False))
             show_diff = bool(prof_data.get("show_diff_before_update", True))
             sync_on_startup = bool(prof_data.get("sync_on_startup", False))
+            backup_before_sync = bool(prof_data.get("backup_before_sync", True))
             raw_shortcuts = prof_data.get("shortcuts")
         else:
             auto_close = bool(raw.get("auto_close_on_success", False))
             show_diff = bool(raw.get("show_diff_before_update", True))
             sync_on_startup = bool(raw.get("sync_on_startup", False))
+            backup_before_sync = bool(raw.get("backup_before_sync", True))
             raw_shortcuts = raw.get("shortcuts")
 
         raw_vault = prof_data.get("vault_path")
@@ -145,6 +148,7 @@ class ProfileConfigManager:
             cloze_model_id=cloze_model_id,
             shortcuts=shortcuts,
             onboarding_completed=onboarding_completed,
+            backup_before_sync=backup_before_sync,
         )
 
     def save(self, settings: AddonProfileSettings) -> None:
@@ -162,6 +166,7 @@ class ProfileConfigManager:
         prof_data["show_diff_before_update"] = settings.show_diff_before_update
         prof_data["shortcuts"] = settings.shortcuts
         prof_data["onboarding_completed"] = settings.onboarding_completed
+        prof_data["backup_before_sync"] = settings.backup_before_sync
 
         self._write_raw_config(raw)
 

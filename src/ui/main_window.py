@@ -627,6 +627,9 @@ class MainWindow(QDialog):
         c_mid = self._settings.cloze_model_id
 
         def _sync_op(col) -> SyncReport:
+            if getattr(self._settings, "backup_before_sync", True) and plan.has_changes:
+                from ..backup import create_safety_backup
+                create_safety_backup(live_mw=mw, col=col, reason="sync")
             return execute_sync_plan(
                 col,
                 plan,

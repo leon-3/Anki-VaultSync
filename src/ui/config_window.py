@@ -448,6 +448,15 @@ class ConfigWindow(QDialog):
         row_startup.addStretch()
         card_sync_l.addLayout(row_startup)
 
+        self.backup_before_sync_cb = QCheckBox("Create Anki Collection Backup Before Modifying Cards")
+        self.backup_before_sync_cb.setStyleSheet("font-size: 13px;")
+        row_backup = QHBoxLayout()
+        row_backup.setSpacing(8)
+        row_backup.addWidget(self.backup_before_sync_cb)
+        row_backup.addWidget(self._help_button("backup_before_sync"))
+        row_backup.addStretch()
+        card_sync_l.addLayout(row_backup)
+
         self.suspend_new_clozes_cb = QCheckBox("Suspend Newly Created Text-Cloze Cards by Default")
         self.suspend_new_clozes_cb.setStyleSheet("font-size: 13px;")
         row_cloze_susp = QHBoxLayout()
@@ -1396,6 +1405,9 @@ class ConfigWindow(QDialog):
             return
 
         def _op(col) -> int:
+            if getattr(self._profile_settings, "backup_before_sync", True):
+                from ..backup import create_safety_backup
+                create_safety_backup(live_mw=mw, col=col, reason="delete_orphans")
             col.remove_notes(nids)
             return count
 
@@ -1492,6 +1504,9 @@ class ConfigWindow(QDialog):
                 cloze_model_id=c_mid,
                 recreate_missing_ids=selected_ids,
             )
+            if getattr(self._profile_settings, "backup_before_sync", True) and plan.has_changes:
+                from ..backup import create_safety_backup
+                create_safety_backup(live_mw=mw, col=col, reason="recreate_cards")
             return execute_sync_plan(
                 col,
                 plan,
@@ -1798,6 +1813,7 @@ class ConfigWindow(QDialog):
         self.show_diff_cb.setChecked(self._profile_settings.show_diff_before_update)
         self.auto_close_cb.setChecked(self._profile_settings.auto_close_on_success)
         self.sync_on_startup_cb.setChecked(self._profile_settings.sync_on_startup)
+        self.backup_before_sync_cb.setChecked(getattr(self._profile_settings, "backup_before_sync", True))
 
         # Select basic model
         if self._profile_settings.basic_model_id is not None:
@@ -1942,6 +1958,7 @@ class ConfigWindow(QDialog):
             "show_diff": self.show_diff_cb.isChecked(),
             "auto_close": self.auto_close_cb.isChecked(),
             "sync_on_startup": self.sync_on_startup_cb.isChecked(),
+            "backup_before_sync": self.backup_before_sync_cb.isChecked(),
             "sc_dash": self.sc_dash_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
             "sc_quick": self.sc_quick_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
             "sc_full": self.sc_full_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
@@ -2061,6 +2078,7 @@ class ConfigWindow(QDialog):
             auto_close_on_success=self.auto_close_cb.isChecked(),
             show_diff_before_update=self.show_diff_cb.isChecked(),
             sync_on_startup=self.sync_on_startup_cb.isChecked(),
+            backup_before_sync=self.backup_before_sync_cb.isChecked(),
             basic_model_id=basic_id,
             cloze_model_id=cloze_id,
             shortcuts=new_shortcuts,
