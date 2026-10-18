@@ -19,6 +19,32 @@ _last_undo_token: Any = None
 _last_redo_token: Any = None
 
 
+def _show_undo_tooltip(msg: str, period: int = 1200) -> None:
+    """Safely show a temporary tooltip notification on Anki's main GUI thread."""
+    try:
+        from aqt import mw
+        if mw is None:
+            return
+
+        def _do_show() -> None:
+            try:
+                from aqt.qt import QTimer
+                from aqt.utils import closeTooltip, tooltip
+                parent = (mw.app.activeWindow() if getattr(mw, "app", None) else None) or mw
+                tooltip(msg, period=period, parent=parent)
+                # Fail-safe explicit close on Qt main loop in case progress timer or window focus delays it
+                QTimer.singleShot(period + 100, closeTooltip)
+            except Exception:
+                pass
+
+        if hasattr(mw, "taskman") and hasattr(mw.taskman, "run_on_main"):
+            mw.taskman.run_on_main(_do_show)
+        else:
+            _do_show()
+    except Exception:
+        pass
+
+
 def _extract_token(changes: Any) -> Any:
     """Extract an identity token from an OpChanges/OpChangesAfterUndo object to prevent double-execution."""
     if changes is None:
@@ -123,15 +149,8 @@ def on_state_did_undo(changes: Any) -> None:
             f"Undo VaultSync: cleared ADDED flags for {cleared} card(s) in Obsidian."
             + (f" Problems: {'; '.join(problems)}" if problems else "")
         )
-        try:
-            from aqt import mw
-            from aqt.qt import QTimer
-            from aqt.utils import closeTooltip, tooltip
-            if mw is not None and cleared > 0:
-                tooltip(f"VaultSync: Cleared flags for {cleared} card(s) in Obsidian.", period=1200)
-                QTimer.singleShot(1300, closeTooltip)
-        except Exception:
-            pass
+        if cleared > 0:
+            _show_undo_tooltip(f"VaultSync: Cleared flags for {cleared} card(s) in Obsidian.", period=1200)
     except Exception as exc:
         log_error(f"Undo VaultSync failed while clearing flags: {exc}")
 
@@ -170,15 +189,8 @@ def on_state_did_redo(changes: Any = None) -> None:
             f"Redo VaultSync: restored ADDED flags for {flagged} card(s) in Obsidian."
             + (f" Problems: {'; '.join(problems)}" if problems else "")
         )
-        try:
-            from aqt import mw
-            from aqt.qt import QTimer
-            from aqt.utils import closeTooltip, tooltip
-            if mw is not None and flagged > 0:
-                tooltip(f"VaultSync: Restored flags for {flagged} card(s) in Obsidian.", period=1200)
-                QTimer.singleShot(1300, closeTooltip)
-        except Exception:
-            pass
+        if flagged > 0:
+            _show_undo_tooltip(f"VaultSync: Restored flags for {flagged} card(s) in Obsidian.", period=1200)
     except Exception as exc:
         log_error(f"Redo VaultSync failed while restoring flags: {exc}")
 

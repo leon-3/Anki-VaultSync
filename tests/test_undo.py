@@ -10,6 +10,7 @@ from markdown2anki.parser import parse_file
 
 from src.contracts import SyncPlan
 from src.undo import (
+    _show_undo_tooltip,
     attach_redo_hook,
     attach_undo_hook,
     clear_sync_undo_stack,
@@ -390,3 +391,30 @@ def test_large_sync_with_occlusions_and_suspension_merges_atomically():
             assert "ADDED:" not in content
         finally:
             col.close()
+
+
+def test_show_undo_tooltip_no_mw(monkeypatch):
+    import aqt
+    monkeypatch.setattr(aqt, "mw", None)
+    # Should not raise exception when mw is None
+    _show_undo_tooltip("Test message")
+
+
+def test_show_undo_tooltip_dispatches_to_main_thread(monkeypatch):
+    import aqt
+    dispatched = []
+
+    class DummyTaskman:
+        def run_on_main(self, fn):
+            dispatched.append(fn)
+
+    dummy_mw = SimpleNamespace(
+        taskman=DummyTaskman(),
+        app=SimpleNamespace(activeWindow=lambda: None),
+    )
+    monkeypatch.setattr(aqt, "mw", dummy_mw)
+
+    _show_undo_tooltip("Test message", period=1000)
+    assert len(dispatched) == 1
+    # Ensure closure can be called without error
+    dispatched[0]()
