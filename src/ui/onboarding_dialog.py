@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-import tempfile
 from typing import TYPE_CHECKING, Any
 import uuid
 
@@ -16,6 +15,7 @@ from aqt.qt import (
     QDialog,
     QFileDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -40,6 +40,7 @@ from aqt.utils import openLink
 from markdown2anki.config import Config, load_vault_config, save_vault_config
 
 from ..profile_config import AddonProfileSettings, ProfileConfigManager
+from ..vault_detector import DetectedVault, detect_obsidian_vaults
 from .onboarding_state import OnboardingState
 from .shortcuts import ShortcutConfigWidget
 
@@ -48,14 +49,61 @@ logger = logging.getLogger("anki_vaultsync")
 TOTAL_STEPS = 5
 STEP_TITLES = ["Welcome", "Vault & Deck", "Card Types", "Workflow", "Ready"]
 
+CARD_FRAME_STYLE = """
+    #dashboardCard {
+        border: 1px solid rgba(130, 130, 130, 0.25);
+        border-radius: 8px;
+        background-color: rgba(130, 130, 130, 0.03);
+    }
+"""
+
+INPUT_STYLE = """
+    QLineEdit, QComboBox {
+        border: 1px solid rgba(130, 130, 130, 0.35);
+        border-radius: 6px;
+        padding: 6px 10px;
+        background-color: palette(base);
+        color: palette(text);
+        font-size: 12px;
+    }
+    QLineEdit:focus, QComboBox:focus {
+        border: 1px solid palette(highlight);
+    }
+"""
+
+BTN_STYLE = """
+    QPushButton {
+        border: 1px solid rgba(130, 130, 130, 0.35);
+        border-radius: 6px;
+        padding: 6px 14px;
+        background-color: palette(button);
+        color: palette(button-text);
+        font-size: 12px;
+        font-weight: 500;
+    }
+    QPushButton:hover {
+        background-color: palette(highlight);
+        color: palette(highlighted-text);
+        border-color: palette(highlight);
+    }
+"""
+
+
+def _create_card_frame(parent: QWidget | None = None) -> QFrame:
+    """Helper creating a consistent card container matching the Dashboard design."""
+    card = QFrame(parent)
+    card.setObjectName("dashboardCard")
+    card.setStyleSheet(CARD_FRAME_STYLE)
+    return card
+
 
 class StepHeaderWidget(QWidget):
-    """Custom stepper header rendering numbered nodes with connecting lines."""
+    """Custom stepper header rendering numbered nodes with connecting lines and subtle card framing."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._current_step = 0
-        self.setFixedHeight(64)
+        self.setFixedHeight(68)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def set_current_step(self, step: int) -> None:
@@ -75,14 +123,25 @@ class StepHeaderWidget(QWidget):
         dim_text.setAlpha(150)
 
         width = self.width()
-        margin = 45
+
+        # 1. Subtle card frame background matching Dashboard panels
+        bg_col = QColor(mid_color)
+        bg_col.setAlpha(16)
+        border_col = QColor(mid_color)
+        border_col.setAlpha(55)
+        painter.setBrush(bg_col)
+        painter.setPen(QPen(border_col, 1))
+        painter.drawRoundedRect(1, 1, width - 2, self.height() - 2, 8, 8)
+
+        margin = 50
         available_w = width - 2 * margin
         spacing = available_w / (TOTAL_STEPS - 1)
         node_radius = 12
-        y_circle = 20
+        y_circle = 22
 
-        # Draw connecting lines
+        # 2. Draw connecting lines
         pen = QPen(mid_color, 2)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
         for i in range(TOTAL_STEPS - 1):
             x1 = margin + i * spacing + node_radius
@@ -94,7 +153,7 @@ class StepHeaderWidget(QWidget):
             painter.setPen(pen)
             painter.drawLine(int(x1), y_circle, int(x2), y_circle)
 
-        # Draw nodes & labels
+        # 3. Draw nodes & labels
         font = painter.font()
         for i in range(TOTAL_STEPS):
             x = int(margin + i * spacing)
@@ -111,7 +170,6 @@ class StepHeaderWidget(QWidget):
                 painter.setFont(font)
                 painter.drawText(x - node_radius, y_circle - node_radius, node_radius * 2, node_radius * 2,
                                  Qt.AlignmentFlag.AlignCenter, "✓")
-
                 label_color = text_color
             elif i == self._current_step:
                 # Active
@@ -125,12 +183,11 @@ class StepHeaderWidget(QWidget):
                 painter.setFont(font)
                 painter.drawText(x - node_radius, y_circle - node_radius, node_radius * 2, node_radius * 2,
                                  Qt.AlignmentFlag.AlignCenter, str(i + 1))
-
                 label_color = highlight_color
             else:
                 # Pending
                 painter.setBrush(palette.color(QPalette.ColorRole.Base))
-                painter.setPen(QPen(mid_color, 2))
+                painter.setPen(QPen(mid_color, 1.5))
                 painter.drawEllipse(x - node_radius, y_circle - node_radius, node_radius * 2, node_radius * 2)
 
                 painter.setPen(dim_text)
@@ -139,7 +196,6 @@ class StepHeaderWidget(QWidget):
                 painter.setFont(font)
                 painter.drawText(x - node_radius, y_circle - node_radius, node_radius * 2, node_radius * 2,
                                  Qt.AlignmentFlag.AlignCenter, str(i + 1))
-
                 label_color = dim_text
 
             # Label below node
@@ -147,7 +203,7 @@ class StepHeaderWidget(QWidget):
             font.setBold(i == self._current_step)
             painter.setFont(font)
             painter.setPen(label_color)
-            painter.drawText(x - 50, y_circle + 14, 100, 20, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+            painter.drawText(x - 55, y_circle + 15, 110, 20, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
                              STEP_TITLES[i])
 
 
@@ -182,8 +238,8 @@ class OnboardingPageBase(QWidget):
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.content_widget = QWidget()
         self.content_layout = QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(28, 16, 28, 20)
-        self.content_layout.setSpacing(16)
+        self.content_layout.setContentsMargins(20, 14, 20, 16)
+        self.content_layout.setSpacing(14)
         self.scroll.setWidget(self.content_widget)
         main_layout.addWidget(self.scroll)
 
@@ -225,15 +281,15 @@ class OnboardingPageBase(QWidget):
         header_box.setSpacing(4)
 
         t_lbl = QLabel(title)
-        t_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: palette(window-text);")
+        t_lbl.setStyleSheet("font-size: 17px; font-weight: bold; color: palette(window-text);")
         sub_lbl = QLabel(subtitle)
-        sub_lbl.setStyleSheet("font-size: 13px; color: palette(window-text); opacity: 0.85;")
+        sub_lbl.setStyleSheet("font-size: 13px; color: palette(window-text); opacity: 0.8; line-height: 1.4;")
         sub_lbl.setWordWrap(True)
 
         header_box.addWidget(t_lbl)
         header_box.addWidget(sub_lbl)
         self.content_layout.addLayout(header_box)
-        self.content_layout.addSpacing(4)
+        self.content_layout.addSpacing(2)
 
     def on_enter(self, state: OnboardingState) -> None:
         pass
@@ -261,70 +317,92 @@ class PageWelcome(OnboardingPageBase):
             "Seamlessly synchronize Markdown flashcards from your Obsidian vault into Anki."
         )
 
-        desc = QLabel(
-            "VaultSync tracks your Obsidian markdown files and converts formatted notes into Anki flashcards "
-            "directly and without duplicates.\n\n"
-            "• Write notes normally in Obsidian — no complex tags or export steps required.\n"
-            "• Deterministic note IDs guarantee cards are updated in place without resetting review intervals.\n"
-            "• Full support for Basic Q&A cards, Cloze deletions, and Image Occlusions."
-        )
-        desc.setWordWrap(True)
-        desc.setStyleSheet("font-size: 12px; line-height: 1.5; color: palette(window-text);")
-        self.content_layout.addWidget(desc)
+        # 1. Feature Highlights Card (Matching Dashboard card style)
+        card_features = _create_card_frame(self)
+        cf_layout = QVBoxLayout(card_features)
+        cf_layout.setContentsMargins(16, 14, 16, 14)
+        cf_layout.setSpacing(10)
 
-        preview_card = QFrame()
-        preview_card.setStyleSheet("QFrame { border: 1px solid palette(mid); border-radius: 8px; background: palette(base); }")
-        pc_layout = QVBoxLayout(preview_card)
-        pc_layout.setContentsMargins(14, 12, 14, 12)
-        pc_layout.setSpacing(10)
+        title_features = QLabel("How VaultSync Works")
+        title_features.setStyleSheet("font-size: 14px; font-weight: bold; border: none; background: transparent;")
+        cf_layout.addWidget(title_features)
 
-        preview_title = QLabel("Markdown Card Syntax Examples:")
-        preview_title.setStyleSheet("font-weight: 600; font-size: 12px; color: palette(text); border: none;")
-        pc_layout.addWidget(preview_title)
+        features = [
+            ("Obsidian Note Tracking", "Scans your notes directly — no export steps or complex tagging required."),
+            ("Deterministic Note IDs", "Guarantees cards update in place without resetting your scheduling or review history."),
+            ("Rich Card Formats", "Full native support for Basic Q&A cards, Cloze deletions, and Image Occlusions."),
+        ]
+        for name, desc in features:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            dot = QLabel("●")
+            dot.setStyleSheet("color: #4CAF50; font-size: 11px; border: none; background: transparent;")
+            lbl = QLabel(f"<b>{name}:</b> {desc}")
+            lbl.setStyleSheet("font-size: 12px; border: none; background: transparent;")
+            lbl.setWordWrap(True)
+            row.addWidget(dot, 0, Qt.AlignmentFlag.AlignTop)
+            row.addWidget(lbl, 1)
+            cf_layout.addLayout(row)
+
+        self.content_layout.addWidget(card_features)
+
+        # 2. Syntax Preview Card
+        card_preview = _create_card_frame(self)
+        cp_layout = QVBoxLayout(card_preview)
+        cp_layout.setContentsMargins(16, 14, 16, 14)
+        cp_layout.setSpacing(10)
+
+        preview_title = QLabel("Markdown Card Syntax Examples")
+        preview_title.setStyleSheet("font-size: 14px; font-weight: bold; border: none; background: transparent;")
+        cp_layout.addWidget(preview_title)
 
         cards_box = QHBoxLayout()
         cards_box.setSpacing(12)
 
+        code_style = """
+            QFrame {
+                border: 1px solid rgba(130, 130, 130, 0.22);
+                border-radius: 6px;
+                background-color: rgba(0, 0, 0, 0.05);
+            }
+        """
+
         # Basic QA Box
         box1 = QFrame()
-        box1.setStyleSheet("QFrame { border: 1px dashed palette(mid); border-radius: 6px; padding: 6px; }")
+        box1.setStyleSheet(code_style)
         l1 = QVBoxLayout(box1)
-        l1.addWidget(QLabel("<b>Basic Card:</b>"))
+        l1.setContentsMargins(12, 10, 12, 10)
+        l1.setSpacing(6)
+        hdr1 = QLabel("<b>Basic Card:</b>")
+        hdr1.setStyleSheet("border: none; background: transparent; font-size: 12px;")
+        l1.addWidget(hdr1)
         code1 = QLabel("# Biology\n---\nWhat is photosynthesis?\nLight-driven synthesis of sugars.")
-        code1.setStyleSheet("font-family: monospace; font-size: 11px;")
+        code1.setStyleSheet("font-family: monospace; font-size: 11px; border: none; background: transparent; line-height: 1.4;")
         l1.addWidget(code1)
         cards_box.addWidget(box1)
 
         # Cloze Box
         box2 = QFrame()
-        box2.setStyleSheet("QFrame { border: 1px dashed palette(mid); border-radius: 6px; padding: 6px; }")
+        box2.setStyleSheet(code_style)
         l2 = QVBoxLayout(box2)
-        l2.addWidget(QLabel("<b>Cloze Note:</b>"))
+        l2.setContentsMargins(12, 10, 12, 10)
+        l2.setSpacing(6)
+        hdr2 = QLabel("<b>Cloze Note:</b>")
+        hdr2.setStyleSheet("border: none; background: transparent; font-size: 12px;")
+        l2.addWidget(hdr2)
         code2 = QLabel("# Genetics\n---\nCloze\nDNA consists of {{c1::nucleotides}}.")
-        code2.setStyleSheet("font-family: monospace; font-size: 11px;")
+        code2.setStyleSheet("font-family: monospace; font-size: 11px; border: none; background: transparent; line-height: 1.4;")
         l2.addWidget(code2)
         cards_box.addWidget(box2)
 
-        pc_layout.addLayout(cards_box)
-        self.content_layout.addWidget(preview_card)
+        cp_layout.addLayout(cards_box)
+        self.content_layout.addWidget(card_preview)
 
-        # Documentation Link
+        # 3. Documentation Link Button
         link_btn = QPushButton("Open Syntax Documentation & Cheat Sheet ↗")
+        link_btn.setFixedHeight(36)
         link_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        link_btn.setStyleSheet("""
-            QPushButton {
-                border: 1px solid palette(highlight);
-                border-radius: 6px;
-                padding: 6px 14px;
-                background-color: palette(button);
-                color: palette(highlight);
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: palette(highlight);
-                color: palette(highlighted-text);
-            }
-        """)
+        link_btn.setStyleSheet(BTN_STYLE)
         link_btn.setAutoDefault(False)
         link_btn.clicked.connect(lambda: openLink("https://github.com/leon-3/Anki-VaultSync#markdown-card-syntax"))
 
@@ -340,6 +418,7 @@ class PageVaultDeck(OnboardingPageBase):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._detected_vaults: list[DetectedVault] = []
         self._debounce_timer = QTimer(self)
         self._debounce_timer.setSingleShot(True)
         self._debounce_timer.timeout.connect(self._check_vault_path_async)
@@ -351,99 +430,184 @@ class PageVaultDeck(OnboardingPageBase):
             "Choose your local notes folder and a default Anki deck for imported flashcards."
         )
 
-        input_style = """
-            QLineEdit, QComboBox {
-                border: 1px solid palette(mid);
-                border-radius: 6px;
-                padding: 6px 10px;
-                background-color: palette(base);
-                color: palette(text);
-                font-size: 12px;
-            }
-            QLineEdit:focus, QComboBox:focus {
-                border: 1px solid palette(highlight);
-            }
-        """
-        btn_style = """
-            QPushButton {
-                border: 1px solid palette(mid);
-                border-radius: 6px;
-                padding: 6px 14px;
-                background-color: palette(button);
-                color: palette(button-text);
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: palette(highlight);
-                color: palette(highlighted-text);
-            }
-        """
+        # 1. Vault Selection Card
+        card_vault = _create_card_frame(self)
+        l_vault = QVBoxLayout(card_vault)
+        l_vault.setContentsMargins(16, 14, 16, 14)
+        l_vault.setSpacing(10)
 
-        # 1. Vault path
-        lbl_vault = QLabel("Obsidian Vault Folder:")
-        lbl_vault.setStyleSheet("font-size: 13px; font-weight: 600; color: palette(window-text);")
-        self.content_layout.addWidget(lbl_vault)
+        title_vault = QLabel("Obsidian Vault Location")
+        title_vault.setStyleSheet("font-size: 14px; font-weight: bold; border: none; background: transparent;")
+        l_vault.addWidget(title_vault)
+
+        # 1a. Detected Vaults Dropdown (if any detected)
+        self.detected_box = QWidget()
+        l_det = QVBoxLayout(self.detected_box)
+        l_det.setContentsMargins(0, 0, 0, 0)
+        l_det.setSpacing(4)
+
+        det_header = QHBoxLayout()
+        dot_det = QLabel("●")
+        dot_det.setStyleSheet("font-size: 12px; color: #4CAF50; border: none; background: transparent;")
+        self.lbl_detected = QLabel("Detected Obsidian Vaults:")
+        self.lbl_detected.setStyleSheet("font-size: 13px; font-weight: 600; border: none; background: transparent;")
+        det_header.addWidget(dot_det)
+        det_header.addWidget(self.lbl_detected)
+        det_header.addStretch()
+        l_det.addLayout(det_header)
+
+        self.vault_combo = QComboBox()
+        self.vault_combo.setFixedHeight(34)
+        self.vault_combo.setStyleSheet(INPUT_STYLE)
+        self.vault_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.vault_combo.currentIndexChanged.connect(self._on_detected_vault_selected)
+        l_det.addWidget(self.vault_combo)
+
+        l_vault.addWidget(self.detected_box)
+
+        # 1b. Vault path input row
+        self.lbl_vault = QLabel("Obsidian Vault Folder:")
+        self.lbl_vault.setStyleSheet("font-size: 13px; font-weight: 600; border: none; background: transparent;")
+        l_vault.addWidget(self.lbl_vault)
 
         row_vault = QHBoxLayout()
         row_vault.setSpacing(8)
         self.vault_edit = QLineEdit()
-        self.vault_edit.setStyleSheet(input_style)
+        self.vault_edit.setFixedHeight(34)
+        self.vault_edit.setStyleSheet(INPUT_STYLE)
         self.vault_edit.setPlaceholderText("/home/user/Documents/My Obsidian Vault")
         self.vault_edit.textChanged.connect(self._on_vault_text_changed)
 
         btn_browse = QPushButton("Browse...")
-        btn_browse.setStyleSheet(btn_style)
+        btn_browse.setFixedHeight(34)
+        btn_browse.setStyleSheet(BTN_STYLE)
         btn_browse.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_browse.setAutoDefault(False)
         btn_browse.clicked.connect(self._on_browse_vault)
 
         row_vault.addWidget(self.vault_edit)
         row_vault.addWidget(btn_browse)
-        self.content_layout.addLayout(row_vault)
+        l_vault.addLayout(row_vault)
 
-        # Status badge & reset button
-        self.badge_box = QHBoxLayout()
+        # 1c. Status indicator bar (matching Dashboard status bar design)
+        self.status_box = QFrame()
+        self.status_box.setObjectName("statusBox")
+        self.status_box.setStyleSheet("""
+            #statusBox {
+                border: 1px solid rgba(130, 130, 130, 0.25);
+                border-radius: 6px;
+                background-color: rgba(130, 130, 130, 0.04);
+            }
+        """)
+        sb_layout = QHBoxLayout(self.status_box)
+        sb_layout.setContentsMargins(12, 7, 12, 7)
+        sb_layout.setSpacing(8)
+
+        self.status_dot = QLabel("●")
+        self.status_dot.setStyleSheet("font-size: 12px; color: #4CAF50; border: none; background: transparent;")
+
         self.status_badge = QLabel()
-        self.status_badge.setStyleSheet("font-size: 11px; padding: 4px 8px; border-radius: 4px;")
-        self.status_badge.setVisible(False)
+        self.status_badge.setStyleSheet("font-size: 12px; border: none; background: transparent;")
 
         self.btn_reset_toml = QPushButton("Reset to Default Configuration")
-        self.btn_reset_toml.setStyleSheet(btn_style)
+        self.btn_reset_toml.setFixedHeight(28)
+        self.btn_reset_toml.setStyleSheet(BTN_STYLE)
         self.btn_reset_toml.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_reset_toml.setVisible(False)
         self.btn_reset_toml.setAutoDefault(False)
         self.btn_reset_toml.clicked.connect(self._reset_corrupt_toml)
 
-        self.badge_box.addWidget(self.status_badge)
-        self.badge_box.addWidget(self.btn_reset_toml)
-        self.badge_box.addStretch()
-        self.content_layout.addLayout(self.badge_box)
+        sb_layout.addWidget(self.status_dot)
+        sb_layout.addWidget(self.status_badge)
+        sb_layout.addStretch()
+        sb_layout.addWidget(self.btn_reset_toml)
+        self.status_box.setVisible(False)
 
-        self.content_layout.addSpacing(10)
+        l_vault.addWidget(self.status_box)
+        self.content_layout.addWidget(card_vault)
 
-        # 2. Target Deck
-        lbl_deck = QLabel("Default Target Deck in Anki:")
-        lbl_deck.setStyleSheet("font-size: 13px; font-weight: 600; color: palette(window-text);")
-        self.content_layout.addWidget(lbl_deck)
+        # 2. Target Deck Card
+        card_deck = _create_card_frame(self)
+        l_deck = QVBoxLayout(card_deck)
+        l_deck.setContentsMargins(16, 14, 16, 14)
+        l_deck.setSpacing(10)
+
+        title_deck = QLabel("Default Target Deck")
+        title_deck.setStyleSheet("font-size: 14px; font-weight: bold; border: none; background: transparent;")
+        l_deck.addWidget(title_deck)
 
         self.deck_combo = QComboBox()
         self.deck_combo.setEditable(True)
-        self.deck_combo.setStyleSheet(input_style)
+        self.deck_combo.setFixedHeight(34)
+        self.deck_combo.setStyleSheet(INPUT_STYLE)
         self.deck_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.deck_combo.currentTextChanged.connect(lambda _: self.validity_changed.emit(self.is_valid()))
-        self.content_layout.addWidget(self.deck_combo)
+        l_deck.addWidget(self.deck_combo)
 
         deck_hint = QLabel(
             "Cards not matched by specific folder routing rules will land in this default deck. "
             "Detailed folder-to-deck routing rules can be configured anytime later in Settings (Rules & Decks)."
         )
         deck_hint.setWordWrap(True)
-        deck_hint.setStyleSheet("font-size: 11px; color: palette(window-text); opacity: 0.8; margin-top: 4px;")
-        self.content_layout.addWidget(deck_hint)
+        deck_hint.setStyleSheet("font-size: 11px; color: palette(window-text); opacity: 0.8; margin-top: 2px;")
+        l_deck.addWidget(deck_hint)
 
+        self.content_layout.addWidget(card_deck)
         self.content_layout.addStretch()
+        self._populate_detected_vaults()
+
+    def _populate_detected_vaults(self, detected: list[DetectedVault] | None = None) -> None:
+        if detected is None:
+            detected = detect_obsidian_vaults()
+        self._detected_vaults = list(detected)
+
+        self.vault_combo.blockSignals(True)
+        self.vault_combo.clear()
+
+        if not self._detected_vaults:
+            self.detected_box.setVisible(False)
+            self.vault_combo.blockSignals(False)
+            return
+
+        self.detected_box.setVisible(True)
+        count_str = f" ({len(self._detected_vaults)} found)" if len(self._detected_vaults) > 1 else ""
+        self.vault_combo.addItem(f"-- Select a detected Obsidian vault{count_str} --", userData=None)
+
+        for v in self._detected_vaults:
+            status = " (Active)" if v.is_open else ""
+            label = f"{v.name}{status} — {v.path}"
+            self.vault_combo.addItem(label, userData=v.path)
+
+        self.vault_combo.blockSignals(False)
+
+    def _on_detected_vault_selected(self, index: int) -> None:
+        if index <= 0:
+            return
+        path = self.vault_combo.itemData(index)
+        if path:
+            self.vault_edit.setText(str(path))
+
+    def _sync_combo_with_text(self, text: str) -> None:
+        if not hasattr(self, "vault_combo") or not getattr(self, "_detected_vaults", None):
+            return
+        raw = text.strip()
+        target_idx = 0
+        if raw:
+            try:
+                p_norm = Path(raw).expanduser().resolve()
+                for idx in range(1, self.vault_combo.count()):
+                    val = self.vault_combo.itemData(idx)
+                    if isinstance(val, Path) and val == p_norm:
+                        target_idx = idx
+                        break
+            except Exception:
+                pass
+        self.vault_combo.blockSignals(True)
+        self.vault_combo.setCurrentIndex(target_idx)
+        self.vault_combo.blockSignals(False)
 
     def _on_vault_text_changed(self) -> None:
+        self._sync_combo_with_text(self.vault_edit.text())
         self._debounce_timer.stop()
         self._debounce_timer.start(250)
 
@@ -458,7 +622,6 @@ class PageVaultDeck(OnboardingPageBase):
         names: list[str] = []
         if mw and hasattr(mw, "col") and mw.col:
             for d in mw.col.decks.all():
-                # Filter out dynamic / filtered decks
                 is_filtered = getattr(mw.col.decks, "is_filtered", lambda did: False)(d["id"])
                 if is_filtered or d.get("dyn", False):
                     continue
@@ -477,16 +640,19 @@ class PageVaultDeck(OnboardingPageBase):
     def _check_vault_path_async(self) -> None:
         raw = self.vault_edit.text().strip()
         if not raw:
-            self.status_badge.setVisible(False)
+            self.status_box.setVisible(False)
+            self.status_badge.setText("")
             self.btn_reset_toml.setVisible(False)
             self.validity_changed.emit(self.is_valid())
             return
 
         p = Path(raw).expanduser()
         if not p.is_dir():
+            self.status_dot.setText("●")
+            self.status_dot.setStyleSheet("font-size: 12px; color: #F44336; border: none; background: transparent;")
             self.status_badge.setText("⚠️ Directory does not exist or is not accessible.")
-            self.status_badge.setStyleSheet("background-color: #5c2020; color: #ffb4b4; padding: 4px 8px; border-radius: 4px;")
-            self.status_badge.setVisible(True)
+            self.status_badge.setStyleSheet("font-size: 12px; color: #ffb4b4; border: none; background: transparent;")
+            self.status_box.setVisible(True)
             self.btn_reset_toml.setVisible(False)
             self.validity_changed.emit(self.is_valid())
             return
@@ -495,19 +661,25 @@ class PageVaultDeck(OnboardingPageBase):
         if toml_file.is_file():
             try:
                 load_vault_config(p)
+                self.status_dot.setText("●")
+                self.status_dot.setStyleSheet("font-size: 12px; color: #4CAF50; border: none; background: transparent;")
                 self.status_badge.setText("✓ Valid vault found. Existing configuration (m2a.toml) loaded.")
-                self.status_badge.setStyleSheet("background-color: #1b4d2e; color: #b4ffcf; padding: 4px 8px; border-radius: 4px;")
-                self.status_badge.setVisible(True)
+                self.status_badge.setStyleSheet("font-size: 12px; color: #b4ffcf; border: none; background: transparent;")
+                self.status_box.setVisible(True)
                 self.btn_reset_toml.setVisible(False)
             except Exception as exc:
+                self.status_dot.setText("●")
+                self.status_dot.setStyleSheet("font-size: 12px; color: #FF9800; border: none; background: transparent;")
                 self.status_badge.setText(f"⚠️ Existing m2a.toml is invalid: {exc}")
-                self.status_badge.setStyleSheet("background-color: #5c431b; color: #ffe6b4; padding: 4px 8px; border-radius: 4px;")
-                self.status_badge.setVisible(True)
+                self.status_badge.setStyleSheet("font-size: 12px; color: #ffe6b4; border: none; background: transparent;")
+                self.status_box.setVisible(True)
                 self.btn_reset_toml.setVisible(True)
         else:
+            self.status_dot.setText("●")
+            self.status_dot.setStyleSheet("font-size: 12px; color: #2196F3; border: none; background: transparent;")
             self.status_badge.setText("ℹ️ Valid folder. A new m2a.toml will be initialized.")
-            self.status_badge.setStyleSheet("background-color: #1e3a5f; color: #b4d8ff; padding: 4px 8px; border-radius: 4px;")
-            self.status_badge.setVisible(True)
+            self.status_badge.setStyleSheet("font-size: 12px; color: #b4d8ff; border: none; background: transparent;")
+            self.status_box.setVisible(True)
             self.btn_reset_toml.setVisible(False)
 
         self.validity_changed.emit(self.is_valid())
@@ -527,8 +699,18 @@ class PageVaultDeck(OnboardingPageBase):
             QMessageBox.critical(self, "Reset Failed", f"Could not reset configuration: {exc}")
 
     def on_enter(self, state: OnboardingState) -> None:
+        if not self._detected_vaults:
+            self._populate_detected_vaults()
         if state.vault_path:
             self.vault_edit.setText(str(state.vault_path))
+            self._sync_combo_with_text(str(state.vault_path))
+        elif self._detected_vaults:
+            if len(self._detected_vaults) == 1 or self._detected_vaults[0].is_open:
+                target_vault = self._detected_vaults[0]
+                self.vault_combo.blockSignals(True)
+                self.vault_combo.setCurrentIndex(1)
+                self.vault_combo.blockSignals(False)
+                self.vault_edit.setText(str(target_vault.path))
         self._populate_decks(state.target_deck)
         self._check_vault_path_async()
 
@@ -568,7 +750,6 @@ class PageVaultDeck(OnboardingPageBase):
         if not self.is_valid():
             return False
         p = Path(self.vault_edit.text().strip()).expanduser().resolve()
-        # Physical write probe
         probe_file = p / f".vaultsync_probe_{uuid.uuid4().hex[:8]}"
         try:
             probe_file.write_text("probe", encoding="utf-8")
@@ -577,7 +758,7 @@ class PageVaultDeck(OnboardingPageBase):
             QMessageBox.critical(
                 self,
                 "Permission Error",
-                f"Cannot write to the selected directory:\\n{p}\\n\\nError: {exc}"
+                f"Cannot write to the selected directory:\n{p}\n\nError: {exc}"
             )
             return False
         return True
@@ -596,15 +777,17 @@ class PageCardBehavior(OnboardingPageBase):
             "Configure how Cloze deletions and Image Occlusions are parsed and scheduled."
         )
 
-        card_style = "QFrame { border: 1px solid palette(mid); border-radius: 8px; background: palette(base); }"
-        cb_style = "font-size: 13px; color: palette(text);"
+        cb_style = "font-size: 13px; color: palette(text); border: none; background: transparent;"
 
         # Section 1: Cloze notes
-        f_cloze = QFrame()
-        f_cloze.setStyleSheet(card_style)
+        f_cloze = _create_card_frame(self)
         l_cloze = QVBoxLayout(f_cloze)
-        l_cloze.setContentsMargins(14, 12, 14, 12)
+        l_cloze.setContentsMargins(16, 14, 16, 14)
         l_cloze.setSpacing(6)
+
+        title_cloze = QLabel("Cloze Deletions")
+        title_cloze.setStyleSheet("font-size: 14px; font-weight: bold; border: none; background: transparent;")
+        l_cloze.addWidget(title_cloze)
 
         self.cb_cloze = QCheckBox("Enable Native Cloze Note Deletions")
         self.cb_cloze.setStyleSheet(cb_style)
@@ -612,37 +795,36 @@ class PageCardBehavior(OnboardingPageBase):
         l_cloze.addWidget(self.cb_cloze)
 
         cloze_desc = QLabel("When enabled, notes containing {{c1::...}} are converted into native Anki Cloze notes.")
-        cloze_desc.setStyleSheet("font-size: 11px; color: palette(text); opacity: 0.75;")
+        cloze_desc.setStyleSheet("font-size: 11px; color: palette(text); opacity: 0.75; border: none; background: transparent;")
         cloze_desc.setWordWrap(True)
         l_cloze.addWidget(cloze_desc)
         self.content_layout.addWidget(f_cloze)
 
         # Section 2: Image Occlusions
-        f_io = QFrame()
-        f_io.setStyleSheet(card_style)
+        f_io = _create_card_frame(self)
         l_io = QVBoxLayout(f_io)
-        l_io.setContentsMargins(14, 12, 14, 12)
+        l_io.setContentsMargins(16, 14, 16, 14)
         l_io.setSpacing(8)
 
-        lbl_io = QLabel("Image Occlusion Mode:")
-        lbl_io.setStyleSheet("font-size: 13px; font-weight: 600; color: palette(text);")
+        lbl_io = QLabel("Image Occlusion Mode")
+        lbl_io.setStyleSheet("font-size: 14px; font-weight: bold; border: none; background: transparent;")
         l_io.addWidget(lbl_io)
 
         self.rb_native = QRadioButton("● Native Anki Image Occlusion Mode (Recommended)")
         self.rb_native.setChecked(True)
-        self.rb_native.setStyleSheet("font-size: 12px; color: palette(text);")
+        self.rb_native.setStyleSheet("font-size: 12px; color: palette(text); border: none; background: transparent;")
         l_io.addWidget(self.rb_native)
 
         lbl_native_hint = QLabel("Uses Anki's modern built-in Image Occlusion note type.")
-        lbl_native_hint.setStyleSheet("font-size: 11px; color: palette(text); opacity: 0.75; margin-left: 20px;")
+        lbl_native_hint.setStyleSheet("font-size: 11px; color: palette(text); opacity: 0.75; margin-left: 20px; border: none; background: transparent;")
         l_io.addWidget(lbl_native_hint)
 
         self.rb_stage = QRadioButton("○ Staging Folder Mode")
-        self.rb_stage.setStyleSheet("font-size: 12px; color: palette(text);")
+        self.rb_stage.setStyleSheet("font-size: 12px; color: palette(text); border: none; background: transparent;")
         l_io.addWidget(self.rb_stage)
 
         lbl_stage_hint = QLabel("Exports occlusion images to an external directory for manual Anki IO mask editing.")
-        lbl_stage_hint.setStyleSheet("font-size: 11px; color: palette(text); opacity: 0.75; margin-left: 20px;")
+        lbl_stage_hint.setStyleSheet("font-size: 11px; color: palette(text); opacity: 0.75; margin-left: 20px; border: none; background: transparent;")
         l_io.addWidget(lbl_stage_hint)
 
         # Staging folder picker (dynamically visible)
@@ -652,16 +834,22 @@ class PageCardBehavior(OnboardingPageBase):
         l_sb.setSpacing(4)
 
         lbl_occ_dir = QLabel("Image Occlusion Export Folder:")
-        lbl_occ_dir.setStyleSheet("font-size: 11px; font-weight: 600; color: palette(text);")
+        lbl_occ_dir.setStyleSheet("font-size: 11px; font-weight: 600; color: palette(text); border: none; background: transparent;")
         l_sb.addWidget(lbl_occ_dir)
 
         row_occ = QHBoxLayout()
         row_occ.setSpacing(8)
         self.occ_edit = QLineEdit()
+        self.occ_edit.setFixedHeight(34)
+        self.occ_edit.setStyleSheet(INPUT_STYLE)
         self.occ_edit.setPlaceholderText("/home/user/AnkiOcclusions")
+
         btn_browse_occ = QPushButton("Browse...")
+        btn_browse_occ.setFixedHeight(34)
+        btn_browse_occ.setStyleSheet(BTN_STYLE)
         btn_browse_occ.setAutoDefault(False)
         btn_browse_occ.clicked.connect(self._on_browse_occ)
+
         row_occ.addWidget(self.occ_edit)
         row_occ.addWidget(btn_browse_occ)
         l_sb.addLayout(row_occ)
@@ -671,14 +859,13 @@ class PageCardBehavior(OnboardingPageBase):
         self.content_layout.addWidget(f_io)
 
         # Section 3: Suspension
-        f_susp = QFrame()
-        f_susp.setStyleSheet(card_style)
+        f_susp = _create_card_frame(self)
         l_susp = QVBoxLayout(f_susp)
-        l_susp.setContentsMargins(14, 12, 14, 12)
-        l_susp.setSpacing(6)
+        l_susp.setContentsMargins(16, 14, 16, 14)
+        l_susp.setSpacing(8)
 
-        lbl_susp = QLabel("New Card Suspension (Study Readiness):")
-        lbl_susp.setStyleSheet("font-size: 13px; font-weight: 600; color: palette(text);")
+        lbl_susp = QLabel("Study Readiness & Card Suspension")
+        lbl_susp.setStyleSheet("font-size: 14px; font-weight: bold; border: none; background: transparent;")
         l_susp.addWidget(lbl_susp)
 
         self.cb_suspend_occ = QCheckBox("Suspend newly created Image Occlusions until masks are placed")
@@ -704,7 +891,6 @@ class PageCardBehavior(OnboardingPageBase):
     def _on_io_mode_changed(self) -> None:
         is_stage = self.rb_stage.isChecked()
         self.staging_box.setVisible(is_stage)
-        # Suspend new occlusions only makes sense in native mode
         self.cb_suspend_occ.setEnabled(not is_stage)
 
     def on_enter(self, state: OnboardingState) -> None:
@@ -750,34 +936,34 @@ class PageWorkflow(OnboardingPageBase):
             "Set up automatic sync on startup and configure keyboard shortcuts."
         )
 
-        card_style = "QFrame { border: 1px solid palette(mid); border-radius: 8px; background: palette(base); }"
-
-        # 1. Startup automation
-        f_auto = QFrame()
-        f_auto.setStyleSheet(card_style)
+        # 1. Startup automation card
+        f_auto = _create_card_frame(self)
         l_auto = QVBoxLayout(f_auto)
-        l_auto.setContentsMargins(14, 12, 14, 12)
+        l_auto.setContentsMargins(16, 14, 16, 14)
         l_auto.setSpacing(6)
 
+        title_auto = QLabel("Startup Automation")
+        title_auto.setStyleSheet("font-size: 14px; font-weight: bold; border: none; background: transparent;")
+        l_auto.addWidget(title_auto)
+
         self.cb_sync_on_startup = QCheckBox("Automatically sync when opening this Anki profile")
-        self.cb_sync_on_startup.setStyleSheet("font-size: 13px; color: palette(text);")
+        self.cb_sync_on_startup.setStyleSheet("font-size: 13px; color: palette(text); border: none; background: transparent;")
         self.cb_sync_on_startup.setChecked(False)
         l_auto.addWidget(self.cb_sync_on_startup)
 
         hint = QLabel("When enabled, VaultSync scans your vault in the background whenever Anki starts.")
-        hint.setStyleSheet("font-size: 11px; color: palette(text); opacity: 0.75;")
+        hint.setStyleSheet("font-size: 11px; color: palette(text); opacity: 0.75; border: none; background: transparent;")
         l_auto.addWidget(hint)
         self.content_layout.addWidget(f_auto)
 
-        # 2. Shortcuts Widget
-        f_sc = QFrame()
-        f_sc.setStyleSheet(card_style)
+        # 2. Shortcuts Card
+        f_sc = _create_card_frame(self)
         l_sc = QVBoxLayout(f_sc)
-        l_sc.setContentsMargins(14, 12, 14, 12)
+        l_sc.setContentsMargins(16, 14, 16, 14)
         l_sc.setSpacing(10)
 
-        lbl_sc = QLabel("Keyboard Shortcuts:")
-        lbl_sc.setStyleSheet("font-size: 13px; font-weight: 600; color: palette(text);")
+        lbl_sc = QLabel("Keyboard Shortcuts")
+        lbl_sc.setStyleSheet("font-size: 14px; font-weight: bold; border: none; background: transparent;")
         l_sc.addWidget(lbl_sc)
 
         self.sc_widget = ShortcutConfigWidget(parent=self)
@@ -813,68 +999,90 @@ class PageCompletion(OnboardingPageBase):
             "Review your configuration and finish setup or synchronize immediately."
         )
 
-        card_style = "QFrame { border: 1px solid palette(mid); border-radius: 8px; background: palette(base); }"
-
-        # Summary box
-        f_sum = QFrame()
-        f_sum.setStyleSheet(card_style)
+        # Summary box (Dashboard card & 2-column grid layout)
+        f_sum = _create_card_frame(self)
         l_sum = QVBoxLayout(f_sum)
         l_sum.setContentsMargins(18, 16, 18, 16)
-        l_sum.setSpacing(10)
+        l_sum.setSpacing(12)
 
-        lbl_title = QLabel("Configuration Overview:")
-        lbl_title.setStyleSheet("font-size: 13px; font-weight: 600; color: palette(text);")
+        lbl_title = QLabel("Configuration Overview")
+        lbl_title.setStyleSheet("font-size: 15px; font-weight: bold; border: none; background: transparent;")
         l_sum.addWidget(lbl_title)
 
-        self.summary_label = QLabel()
-        self.summary_label.setStyleSheet("font-size: 12px; line-height: 1.6; color: palette(text);")
-        self.summary_label.setWordWrap(True)
-        l_sum.addWidget(self.summary_label)
-        self.content_layout.addWidget(f_sum)
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setVerticalSpacing(10)
+        grid.setHorizontalSpacing(24)
 
-        self.content_layout.addSpacing(16)
+        for r in range(5):
+            grid.setRowMinimumHeight(r, 26)
+
+        lbl_k_style = "font-size: 13px; font-weight: normal; border: none; background: transparent;"
+        lbl_v_style = "font-size: 13px; font-weight: bold; border: none; background: transparent;"
+
+        lbl_v_title = QLabel("Obsidian Vault:")
+        lbl_v_title.setStyleSheet(lbl_k_style)
+        self.val_vault = QLabel("(Not configured)")
+        self.val_vault.setStyleSheet(lbl_v_style)
+        grid.addWidget(lbl_v_title, 0, 0)
+        grid.addWidget(self.val_vault, 0, 1, Qt.AlignmentFlag.AlignRight)
+
+        lbl_d_title = QLabel("Default Target Deck:")
+        lbl_d_title.setStyleSheet(lbl_k_style)
+        self.val_deck = QLabel("Default")
+        self.val_deck.setStyleSheet(lbl_v_style)
+        grid.addWidget(lbl_d_title, 1, 0)
+        grid.addWidget(self.val_deck, 1, 1, Qt.AlignmentFlag.AlignRight)
+
+        lbl_c_title = QLabel("Cloze Deletions:")
+        lbl_c_title.setStyleSheet(lbl_k_style)
+        self.val_cloze = QLabel("Enabled")
+        self.val_cloze.setStyleSheet(lbl_v_style)
+        grid.addWidget(lbl_c_title, 2, 0)
+        grid.addWidget(self.val_cloze, 2, 1, Qt.AlignmentFlag.AlignRight)
+
+        lbl_i_title = QLabel("Image Occlusions:")
+        lbl_i_title.setStyleSheet(lbl_k_style)
+        self.val_io = QLabel("Native Anki Mode")
+        self.val_io.setStyleSheet(lbl_v_style)
+        grid.addWidget(lbl_i_title, 3, 0)
+        grid.addWidget(self.val_io, 3, 1, Qt.AlignmentFlag.AlignRight)
+
+        lbl_s_title = QLabel("Sync on Startup:")
+        lbl_s_title.setStyleSheet(lbl_k_style)
+        self.val_startup = QLabel("Disabled")
+        self.val_startup.setStyleSheet(lbl_v_style)
+        grid.addWidget(lbl_s_title, 4, 0)
+        grid.addWidget(self.val_startup, 4, 1, Qt.AlignmentFlag.AlignRight)
+
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        l_sum.addLayout(grid)
+
+        # Compatibility label
+        self.summary_label = QLabel()
+        self.summary_label.setVisible(False)
+        l_sum.addWidget(self.summary_label)
+
+        self.content_layout.addWidget(f_sum)
+        self.content_layout.addSpacing(12)
 
         # Action Buttons Container (Button A: Close, Button B: Sync Vault Directly)
         btn_box = QHBoxLayout()
         btn_box.setSpacing(14)
 
         self.btn_close = QPushButton("Close")
+        self.btn_close.setFixedHeight(36)
         self.btn_close.setToolTip("Save configuration and close the wizard without running a sync.")
-        self.btn_close.setStyleSheet("""
-            QPushButton {
-                padding: 10px 20px;
-                font-size: 13px;
-                font-weight: 500;
-                border: 1px solid palette(mid);
-                border-radius: 6px;
-                background-color: palette(button);
-                color: palette(button-text);
-            }
-            QPushButton:hover {
-                background-color: palette(highlight);
-                color: palette(highlighted-text);
-            }
-        """)
+        self.btn_close.setStyleSheet(BTN_STYLE)
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_close.setAutoDefault(False)
         self.btn_close.clicked.connect(lambda: self.finish_requested.emit(False))
 
-        self.btn_sync = QPushButton("⚡ Sync Vault Directly")
+        self.btn_sync = QPushButton("Sync Vault Directly")
+        self.btn_sync.setFixedHeight(36)
         self.btn_sync.setToolTip("Save configuration and immediately start synchronizing your cards.")
-        self.btn_sync.setStyleSheet("""
-            QPushButton {
-                padding: 10px 24px;
-                font-size: 13px;
-                font-weight: 600;
-                border-radius: 6px;
-                background-color: #2da44e;
-                color: white;
-                border: 1px solid #2c974b;
-            }
-            QPushButton:hover {
-                background-color: #2c974b;
-            }
-        """)
+        self.btn_sync.setStyleSheet(BTN_STYLE)
         self.btn_sync.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_sync.setDefault(True)
         self.btn_sync.clicked.connect(lambda: self.finish_requested.emit(True))
@@ -892,6 +1100,12 @@ class PageCompletion(OnboardingPageBase):
         cloze_str = "Enabled" if state.cloze_notes else "Disabled"
         io_str = "Native Anki Mode" if state.image_occlusion_mode == "native" else f"Staging ({state.occlusion_dir or 'None'})"
         startup_str = "Enabled" if state.sync_on_startup else "Disabled"
+
+        self.val_vault.setText(v_str)
+        self.val_deck.setText(d_str)
+        self.val_cloze.setText(cloze_str)
+        self.val_io.setText(io_str)
+        self.val_startup.setText(startup_str)
 
         text = (
             f"<b>Vault Folder:</b> {v_str}<br>"
@@ -931,12 +1145,12 @@ class OnboardingDialog(QDialog):
 
     def _init_ui(self) -> None:
         self.setWindowTitle("Anki-VaultSync Setup Wizard")
-        self.setMinimumSize(740, 560)
+        self.setMinimumSize(780, 580)
         self.setModal(True)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(14)
 
         # 1. Stepper Header
         self.header = StepHeaderWidget(self)
@@ -964,32 +1178,52 @@ class OnboardingDialog(QDialog):
 
         layout.addWidget(self.stack)
 
-        # Separator
+        # Separator line matching Dashboard subtle divider
         line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
+        line.setStyleSheet("border: none; background-color: rgba(130, 130, 130, 0.2); max-height: 1px;")
         layout.addWidget(line)
 
-        # 3. Footer
+        # 3. Footer Buttons
         footer = QHBoxLayout()
         footer.setSpacing(12)
 
         existing = self._manager.load(self._profile_name)
         cancel_text = "Cancel" if existing.onboarding_completed else "Set Up Later"
         self.btn_cancel = QPushButton(cancel_text)
+        self.btn_cancel.setFixedHeight(36)
+        self.btn_cancel.setStyleSheet(BTN_STYLE)
         self.btn_cancel.setAutoDefault(False)
         self.btn_cancel.clicked.connect(self.reject)
         footer.addWidget(self.btn_cancel)
 
-
         footer.addStretch()
 
         self.btn_back = QPushButton("Back")
+        self.btn_back.setFixedHeight(36)
+        self.btn_back.setStyleSheet(BTN_STYLE)
         self.btn_back.setAutoDefault(False)
         self.btn_back.clicked.connect(self._go_back)
         footer.addWidget(self.btn_back)
 
         self.btn_next = QPushButton("Next")
+        self.btn_next.setFixedHeight(36)
+        self.btn_next.setStyleSheet("""
+            QPushButton {
+                font-size: 13px;
+                font-weight: 600;
+                border-radius: 6px;
+                padding: 6px 22px;
+                background-color: palette(highlight);
+                color: palette(highlighted-text);
+                border: 1px solid palette(highlight);
+            }
+            QPushButton:hover {
+                opacity: 0.9;
+            }
+            QPushButton:disabled {
+                opacity: 0.4;
+            }
+        """)
         self.btn_next.setDefault(True)
         self.btn_next.clicked.connect(self._go_next)
         footer.addWidget(self.btn_next)
@@ -999,6 +1233,10 @@ class OnboardingDialog(QDialog):
         self.page_completion.finish_requested.connect(self._on_finish_requested)
         self.pages[0].on_enter(self.state)
         self._update_footer_buttons()
+
+        # Ensure no button steals focus by default
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFocus()
 
     def _update_footer_buttons(self) -> None:
         curr = self.stack.currentIndex()
@@ -1070,7 +1308,7 @@ class OnboardingDialog(QDialog):
             QMessageBox.critical(
                 self,
                 "Error Saving Configuration",
-                f"Failed to save m2a.toml in vault directory:\\n{exc}\\n\\n"
+                f"Failed to save m2a.toml in vault directory:\n{exc}\n\n"
                 "Settings were not saved. Please check directory write permissions."
             )
             return
