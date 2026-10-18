@@ -26,6 +26,7 @@ M2A_ALLOWED_FILES = [
     "build.py",
     "config.py",
     "constants.py",
+    "diagnostics.py",
     "flags.py",
     "formatting.py",
     "ids.py",
