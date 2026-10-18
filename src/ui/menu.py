@@ -19,7 +19,7 @@ from .config_window import ConfigWindow
 from .main_window import MainWindow
 from .onboarding_dialog import OnboardingDialog
 from .shortcuts import find_shortcut_conflict
-from .notification import show_sync_notification
+from .notification import dismiss_active_notification, show_sync_notification
 from ..undo import clear_sync_undo_stack
 
 _main_window_instance: MainWindow | None = None
@@ -394,13 +394,7 @@ def on_profile_will_close() -> None:
             pass
         _config_window_instance = None
 
-    import src.ui.notification as notif_mod
-    if getattr(notif_mod, "_active_notification", None) is not None:
-        try:
-            notif_mod._active_notification.close()
-        except Exception:
-            pass
-        notif_mod._active_notification = None
+    dismiss_active_notification()
 
     release_sync_lock()
     clear_sync_undo_stack()
