@@ -68,21 +68,30 @@ class ProfileConfigManager:
             return
 
         default_file = Path(__file__).resolve().parent.parent / "config.json"
-        if default_file.is_file():
+        try:
+            default_file.parent.mkdir(parents=True, exist_ok=True)
             default_file.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
 
     def load(self, profile_name: str) -> AddonProfileSettings:
         raw = self._read_raw_config()
-        auto_close = bool(raw.get("auto_close_on_success", False))
-        show_diff = bool(raw.get("show_diff_before_update", True))
-        sync_on_startup = bool(raw.get("sync_on_startup", False))
 
         profiles: dict[str, Any] = raw.get("profiles", {})
         prof_data = profiles.get(profile_name)
         if not isinstance(prof_data, dict):
-            prof_data = profiles.get("Default", {})
-        if not isinstance(prof_data, dict):
             prof_data = {}
+
+        if "profiles" in raw:
+            auto_close = bool(prof_data.get("auto_close_on_success", False))
+            show_diff = bool(prof_data.get("show_diff_before_update", True))
+            sync_on_startup = bool(prof_data.get("sync_on_startup", False))
+            raw_shortcuts = prof_data.get("shortcuts")
+        else:
+            auto_close = bool(raw.get("auto_close_on_success", False))
+            show_diff = bool(raw.get("show_diff_before_update", True))
+            sync_on_startup = bool(raw.get("sync_on_startup", False))
+            raw_shortcuts = raw.get("shortcuts")
 
         raw_vault = prof_data.get("vault_path")
         raw_occlusion = prof_data.get("occlusion_dir")
@@ -95,7 +104,6 @@ class ProfileConfigManager:
         basic_model_id = int(raw_b_id) if raw_b_id is not None and str(raw_b_id).isdigit() else None
         cloze_model_id = int(raw_c_id) if raw_c_id is not None and str(raw_c_id).isdigit() else None
 
-        raw_shortcuts = raw.get("shortcuts")
         if isinstance(raw_shortcuts, dict):
             shortcuts = {
                 "open_dashboard": str(raw_shortcuts.get("open_dashboard", DEFAULT_SHORTCUTS["open_dashboard"])),
@@ -119,10 +127,6 @@ class ProfileConfigManager:
 
     def save(self, settings: AddonProfileSettings) -> None:
         raw = self._read_raw_config()
-        raw["auto_close_on_success"] = settings.auto_close_on_success
-        raw["show_diff_before_update"] = settings.show_diff_before_update
-        raw["sync_on_startup"] = settings.sync_on_startup
-        raw["shortcuts"] = settings.shortcuts
 
         profiles: dict[str, Any] = raw.setdefault("profiles", {})
         prof_data: dict[str, Any] = profiles.setdefault(settings.profile_name, {})
@@ -131,6 +135,10 @@ class ProfileConfigManager:
         prof_data["occlusion_dir"] = str(settings.occlusion_dir) if settings.occlusion_dir else ""
         prof_data["basic_model_id"] = settings.basic_model_id
         prof_data["cloze_model_id"] = settings.cloze_model_id
+        prof_data["sync_on_startup"] = settings.sync_on_startup
+        prof_data["auto_close_on_success"] = settings.auto_close_on_success
+        prof_data["show_diff_before_update"] = settings.show_diff_before_update
+        prof_data["shortcuts"] = settings.shortcuts
 
         self._write_raw_config(raw)
 

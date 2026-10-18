@@ -259,6 +259,9 @@ def on_profile_did_open() -> None:
     profile_name = _get_active_profile()
     settings = _manager.load(profile_name)
     apply_menu_shortcuts(settings)
+    from ..undo import attach_redo_hook
+    if mw is not None and hasattr(mw, "col") and mw.col is not None:
+        attach_redo_hook(mw.col)
     if settings.sync_on_startup and settings.vault_path and settings.vault_path.is_dir():
         logger.log_info(f"Auto-sync on startup triggered for profile '{profile_name}'...")
         _run_menu_sync(include_updates=True, is_startup=True)

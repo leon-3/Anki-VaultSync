@@ -528,6 +528,7 @@ def execute_sync_plan(
             try:
                 media_added, created_card_ids = apply_note_create(col, create_op, model_ids)
                 if create_op.card is not None:
+                    create_op.card.card_id = create_op.card_id
                     flagged_cards.append(create_op.card)
                 report.created_count += 1
                 report.media_added_count += media_added
@@ -621,7 +622,6 @@ def execute_sync_plan(
                 out_dir, flags, staged = export_occlusions(plan.occlusions_to_stage, base_dir)
                 if flags:
                     write_flags(flags)
-                    flagged_cards.extend(c for c, _ in flags)
                 total_imgs = sum(len(imgs) for imgs in staged.values())
                 report.occlusions_staged_count = total_imgs
                 report.created_image_cloze_count += len(plan.occlusions_to_stage)
@@ -646,7 +646,7 @@ def execute_sync_plan(
     _merge_undo()
 
     report.flagged_cards = flagged_cards
-    if undo_id is not None:
+    if undo_id is not None and flagged_cards:
         from .undo import register_sync_added_cards
         register_sync_added_cards(flagged_cards)
 

@@ -127,3 +127,47 @@ def test_profile_config_shortcuts_roundtrip(tmp_path: Path):
     # Reload from disk
     reloaded = manager.load("Default")
     assert reloaded.shortcuts == custom_shortcuts
+
+
+def test_unconfigured_profile_does_not_inherit_default_profile(tmp_path: Path):
+    config_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=config_file)
+
+    # Configure Default profile with specific values
+    manager.save(
+        AddonProfileSettings(
+            profile_name="Default",
+            vault_path=tmp_path / "DefaultVault",
+            occlusion_dir=tmp_path / "DefaultOcclusions",
+            sync_on_startup=True,
+            auto_close_on_success=True,
+            show_diff_before_update=True,
+        )
+    )
+
+    # Load a previously unseen/unconfigured profile
+    unconfigured = manager.load("GuestProfile")
+    assert unconfigured.profile_name == "GuestProfile"
+    assert unconfigured.vault_path is None
+    assert unconfigured.occlusion_dir is None
+    assert unconfigured.sync_on_startup is False
+    assert unconfigured.auto_close_on_success is False
+    assert unconfigured.show_diff_before_update is True  # default setting
+
+
+def test_write_raw_config_creates_missing_file_and_dirs(tmp_path: Path):
+    nested_config = tmp_path / "nested" / "subfolder" / "config.json"
+    assert not nested_config.parent.exists()
+    assert not nested_config.exists()
+
+    manager = ProfileConfigManager(config_path=nested_config)
+    manager.save(
+        AddonProfileSettings(
+            profile_name="NewProfile",
+            vault_path=tmp_path / "Vault",
+        )
+    )
+
+    assert nested_config.is_file()
+    loaded = manager.load("NewProfile")
+    assert loaded.vault_path == tmp_path / "Vault"

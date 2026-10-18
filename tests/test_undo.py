@@ -10,10 +10,14 @@ from markdown2anki.parser import parse_file
 
 from src.contracts import SyncPlan
 from src.undo import (
+    attach_redo_hook,
     clear_sync_undo_stack,
+    get_redo_stack_depth,
     get_undo_stack_depth,
+    on_state_did_redo,
     on_state_did_undo,
     pop_last_sync_cards,
+    pop_last_sync_redo_cards,
     register_sync_added_cards,
 )
 from src.worker import build_sync_plan, execute_sync_plan
@@ -151,5 +155,110 @@ def test_end_to_end_sync_and_undo_unflags_card_in_vault():
             plan_after_undo = build_sync_plan(col, vault_path)
             assert plan_after_undo.total_creates == 1
             assert len(plan_after_undo.missing_in_anki) == 0
+        finally:
+            col.close()
+
+
+def test_on_state_did_redo_restores_flags_in_markdown():
+    clear_sync_undo_stack()
+    with tempfile.TemporaryDirectory() as td:
+        md_file = Path(td) / "test.md"
+        md_file.write_text("---\nWhat is a gene?\nA unit of heredity.\n", encoding="utf-8")
+
+        cards = parse_file(md_file)
+        assert len(cards) == 1
+        cards[0].card_id = "gene01"
+
+        # Simulate sync flagging the card
+        write_flags([(cards[0], "gene01")])
+        assert "ADDED: What is a gene? %%gene01%%" in md_file.read_text(encoding="utf-8")
+
+        # Register on undo stack
+        register_sync_added_cards([cards[0]])
+        assert get_undo_stack_depth() == 1
+        assert get_redo_stack_depth() == 0
+
+        # 1. Undo clears flags
+        on_state_did_undo(SimpleNamespace(operation="VaultSync"))
+        assert "ADDED" not in md_file.read_text(encoding="utf-8")
+        assert get_undo_stack_depth() == 0
+        assert get_redo_stack_depth() == 1
+
+        # 2. Redo restores flags with original ID
+        on_state_did_redo(SimpleNamespace(operation="VaultSync"))
+        content_after_redo = md_file.read_text(encoding="utf-8")
+        assert "ADDED: What is a gene? %%gene01%%" in content_after_redo
+        assert get_undo_stack_depth() == 1
+        assert get_redo_stack_depth() == 0
+
+
+def test_new_sync_clears_redo_stack():
+    clear_sync_undo_stack()
+    c1 = SimpleNamespace(location="a.md:1", card_id="c1", file=Path("a.md"), line=1, first_question_line="q1")
+    register_sync_added_cards([c1])
+
+    # Pop onto redo stack via undo
+    on_state_did_undo(SimpleNamespace(operation="VaultSync"))
+    assert get_redo_stack_depth() == 1
+
+    # New sync occurs
+    c2 = SimpleNamespace(location="b.md:1", card_id="c2", file=Path("b.md"), line=1, first_question_line="q2")
+    register_sync_added_cards([c2])
+
+    # Redo stack must be cleared
+    assert get_redo_stack_depth() == 0
+    assert get_undo_stack_depth() == 1
+
+
+def test_empty_sync_does_not_push_to_undo_stack():
+    clear_sync_undo_stack()
+    # Registering empty card list should do nothing
+    register_sync_added_cards([])
+    assert get_undo_stack_depth() == 0
+    assert get_redo_stack_depth() == 0
+
+
+def test_end_to_end_sync_undo_and_redo_cycle():
+    clear_sync_undo_stack()
+    with tempfile.TemporaryDirectory() as td:
+        tmp_path = Path(td)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text('vault = "."\ndeck = "TestDeck"\n', encoding="utf-8")
+        note_file = vault_path / "card.md"
+        note_file.write_text("# Test\n---\nWhat is photosynthesis?\nLight to chemical energy.\n", encoding="utf-8")
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            # 1. Sync
+            plan = build_sync_plan(col, vault_path)
+            assert plan.total_creates == 1
+
+            report = execute_sync_plan(col, plan)
+            assert report.created_count == 1
+            content = note_file.read_text(encoding="utf-8")
+            assert "ADDED:" in content
+
+            # 2. Attach redo hook
+            attach_redo_hook(col)
+
+            # 3. Undo
+            undo_res = col.undo()
+            assert undo_res.operation == "VaultSync"
+            on_state_did_undo(undo_res)
+
+            content_after_undo = note_file.read_text(encoding="utf-8")
+            assert "ADDED:" not in content_after_undo
+            assert get_redo_stack_depth() == 1
+
+            # 4. Redo
+            redo_res = col.redo()
+            assert redo_res.operation == "VaultSync"
+
+            content_after_redo = note_file.read_text(encoding="utf-8")
+            assert "ADDED:" in content_after_redo
+            assert get_redo_stack_depth() == 0
+            assert get_undo_stack_depth() == 1
         finally:
             col.close()
