@@ -60,26 +60,27 @@ def _generate_word_diff_html(old_text: str, new_text: str) -> str:
             deleted = "".join(_format_diff_token(t) for t in words_old[i1:i2] if _format_diff_token(t))
             if deleted:
                 result.append(
-                    f"<del style='color:#c62828; background-color:rgba(198,40,40,0.15); text-decoration:line-through;'>{deleted}</del>"
+                    f"<del style='background-color:#ffeef0; color:#b31d28; text-decoration:line-through;'>{deleted}</del>"
                 )
         elif tag == "insert":
             inserted = "".join(_format_diff_token(t) for t in words_new[j1:j2] if _format_diff_token(t))
             if inserted:
                 result.append(
-                    f"<ins style='color:#2e7d32; background-color:rgba(46,125,50,0.15); text-decoration:none; font-weight:bold;'>{inserted}</ins>"
+                    f"<ins style='background-color:#e6ffed; color:#22863a; text-decoration:none;'>{inserted}</ins>"
                 )
         elif tag == "replace":
             deleted = "".join(_format_diff_token(t) for t in words_old[i1:i2] if _format_diff_token(t))
             inserted = "".join(_format_diff_token(t) for t in words_new[j1:j2] if _format_diff_token(t))
             if deleted:
                 result.append(
-                    f"<del style='color:#c62828; background-color:rgba(198,40,40,0.15); text-decoration:line-through;'>{deleted}</del>"
+                    f"<del style='background-color:#ffeef0; color:#b31d28; text-decoration:line-through;'>{deleted}</del>"
                 )
             if inserted:
                 result.append(
-                    f"<ins style='color:#2e7d32; background-color:rgba(46,125,50,0.15); text-decoration:none; font-weight:bold;'>{inserted}</ins>"
+                    f"<ins style='background-color:#e6ffed; color:#22863a; text-decoration:none;'>{inserted}</ins>"
                 )
-    return "".join(result).replace(chr(10), "<br>")
+
+    return "".join(result)
 
 
 def _generate_diff_html(op: NoteUpdateOp) -> str:
@@ -149,16 +150,20 @@ class DiffDialog(QDialog):
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Left Column: Updates List
-        left_widget = QSplitter(Qt.Orientation.Vertical)
         self.select_all_cb = QCheckBox("Select / Deselect All")
         self.select_all_cb.setChecked(True)
         self.select_all_cb.toggled.connect(self._on_select_all_toggled)
 
         self.list_widget = QListWidget()
         for idx, op in enumerate(self._all_updates):
-            preview = op.new_fields.get("Front") or op.new_fields.get("Text") or ""
-            # Strip tags and take first 50 chars
-            clean_preview = preview.replace("\n", " ")[:45]
+            preview = (
+                op.new_fields.get("Front")
+                or op.new_fields.get("Text")
+                or op.new_fields.get("Header")
+                or (next(iter(op.new_fields.values()), "") if op.new_fields else "")
+            )
+            # Strip tags and take first 45 chars
+            clean_preview = re.sub(r"<[^>]+>", "", preview).replace("\n", " ").strip()[:45]
             item = QListWidgetItem(f"[{op.card_id}] {clean_preview}...")
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked if op.approved else Qt.CheckState.Unchecked)

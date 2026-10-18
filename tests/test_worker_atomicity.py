@@ -892,3 +892,180 @@ def test_card_deleted_in_anki_lifecycle_and_deletion_flag():
             assert len(plan3.orphans) == 0
         finally:
             col.close()
+
+
+
+
+
+
+def test_custom_notetype_dynamic_fields_no_false_updates():
+    """Verify that custom notetypes with non-standard field names and >2 fields
+    do not trigger 100% false updates on subsequent scans, and preserve extra fields."""
+    from anki.consts import MODEL_STD
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "GermanDeck"\n[subdirectories]\n',
+            encoding="utf-8",
+        )
+
+        note_file = vault_path / "german.md"
+        note_file.write_text(
+            "# Deutsch\n---\nDeutsche Frage\nDeutsche Antwort\n",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            # 1. Create a custom note type with German field names and a 3rd extra field 'Notizen'
+            custom_model = col.models.new("Deutsches Modell")
+            custom_model["type"] = MODEL_STD
+            col.models.add_field(custom_model, col.models.new_field("Vorderseite"))
+            col.models.add_field(custom_model, col.models.new_field("Rückseite"))
+            col.models.add_field(custom_model, col.models.new_field("Notizen"))
+            card_tpl = col.models.new_template("Karte 1")
+            card_tpl["qfmt"] = "{{Vorderseite}}"
+            card_tpl["afmt"] = "{{FrontSide}}<hr id=answer>{{Rückseite}}<br>{{Notizen}}"
+            col.models.add_template(custom_model, card_tpl)
+            col.models.add_dict(custom_model)
+            custom_mid = int(col.models.by_name("Deutsches Modell")["id"])
+
+            # 2. First scan and sync using basic_model_id=custom_mid
+            plan1 = build_sync_plan(col, vault_path, basic_model_id=custom_mid)
+            assert plan1.total_creates == 1
+            report1 = execute_sync_plan(col, plan1, basic_model_id=custom_mid)
+            assert report1.created_count == 1
+
+            nids = col.find_notes("deck:GermanDeck")
+            assert len(nids) == 1
+            note = col.get_note(nids[0])
+            assert note.mid == custom_mid
+            assert note["Vorderseite"] == "Deutsche Frage"
+            assert "Deutsche Antwort" in note["Rückseite"]
+
+            # Populate extra field in Anki directly
+            note["Notizen"] = "Wichtige Quelle: Lehrbuch S. 42"
+            col.update_note(note)
+
+            # 3. Subsequent scan: MUST be completely UNCHANGED (0 false updates!)
+            plan2 = build_sync_plan(col, vault_path, basic_model_id=custom_mid)
+            assert plan2.total_creates == 0
+            assert plan2.total_updates == 0
+            assert plan2.total_unchanged == 1
+
+            # 4. Update the note in Markdown
+            content = note_file.read_text(encoding="utf-8")
+            note_file.write_text(content.replace("Deutsche Frage", "Deutsche Frage (Aktualisiert)"), encoding="utf-8")
+
+            plan3 = build_sync_plan(col, vault_path, basic_model_id=custom_mid)
+            assert plan3.total_updates == 1
+            up_op = plan3.file_plans[0].updates[0]
+            assert up_op.new_fields["Vorderseite"] == "Deutsche Frage (Aktualisiert)"
+            assert up_op.new_fields["Notizen"] == "Wichtige Quelle: Lehrbuch S. 42"
+
+            report3 = execute_sync_plan(col, plan3, basic_model_id=custom_mid)
+            assert report3.updated_count == 1
+
+            # Verify extra field is preserved in Anki DB after update
+            reloaded_note = col.get_note(nids[0])
+            assert reloaded_note["Vorderseite"] == "Deutsche Frage (Aktualisiert)"
+            assert reloaded_note["Notizen"] == "Wichtige Quelle: Lehrbuch S. 42"
+        finally:
+            col.close()
+
+
+def test_missing_media_prevalidation_skips_flagging():
+    """Verify that a card referencing non-existent media is not flagged with ADDED in Markdown."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            """vault = "."
+deck = "MediaDeck"
+[subdirectories]
+""",
+            encoding="utf-8",
+        )
+
+        img_file = vault_path / "temporary_image.png"
+        img_file.write_bytes(b"temp_image_data")
+
+        note_file = vault_path / "missing_media.md"
+        note_file.write_text(
+            """# Bio
+---
+Cell structure
+Look at ![[temporary_image.png]]
+""",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            plan = build_sync_plan(col, vault_path)
+            assert plan.total_creates == 1
+
+            # Delete the media file right before execution to simulate missing media
+            img_file.unlink()
+
+            report = execute_sync_plan(col, plan)
+            assert report.created_count == 0
+            assert len(report.warnings) == 1
+            assert "Missing media file" in report.warnings[0]
+
+            # Markdown file must NOT have received ADDED flag
+            content = note_file.read_text(encoding="utf-8")
+            assert "ADDED" not in content
+            assert len(col.find_notes("deck:MediaDeck")) == 0
+        finally:
+            col.close()
+
+
+def test_insert_failure_rolls_back_flags(monkeypatch):
+    """Verify that if apply_note_create fails, the ADDED flag is rolled back in Markdown."""
+    from src import worker
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "FailDeck"\n[subdirectories]\n',
+            encoding="utf-8",
+        )
+
+        note_file = vault_path / "fail_note.md"
+        note_file.write_text(
+            "# Topic\n---\nFail Question\nFail Answer\n",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            plan = build_sync_plan(col, vault_path)
+            assert plan.total_creates == 1
+
+            def mock_fail(*args, **kwargs):
+                raise RuntimeError("Simulated Anki DB error during insert")
+
+            monkeypatch.setattr(worker, "apply_note_create", mock_fail)
+
+            report = execute_sync_plan(col, plan)
+            assert report.created_count == 0
+            assert len(report.warnings) == 1
+            assert "Simulated Anki DB error" in report.warnings[0]
+
+            # Verify that ADDED flag was rolled back!
+            content = note_file.read_text(encoding="utf-8")
+            assert "ADDED" not in content
+            assert "Fail Question" in content
+            # Not in flagged_cards
+            assert len(report.flagged_cards) == 0
+        finally:
+            col.close()

@@ -8,10 +8,11 @@ from typing import Callable
 import urllib.parse
 
 from anki.collection import Collection
+from anki.models import NotetypeId
 from markdown2anki.build import MODEL_CLOZE, MODEL_IMAGE_OCCLUSION, build
 from markdown2anki.config import load_vault_config
 from markdown2anki.constants import OCCLUSION_TAG
-from markdown2anki.flags import write_flags
+from markdown2anki.flags import clear_flags, write_flags
 from markdown2anki.ids import new_card_id, with_marker
 from markdown2anki.models import (
     MODEL_NAME_BASIC,
@@ -44,6 +45,20 @@ from .contracts import (
 
 def _compute_sha256(file_path: Path) -> str:
     return hashlib.sha256(file_path.read_bytes()).hexdigest()
+
+
+def _get_model_field_names(
+    col: Collection, mid: int | None, fallback: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Retrieve actual field names for a note type in the collection, or use fallback."""
+    if mid is not None:
+        try:
+            m = col.models.get(NotetypeId(mid))
+            if m is not None and len(m.get("flds", [])) >= 2:
+                return tuple(f["name"] for f in m["flds"])
+        except Exception:
+            pass
+    return fallback
 
 
 def _write_occlusion_index(out_dir: Path, staged: dict[str, list[str]]) -> None:
@@ -131,6 +146,9 @@ def build_sync_plan(
     vault_path = Path(vault_path).expanduser().resolve()
     model_ids = ensure_models(col, basic_model_id=basic_model_id, cloze_model_id=cloze_model_id, create=False)
     existing_index = build_existing_note_index(col, model_ids)
+
+    basic_flds = _get_model_field_names(col, model_ids.get(MODEL_NAME_BASIC), ("Front", "Back"))
+    cloze_flds = _get_model_field_names(col, model_ids.get(MODEL_NAME_CLOZE), ("Text", "Back Extra"))
 
     # Deck lookups memoization to avoid redundant FFI round-trips and prevent deck creation on scan
     deck_id_cache: dict[str, int | None] = {}
@@ -244,16 +262,14 @@ def build_sync_plan(
                         "Comments": with_marker(note.fields[4] if len(note.fields) > 4 else "", assigned_id),
                     }
                 elif model_name == MODEL_NAME_CLOZE:
-                    field_names = ("Text", "Back Extra")
                     fields = {
-                        field_names[0]: note.fields[0] if len(note.fields) > 0 else "",
-                        field_names[1]: with_marker(note.fields[1] if len(note.fields) > 1 else "", assigned_id),
+                        cloze_flds[0]: note.fields[0] if len(note.fields) > 0 else "",
+                        cloze_flds[1]: with_marker(note.fields[1] if len(note.fields) > 1 else "", assigned_id),
                     }
                 else:
-                    field_names = ("Front", "Back")
                     fields = {
-                        field_names[0]: note.fields[0] if len(note.fields) > 0 else "",
-                        field_names[1]: with_marker(note.fields[1] if len(note.fields) > 1 else "", assigned_id),
+                        basic_flds[0]: note.fields[0] if len(note.fields) > 0 else "",
+                        basic_flds[1]: with_marker(note.fields[1] if len(note.fields) > 1 else "", assigned_id),
                     }
                 creates.append(
                     NoteCreateOp(
@@ -277,6 +293,11 @@ def build_sync_plan(
                     unchanged_count += 1
                     continue
 
+                is_cloze = (model_name == MODEL_NAME_CLOZE)
+                target_flds = cloze_flds if is_cloze else basic_flds
+                target_mid = model_ids.get(model_name)
+                model_changed = (target_mid is not None and rec.model_id != target_mid)
+
                 if model_name == MODEL_NAME_IMAGE_OCCLUSION:
                     new_fields = {
                         "Occlusion": rec.fields.get("Occlusion", ""),
@@ -286,19 +307,19 @@ def build_sync_plan(
                         "Comments": with_marker(note.fields[4] if len(note.fields) > 4 else "", card_id),
                     }
                     new_tags = [t for t in note.tags if t != OCCLUSION_TAG or OCCLUSION_TAG in rec.tags]
-                elif model_name == MODEL_NAME_CLOZE:
-                    field_names = ("Text", "Back Extra")
+                elif model_changed:
                     new_fields = {
-                        field_names[0]: note.fields[0] if len(note.fields) > 0 else "",
-                        field_names[1]: with_marker(note.fields[1] if len(note.fields) > 1 else "", card_id),
+                        target_flds[0]: note.fields[0] if len(note.fields) > 0 else "",
+                        target_flds[1]: with_marker(note.fields[1] if len(note.fields) > 1 else "", card_id),
                     }
                     new_tags = list(note.tags)
                 else:
-                    field_names = ("Front", "Back")
-                    new_fields = {
-                        field_names[0]: note.fields[0] if len(note.fields) > 0 else "",
-                        field_names[1]: with_marker(note.fields[1] if len(note.fields) > 1 else "", card_id),
-                    }
+                    rec_keys = list(rec.fields.keys())
+                    f0 = rec_keys[0] if len(rec_keys) > 0 else target_flds[0]
+                    f1 = rec_keys[1] if len(rec_keys) > 1 else target_flds[1]
+                    new_fields = dict(rec.fields)
+                    new_fields[f0] = note.fields[0] if len(note.fields) > 0 else ""
+                    new_fields[f1] = with_marker(note.fields[1] if len(note.fields) > 1 else "", card_id)
                     new_tags = list(note.tags)
 
                 normalized_rec_fields = {
@@ -308,17 +329,17 @@ def build_sync_plan(
 
                 # Diff detection
                 if model_name == MODEL_NAME_IMAGE_OCCLUSION:
-                    fields_changed = any(
+                    fields_changed = model_changed or any(
                         new_fields.get(k, "") != normalized_rec_fields.get(k, "")
                         for k in ("Header", "Back Extra", "Comments")
                     )
                 else:
-                    fields_changed = new_fields != normalized_rec_fields
+                    fields_changed = model_changed or (new_fields != normalized_rec_fields)
 
                 tags_changed = set(new_tags) != set(rec.tags)
 
                 target_deck_id = _get_deck_id_readonly(target_deck)
-                deck_changed = (target_deck_id is None) or (target_deck_id not in rec.deck_ids)
+                deck_changed = (target_deck_id is None) or (rec.deck_ids != {target_deck_id})
                 old_deck_names = [_get_deck_name(did) for did in rec.deck_ids]
 
                 if fields_changed or tags_changed or deck_changed:
@@ -469,32 +490,45 @@ def execute_sync_plan(
             report.externally_modified_files.append(file_plan.file_path)
             continue
 
-        # 2. Flag-Before-Insert protocol: persist flags to Markdown FIRST
+        # 2. Pre-validate media files and Flag-Before-Insert protocol: persist flags to Markdown FIRST
+        valid_creates: list[NoteCreateOp] = []
         if has_creates:
-            flags_to_write = [
-                (create_op.card, create_op.card_id)
-                for create_op in file_plan.creates
-                if create_op.card is not None
-            ]
-            if flags_to_write:
-                try:
-                    flagged_count, problems = write_flags(flags_to_write)
-                    if problems:
-                        report.skipped_files.append(
-                            (file_plan.file_path, f"Flag write mismatch: {'; '.join(problems)}")
-                        )
-                        continue
-                    flagged_cards.extend(c for c, _ in flags_to_write)
-                except OSError as exc:
-                    report.skipped_files.append(
-                        (file_plan.file_path, f"Failed to write ADDED flags: {exc}")
+            for create_op in file_plan.creates:
+                missing_media = [m.source_path for m in create_op.media_refs if not m.source_path.is_file()]
+                if missing_media:
+                    report.warnings.append(
+                        f"{file_plan.file_path.name}:{create_op.source_line} ({create_op.card_id}): "
+                        f"Missing media file(s): {', '.join(str(p) for p in missing_media)}"
                     )
                     continue
+                valid_creates.append(create_op)
 
-        # 3. Apply Note Creations in Anki
-        for create_op in file_plan.creates:
+            if valid_creates:
+                flags_to_write = [
+                    (create_op.card, create_op.card_id)
+                    for create_op in valid_creates
+                    if create_op.card is not None
+                ]
+                if flags_to_write:
+                    try:
+                        flagged_count, problems = write_flags(flags_to_write)
+                        if problems:
+                            report.skipped_files.append(
+                                (file_plan.file_path, f"Flag write mismatch: {'; '.join(problems)}")
+                            )
+                            continue
+                    except OSError as exc:
+                        report.skipped_files.append(
+                            (file_plan.file_path, f"Failed to write ADDED flags: {exc}")
+                        )
+                        continue
+
+        # 3. Apply Note Creations in Anki with rollback on single failure
+        for create_op in valid_creates:
             try:
                 media_added, created_card_ids = apply_note_create(col, create_op, model_ids)
+                if create_op.card is not None:
+                    flagged_cards.append(create_op.card)
                 report.created_count += 1
                 report.media_added_count += media_added
 
@@ -523,6 +557,11 @@ def execute_sync_plan(
                     cards_to_suspend.extend(created_card_ids)
                 _merge_undo()
             except Exception as exc:
+                if create_op.card is not None:
+                    try:
+                        clear_flags([create_op.card])
+                    except Exception:
+                        pass
                 report.warnings.append(
                     f"{file_plan.file_path.name}:{create_op.source_line} ({create_op.card_id}): {exc}"
                 )
@@ -539,7 +578,7 @@ def execute_sync_plan(
                 is_cloze_up = (
                     update_op.model_name == MODEL_NAME_CLOZE
                     or "cloze" in str(update_op.model_name).lower()
-                    or (update_op.card is not None and (
+                    or (update_op.card is not None and (\
                         getattr(update_op.card, "kind", None) in ("cloze", "Cloze")
                         or getattr(update_op.card, "has_cloze_markers", False)
                     ))

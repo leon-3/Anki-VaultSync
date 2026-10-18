@@ -555,3 +555,55 @@ def test_ensure_image_occlusion_model_resolution_and_fallback():
             assert restored["name"] == "Image Occlusion"
         finally:
             col.close()
+
+
+def test_apply_note_update_rejects_filtered_deck_target():
+    """Verify moving cards directly to a filtered/dynamic deck raises ValueError."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        col_path = Path(tmp_dir) / "collection.anki2"
+        col = Collection(str(col_path))
+        try:
+            model_ids = ensure_models(col)
+            create_op = NoteCreateOp(
+                card_id="flt_target_test",
+                model_name="M2A Basic",
+                target_deck_name="NormalDeck",
+                fields={
+                    "Front": "Question Filtered Target",
+                    "Back": "Answer<!--m2a:flt_target_test-->",
+                },
+                tags=["test"],
+                source_file=Path("/vault/test.md"),
+                source_line=1,
+                media_refs=[],
+            )
+            apply_note_create(col, create_op, model_ids)
+            note_id = col.find_notes("deck:NormalDeck")[0]
+
+            # Create a dynamic/filtered deck
+            col.decks.new_filtered("FilteredTargetDeck")
+
+            update_op = NoteUpdateOp(
+                note_id=note_id,
+                card_id="flt_target_test",
+                model_name="M2A Basic",
+                target_deck_name="FilteredTargetDeck",
+                old_deck_names=["NormalDeck"],
+                old_fields={"Front": "Question Filtered Target", "Back": "Answer<!--m2a:flt_target_test-->"},
+                new_fields={"Front": "Question Filtered Target", "Back": "Answer<!--m2a:flt_target_test-->"},
+                old_tags=["test"],
+                new_tags=["test"],
+                deck_changed=True,
+                fields_changed=False,
+                tags_changed=False,
+                source_file=Path("/vault/test.md"),
+                source_line=1,
+                media_refs=[],
+                approved=True,
+            )
+
+            import pytest
+            with pytest.raises(ValueError, match="is a filtered deck"):
+                apply_note_update(col, update_op, model_ids)
+        finally:
+            col.close()

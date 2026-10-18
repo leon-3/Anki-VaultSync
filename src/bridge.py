@@ -61,7 +61,7 @@ def ensure_image_occlusion_model(col: Collection, create: bool = True) -> int | 
         except Exception:
             pass
 
-    raise RuntimeError("Standard 'Image Occlusion' note type not found in collection.")
+    return None
 
 
 def ensure_models(
@@ -71,11 +71,32 @@ def ensure_models(
     cloze_model_id: int | None = None,
     create: bool = True,
 ) -> dict[str, int]:
-    """Ensures Basic and Cloze note types exist and returns {model_name: mid}."""
+    """Ensures M2A Basic and M2A Cloze models exist in collection, returning name -> mid mapping.
+
+    Args:
+        col: Anki Collection instance.
+        repair_templates: If True, overwrites existing template CSS/qfmt/afmt with bundled assets.
+        basic_model_id: Optional user-configured notetype ID for Basic cards.
+        cloze_model_id: Optional user-configured notetype ID for Cloze cards.
+        create: If True, creates models if neither specified ID nor default name exists.
+    """
     model_ids: dict[str, int] = {}
+
     specs = [
-        (MODEL_NAME_BASIC, BASIC_FIELDS, MODEL_STD, KIND_BASIC, basic_model_id),
-        (MODEL_NAME_CLOZE, CLOZE_FIELDS, MODEL_CLOZE, KIND_CLOZE, cloze_model_id),
+        (
+            MODEL_NAME_BASIC,
+            BASIC_FIELDS,
+            MODEL_STD,
+            KIND_BASIC,
+            basic_model_id,
+        ),
+        (
+            MODEL_NAME_CLOZE,
+            CLOZE_FIELDS,
+            MODEL_CLOZE,
+            KIND_CLOZE,
+            cloze_model_id,
+        ),
     ]
 
     for model_name, expected_fields, model_type, tpl_key, preferred_id in specs:
@@ -144,7 +165,6 @@ def build_existing_note_index(
     """Single-pass O(M) SQL index extraction for all M2A cards in the collection."""
     mid_to_name: dict[int, str] = {}
     mid_to_fields: dict[int, tuple[str, ...]] = {}
-
     for name, mid in model_ids.items():
         m = col.models.get(NotetypeId(mid))
         if m is not None:
@@ -322,17 +342,19 @@ def apply_note_update(
             target_mid = int(fallback["id"]) if fallback else None
 
     # Handle model conversion (e.g. Basic <-> Cloze)
-    model_converted = (target_mid is not None and note.mid != target_mid)
-    if model_converted:
+    model_converted = False
+    if target_mid is not None and note.mid != target_mid:
         old_model = note.note_type()
         new_model = col.models.get(NotetypeId(target_mid))
         if old_model is not None and new_model is not None and hasattr(col.models, "change"):
-            fmap = {i: i if i < len(new_model["flds"]) else None for i in range(len(old_model["flds"]))}
+            fmap = {i: i if i < len(new_model.get("flds", [])) else None for i in range(len(old_model.get("flds", [])))}
+            cmap = {i: i if i < len(new_model.get("tmpls", [])) else 0 for i in range(len(old_model.get("tmpls", [])))}
             try:
-                col.models.change(old_model, [note.id], new_model, fmap=fmap, cmap=None)
+                col.models.change(old_model, [note.id], new_model, fmap=fmap, cmap=cmap)
                 note = col.get_note(NoteId(op.note_id))
-            except Exception:
-                pass
+                model_converted = (note.mid == target_mid)
+            except Exception as exc:
+                raise RuntimeError(f"Failed to convert note {op.note_id} to model '{op.model_name}': {exc}") from exc
 
     # Skip media I/O and field updating if fields are untouched
     if op.fields_changed or model_converted:
@@ -356,6 +378,14 @@ def apply_note_update(
     deck_moved = False
     if op.deck_changed:
         target_deck_id = col.decks.id(op.target_deck_name)
+        target_deck = col.decks.get(target_deck_id)
+        is_filtered = (
+            (hasattr(col.decks, "is_filtered") and col.decks.is_filtered(target_deck_id))
+            or (target_deck is not None and target_deck.get("dyn", 0) != 0)
+        )
+        if is_filtered:
+            raise ValueError(f"Target deck '{op.target_deck_name}' is a filtered deck and cannot hold regular cards.")
+
         cids_to_move: list[int] = []
         for card in note.cards():
             if card.odid != 0:
