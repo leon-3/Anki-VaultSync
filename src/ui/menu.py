@@ -5,19 +5,22 @@ from typing import TYPE_CHECKING, Any
 
 from aqt import mw
 from aqt.operations import QueryOp
-from aqt.qt import QAction, QKeySequence, QMenu, sip
+from aqt.qt import QAction, QKeySequence, QMenu, QTimer, sip
 from aqt.utils import tooltip
 
 from ..profile_config import AddonProfileSettings, ProfileConfigManager
 from ..worker import build_sync_plan, execute_sync_plan
 from .config_window import ConfigWindow
 from .main_window import MainWindow
+from .onboarding_dialog import OnboardingDialog
 from .shortcuts import find_shortcut_conflict
 from .notification import show_sync_notification
 from ..undo import clear_sync_undo_stack
 
 _main_window_instance: MainWindow | None = None
 _config_window_instance: ConfigWindow | None = None
+_onboarding_dialog_instance: OnboardingDialog | None = None
+_onboarding_timer: QTimer | None = None
 _manager = ProfileConfigManager()
 
 _action_dash: QAction | None = None
@@ -138,6 +141,22 @@ def open_dashboard() -> None:
     else:
         _main_window_instance.activateWindow()
         _main_window_instance.raise_()
+
+
+def open_onboarding_wizard() -> OnboardingDialog:
+    global _onboarding_dialog_instance
+    profile_name = _get_active_profile()
+    if (
+        _onboarding_dialog_instance is None
+        or _is_deleted(_onboarding_dialog_instance)
+        or not _onboarding_dialog_instance.isVisible()
+    ):
+        _onboarding_dialog_instance = OnboardingDialog(_manager, profile_name, mw)
+        _onboarding_dialog_instance.show()
+    else:
+        _onboarding_dialog_instance.activateWindow()
+        _onboarding_dialog_instance.raise_()
+    return _onboarding_dialog_instance
 
 
 def open_settings(
@@ -278,6 +297,10 @@ def on_main_window_did_init() -> None:
 
     vault_menu.addSeparator()
 
+    action_wizard = QAction("Setup Wizard...", vault_menu)
+    action_wizard.triggered.connect(open_onboarding_wizard)
+    vault_menu.addAction(action_wizard)
+
     action_settings = QAction("Settings...", vault_menu)
     action_settings.triggered.connect(open_settings)
     vault_menu.addAction(action_settings)
@@ -293,6 +316,7 @@ def on_main_window_did_init() -> None:
 
 
 def on_profile_did_open() -> None:
+    global _onboarding_timer
     profile_name = _get_active_profile()
     settings = _manager.load(profile_name)
     apply_menu_shortcuts(settings)
@@ -300,13 +324,39 @@ def on_profile_did_open() -> None:
     if mw is not None and hasattr(mw, "col") and mw.col is not None:
         attach_undo_hook(mw.col)
         attach_redo_hook(mw.col)
+
+    # If onboarding is needed, schedule setup wizard and suppress automatic startup sync
+    if settings.needs_onboarding():
+        logger.log_info(f"Profile '{profile_name}' needs onboarding. Scheduling setup wizard...")
+        if mw is not None:
+            _onboarding_timer = QTimer()
+            _onboarding_timer.setSingleShot(True)
+            _onboarding_timer.timeout.connect(open_onboarding_wizard)
+            _onboarding_timer.start(200)
+        return
+
     if settings.sync_on_startup and settings.vault_path and settings.vault_path.is_dir():
         logger.log_info(f"Auto-sync on startup triggered for profile '{profile_name}'...")
         _run_menu_sync(include_updates=True, is_startup=True)
 
 
 def on_profile_will_close() -> None:
-    global _main_window_instance, _config_window_instance
+    global _main_window_instance, _config_window_instance, _onboarding_dialog_instance, _onboarding_timer
+
+    if _onboarding_timer is not None:
+        try:
+            _onboarding_timer.stop()
+        except Exception:
+            pass
+        _onboarding_timer = None
+
+    if _onboarding_dialog_instance is not None and not _is_deleted(_onboarding_dialog_instance):
+        try:
+            _onboarding_dialog_instance.close()
+        except Exception:
+            pass
+        _onboarding_dialog_instance = None
+
     if _main_window_instance is not None and not _is_deleted(_main_window_instance):
         try:
             _main_window_instance.close()
