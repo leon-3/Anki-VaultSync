@@ -102,9 +102,9 @@ class MainWindow(QDialog):
 
         box_style = """
             QFrame {
-                border: 1px solid rgba(255, 255, 255, 0.12);
+                border: 1px solid rgba(130, 130, 130, 0.25);
                 border-radius: 8px;
-                background-color: rgba(255, 255, 255, 0.02);
+                background-color: rgba(130, 130, 130, 0.04);
             }
         """
 
@@ -234,9 +234,9 @@ class MainWindow(QDialog):
         self.status_box.setObjectName("statusBox")
         self.status_box.setStyleSheet("""
             #statusBox {
-                border: 1px solid rgba(255, 255, 255, 0.12);
+                border: 1px solid rgba(130, 130, 130, 0.25);
                 border-radius: 8px;
-                background-color: rgba(255, 255, 255, 0.02);
+                background-color: rgba(130, 130, 130, 0.04);
             }
         """)
         status_bar_layout = QHBoxLayout(self.status_box)

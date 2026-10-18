@@ -60,24 +60,24 @@ def _generate_word_diff_html(old_text: str, new_text: str) -> str:
             deleted = "".join(_format_diff_token(t) for t in words_old[i1:i2] if _format_diff_token(t))
             if deleted:
                 result.append(
-                    f"<del style='background-color:#ffeef0; color:#b31d28; text-decoration:line-through;'>{deleted}</del>"
+                    f"<del style='background-color:rgba(248,81,73,0.22); color:palette(text); text-decoration:line-through;'>{deleted}</del>"
                 )
         elif tag == "insert":
             inserted = "".join(_format_diff_token(t) for t in words_new[j1:j2] if _format_diff_token(t))
             if inserted:
                 result.append(
-                    f"<ins style='background-color:#e6ffed; color:#22863a; text-decoration:none;'>{inserted}</ins>"
+                    f"<ins style='background-color:rgba(46,160,67,0.22); color:palette(text); text-decoration:none;'>{inserted}</ins>"
                 )
         elif tag == "replace":
             deleted = "".join(_format_diff_token(t) for t in words_old[i1:i2] if _format_diff_token(t))
             inserted = "".join(_format_diff_token(t) for t in words_new[j1:j2] if _format_diff_token(t))
             if deleted:
                 result.append(
-                    f"<del style='background-color:#ffeef0; color:#b31d28; text-decoration:line-through;'>{deleted}</del>"
+                    f"<del style='background-color:rgba(248,81,73,0.22); color:palette(text); text-decoration:line-through;'>{deleted}</del>"
                 )
             if inserted:
                 result.append(
-                    f"<ins style='background-color:#e6ffed; color:#22863a; text-decoration:none;'>{inserted}</ins>"
+                    f"<ins style='background-color:rgba(46,160,67,0.22); color:palette(text); text-decoration:none;'>{inserted}</ins>"
                 )
 
     return "".join(result)
