@@ -51,7 +51,6 @@ def _is_deleted(widget: Any) -> bool:
     return False
 
 
-from ..bridge import ensure_models
 from ..contracts import MissingInAnkiRecord, OrphanNoteRecord, SyncPlan
 from ..worker import build_sync_plan, execute_sync_plan
 from markdown2anki.flags import write_deleted_flags
@@ -1023,17 +1022,6 @@ class ConfigWindow(QDialog):
             "Actions to inspect, repair, or clean up your Anki card collection.",
         )
 
-        repair_btn = QPushButton("Repair / Re-apply M2A Note Type Templates")
-        repair_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        repair_btn.setStyleSheet(btn_style)
-        repair_btn.clicked.connect(self._repair_templates)
-        row_rep = QHBoxLayout()
-        row_rep.setSpacing(8)
-        row_rep.addWidget(repair_btn)
-        row_rep.addWidget(self._help_button("repair_templates"))
-        row_rep.addStretch()
-        card_tools_l.addLayout(row_rep)
-
         self.orphans_btn = QPushButton("Find & View Orphaned Cards in Browser")
         self.orphans_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.orphans_btn.setStyleSheet(btn_style)
@@ -1696,36 +1684,6 @@ class ConfigWindow(QDialog):
         curr = self.alias_table.currentRow()
         if curr >= 0:
             self.alias_table.removeRow(curr)
-
-    def _repair_templates(self) -> None:
-        if mw is None or not hasattr(mw, "col") or mw.col is None:
-            QMessageBox.warning(self, "Unavailable", "Anki collection is not currently open.")
-            return
-
-        basic_id = self._get_selected_model_id(self.basic_model_combo)
-        cloze_id = self._get_selected_model_id(self.cloze_model_combo)
-
-        def _op(col):
-            ensure_models(
-                col,
-                repair_templates=True,
-                basic_model_id=basic_id,
-                cloze_model_id=cloze_id,
-            )
-# Saving is automatic in modern Anki
-
-        def _success(_):
-            if _is_deleted(self):
-                return
-            mw.reset()
-            QMessageBox.information(self, "Success", "Note type templates repaired successfully.")
-
-        def _failure(exc):
-            if _is_deleted(self):
-                return
-            QMessageBox.critical(self, "Error", f"Failed to repair templates: {exc}")
-
-        QueryOp(parent=self, op=_op, success=_success).failure(_failure).with_progress("Repairing templates...").run_in_background()
 
     def _reset_shortcuts_to_defaults(self) -> None:
         self.sc_dash_edit.setKeySequence(QKeySequence(DEFAULT_SHORTCUTS["open_dashboard"]))

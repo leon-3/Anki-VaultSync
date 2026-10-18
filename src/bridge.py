@@ -69,7 +69,6 @@ def ensure_image_occlusion_model(col: Collection, create: bool = True) -> int | 
 
 def ensure_models(
     col: Collection,
-    repair_templates: bool = False,
     basic_model_id: int | None = None,
     cloze_model_id: int | None = None,
     create: bool = True,
@@ -78,7 +77,6 @@ def ensure_models(
 
     Args:
         col: Anki Collection instance.
-        repair_templates: If True, overwrites existing template CSS/qfmt/afmt with bundled assets.
         basic_model_id: Optional user-configured notetype ID for Basic cards.
         cloze_model_id: Optional user-configured notetype ID for Cloze cards.
         create: If True, creates models if neither specified ID nor default name exists.
@@ -112,8 +110,6 @@ def ensure_models(
         if existing is None:
             existing = col.models.by_name(model_name)
 
-        tpl = load_template(tpl_key)
-
         if existing is not None:
             flds = existing.get("flds", [])
             if len(flds) < 2:
@@ -121,14 +117,11 @@ def ensure_models(
                     f"Note type '{existing.get('name')}' (ID {existing.get('id')}) has only {len(flds)} field(s). "
                     "VaultSync requires at least 2 fields to store the synchronization ID marker."
                 )
-            # Use the existing note type definition and styling
-            if repair_templates:
-                existing["type"] = model_type
-                existing["css"] = tpl.css
-                if existing["tmpls"]:
-                    existing["tmpls"][0]["qfmt"] = tpl.qfmt
-                    existing["tmpls"][0]["afmt"] = tpl.afmt
-                col.models.update_dict(existing)
+            if existing.get("type", 0) != model_type:
+                expected_str = "Cloze" if model_type == MODEL_CLOZE else "Standard (Basic)"
+                raise ValueError(
+                    f"Note type '{existing.get('name')}' (ID {existing.get('id')}) is not a {expected_str} note type."
+                )
             model_ids[model_name] = int(existing["id"])
             continue
 
@@ -136,6 +129,7 @@ def ensure_models(
             continue
 
         # 3. Create new model if neither ID nor name found
+        tpl = load_template(tpl_key)
         model = col.models.new(model_name)
         model["type"] = model_type
         model["css"] = tpl.css

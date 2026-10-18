@@ -31,7 +31,6 @@ def test_help_tooltips_completeness():
         "show_diff_before_update",\
         "sync_on_startup",\
         "auto_close_on_success",\
-        "repair_templates",\
         "subdirectories",\
         "ignore",\
         "deck_routing",\

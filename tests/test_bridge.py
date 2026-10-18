@@ -523,6 +523,47 @@ def test_custom_note_type_with_less_than_2_fields_raises_error():
             col.close()
 
 
+
+def test_custom_note_type_with_wrong_type_raises_error():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        col = Collection(str(Path(tmp_dir) / "collection.anki2"))
+        try:
+            # 1. Custom standard model bound to cloze_model_id raises error
+            std_model = col.models.new("MyBasic")
+            std_model["type"] = MODEL_STD
+            col.models.add_field(std_model, col.models.new_field("Front"))
+            col.models.add_field(std_model, col.models.new_field("Back"))
+            tpl = col.models.new_template("Card 1")
+            tpl["qfmt"] = "{{Front}}"
+            tpl["afmt"] = "{{Back}}"
+            col.models.add_template(std_model, tpl)
+            col.models.add_dict(std_model)
+            basic_mid = int(col.models.by_name("MyBasic")["id"])
+
+            import pytest
+            with pytest.raises(ValueError) as exc_info:
+                ensure_models(col, cloze_model_id=basic_mid)
+            assert "is not a Cloze note type" in str(exc_info.value)
+
+            # 2. Custom cloze model bound to basic_model_id raises error
+            cloze_model = col.models.new("MyCloze")
+            cloze_model["type"] = MODEL_CLOZE
+            col.models.add_field(cloze_model, col.models.new_field("Text"))
+            col.models.add_field(cloze_model, col.models.new_field("Back Extra"))
+            c_tpl = col.models.new_template("Cloze")
+            c_tpl["qfmt"] = "{{cloze:Text}}"
+            c_tpl["afmt"] = "{{cloze:Text}}<br>{{Back Extra}}"
+            col.models.add_template(cloze_model, c_tpl)
+            col.models.add_dict(cloze_model)
+            cloze_mid = int(col.models.by_name("MyCloze")["id"])
+
+            with pytest.raises(ValueError) as exc_info:
+                ensure_models(col, basic_model_id=cloze_mid)
+            assert "is not a Standard (Basic) note type" in str(exc_info.value)
+        finally:
+            col.close()
+
+
 def test_ensure_image_occlusion_model_resolution_and_fallback():
     """Verify standard 'Image Occlusion' model resolution and backend restoration if deleted."""
     with tempfile.TemporaryDirectory() as tmp_dir:
