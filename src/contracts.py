@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from markdown2anki.build import ImageOcclusion
+    from markdown2anki.diagnostics import Diagnostic
     from markdown2anki.parser import Card
 
 ModelName = str
@@ -102,7 +103,8 @@ class SyncPlan:
     occlusions_to_stage: list[ImageOcclusion] = field(default_factory=list)
     orphans: list[OrphanNoteRecord] = field(default_factory=list)
     missing_in_anki: list[MissingInAnkiRecord] = field(default_factory=list)
-    diagnostics: list[str] = field(default_factory=list)
+    diagnostics: list[Diagnostic] = field(default_factory=list)
+    skipped_cards_count: int = 0
     suspend_new_occlusions: bool = True
     suspend_new_clozes: bool = False
     hash_media: bool = True
@@ -152,3 +154,5 @@ class SyncReport:
     warnings: list[str] = field(default_factory=list)
     externally_modified_files: list[Path] = field(default_factory=list)
     flagged_cards: list[Card] = field(default_factory=list)
+    diagnostics: list[Diagnostic] = field(default_factory=list)
+    skipped_cards_count: int = 0

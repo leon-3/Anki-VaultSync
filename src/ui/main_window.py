@@ -8,16 +8,20 @@ from aqt import dialogs, mw
 from aqt.operations import QueryOp
 from aqt.qt import (
     QDialog,
+    QEvent,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     Qt,
     QVBoxLayout,
+    QWidget,
     sip,
 )
+from typing import Callable
 
 
 def _is_deleted(widget: Any) -> bool:
@@ -37,6 +41,95 @@ from .config_window import ConfigWindow
 from .diff_dialog import DiffDialog
 from .sync_report_dialog import SyncIssuesDialog
 from .notification import show_sync_notification
+
+
+class ErrorBannerWidget(QFrame):
+    """Inline non-blocking error banner for MainWindow."""
+
+    def __init__(self, parent: QWidget | None = None, on_open_logs: Callable[[], None] | None = None) -> None:
+        super().__init__(parent)
+        self.setVisible(False)
+        self._on_open_logs = on_open_logs
+        self._retry_callback: Callable[[], None] | None = None
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(10)
+
+        self.icon_lbl = QLabel("⚠️")
+        self.icon_lbl.setStyleSheet("font-size: 14px;")
+        layout.addWidget(self.icon_lbl)
+
+        self.msg_lbl = QLabel()
+        self.msg_lbl.setWordWrap(True)
+        self.msg_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        layout.addWidget(self.msg_lbl)
+
+        if self._on_open_logs is not None:
+            self.view_log_btn = QPushButton("View Log")
+            self.view_log_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.view_log_btn.clicked.connect(self._on_open_logs)
+            layout.addWidget(self.view_log_btn)
+
+        self.retry_btn = QPushButton("Retry")
+        self.retry_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.retry_btn.clicked.connect(self._on_retry_clicked)
+        layout.addWidget(self.retry_btn)
+
+        self.close_btn = QPushButton("✕")
+        self.close_btn.setObjectName("bannerCloseBtn")
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_btn.clicked.connect(self.hide)
+        layout.addWidget(self.close_btn)
+
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        is_dark = False
+        try:
+            from aqt.theme import theme_manager
+            is_dark = bool(getattr(theme_manager, "night_mode", False))
+        except Exception:
+            pass
+
+        bg = "rgba(244, 67, 54, 0.18)" if is_dark else "rgba(244, 67, 54, 0.10)"
+        border = "#EF5350" if is_dark else "#D32F2F"
+        text = "#FFCDD2" if is_dark else "#B71C1C"
+
+        self.setStyleSheet(f"""
+            ErrorBannerWidget {{
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 6px;
+            }}
+            QLabel {{
+                color: {text};
+                font-size: 12px;
+            }}
+            QPushButton {{
+                font-size: 11px;
+                padding: 3px 10px;
+                border-radius: 4px;
+            }}
+            QPushButton#bannerCloseBtn {{
+                background: transparent;
+                border: none;
+                font-size: 12px;
+                color: {text};
+            }}
+        """)
+
+    def show_error(self, message: str, retry_action: Callable[[], None] | None = None) -> None:
+        self.msg_lbl.setText(message)
+        self._retry_callback = retry_action
+        self.retry_btn.setVisible(retry_action is not None)
+        self._apply_theme()
+        self.show()
+
+    def _on_retry_clicked(self) -> None:
+        self.hide()
+        if self._retry_callback is not None:
+            self._retry_callback()
 
 
 class MainWindow(QDialog):
@@ -229,6 +322,10 @@ class MainWindow(QDialog):
         middle_layout.addWidget(actions_box, stretch=1)
         layout.addLayout(middle_layout)
 
+        # Error Banner
+        self.error_banner = ErrorBannerWidget(self, on_open_logs=lambda: self._open_settings(tab_index="Logs"))
+        layout.addWidget(self.error_banner)
+
         # 3. Status Bar
         self.status_box = QFrame()
         self.status_box.setObjectName("statusBox")
@@ -300,6 +397,23 @@ class MainWindow(QDialog):
         super().showEvent(event)
         self.setFocus()
 
+    def changeEvent(self, event: QEvent) -> None:
+        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+            self._check_and_refresh_if_stale()
+        super().changeEvent(event)
+
+    def _check_and_refresh_if_stale(self) -> None:
+        if self._is_busy or self._current_plan is None:
+            return
+        for fp in self._current_plan.file_plans:
+            try:
+                if fp.file_path.is_file() and fp.file_path.stat().st_mtime_ns != fp.mtime_ns:
+                    self._log("Detected external changes in Obsidian while inactive. Refreshing scan...")
+                    self._start_scan()
+                    break
+            except OSError:
+                pass
+
     def _set_status(self, text: str, state: str = "normal", show_issues: bool = False) -> None:
         colors = {
             "normal": "#4CAF50",
@@ -338,13 +452,13 @@ class MainWindow(QDialog):
             )
         )
 
-    def _on_op_failure(self, exc: Exception) -> None:
+    def _on_op_failure(self, exc: Exception, retry_action: Callable[[], None] | None = None) -> None:
         if _is_deleted(self):
             return
         self._set_buttons_busy(False)
         self._set_status(f"Operation failed: {exc}", state="error")
         self._log(f"ERROR: {exc}", level="ERROR")
-        QMessageBox.critical(self, "VaultSync Error", f"An error occurred:\n\n{exc}")
+        self.error_banner.show_error(f"An error occurred: {exc}", retry_action=retry_action)
 
     def _update_action_button_counts(self) -> None:
         if self._current_plan is None:
@@ -371,6 +485,7 @@ class MainWindow(QDialog):
             self._set_status("Operation in progress. Please wait...", state="warning")
             return
 
+        self.error_banner.hide()
         self._set_buttons_busy(True)
         self._set_status("Scanning vault...", state="busy")
         self._log(f"Scanning vault: {self._settings.vault_path}...")
@@ -402,7 +517,7 @@ class MainWindow(QDialog):
             release_sync_lock()
             if _is_deleted(self):
                 return
-            self._on_op_failure(exc)
+            self._on_op_failure(exc, retry_action=self._start_scan)
 
         import aqt
         if getattr(aqt, "mw", None) is None:
@@ -451,10 +566,19 @@ class MainWindow(QDialog):
         self._update_action_button_counts()
 
         total_sync_count = total_new + plan.approved_updates
-        if total_sync_count > 0:
-            self._set_status(f"Scan complete: {total_sync_count} item(s) ready to sync", state="ready")
+        issues_count = len(plan.diagnostics)
+        skipped_cards = plan.skipped_cards_count
+
+        if issues_count > 0:
+            status_text = f"Ready · ⚠️ {issues_count} issue(s) detected"
+            if skipped_cards > 0:
+                status_text += f" ({skipped_cards} card(s) will be skipped)"
+            self._set_status(status_text, state="warning", show_issues=True)
+            self.status_report_btn.setText("Review Issues")
+        elif total_sync_count > 0:
+            self._set_status(f"Scan complete: {total_sync_count} item(s) ready to sync", state="ready", show_issues=False)
         else:
-            self._set_status("Ready (Vault is up to date)", state="ready")
+            self._set_status("Ready (Vault is up to date)", state="ready", show_issues=False)
 
     def _open_diff(self) -> None:
         if self._current_plan is None or self._current_plan.total_updates == 0:
@@ -492,6 +616,7 @@ class MainWindow(QDialog):
             self._set_status("Operation in progress. Please wait...", state="warning")
             return
 
+        self.error_banner.hide()
         self._set_buttons_busy(True)
         self._set_status("Syncing cards to Anki...", state="busy")
         self._log("Starting Sync...")
@@ -521,7 +646,7 @@ class MainWindow(QDialog):
             release_sync_lock()
             if _is_deleted(self):
                 return
-            self._on_op_failure(exc)
+            self._on_op_failure(exc, retry_action=lambda: self._start_sync(include_updates=include_updates))
 
         import aqt
         if getattr(aqt, "mw", None) is None:
@@ -597,15 +722,25 @@ class MainWindow(QDialog):
         self._start_scan()
 
     def _open_last_sync_report(self) -> None:
-        if self._last_report is None:
-            return
-        dlg = SyncIssuesDialog(
-            self._last_report,
-            parent=self,
-            on_open_logs=lambda: self._open_settings(tab_index="Logs"),
-            on_rescan=self._start_scan,
-        )
-        dlg.exec()
+        if self._last_report is not None:
+            dlg = SyncIssuesDialog(
+                report=self._last_report,
+                parent=self,
+                on_open_logs=lambda: self._open_settings(tab_index="Logs"),
+                on_rescan=self._start_scan,
+                vault_path=self._settings.vault_path,
+            )
+            dlg.exec()
+        elif self._current_plan is not None and self._current_plan.diagnostics:
+            dlg = SyncIssuesDialog(
+                report=None,
+                parent=self,
+                on_open_logs=lambda: self._open_settings(tab_index="Logs"),
+                on_rescan=self._start_scan,
+                diagnostics=self._current_plan.diagnostics,
+                vault_path=self._current_plan.vault_path,
+            )
+            dlg.exec()
 
     def _view_unmasked_occlusions(self) -> None:
         if mw is not None and getattr(mw, "col", None) is not None:

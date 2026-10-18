@@ -20,6 +20,7 @@ from markdown2anki.models import (
     MODEL_NAME_IMAGE_OCCLUSION,
 )
 from markdown2anki.occlusions import export_occlusions
+from markdown2anki.diagnostics import Diagnostic, DiagnosticCategory, DiagnosticLevel
 from markdown2anki.parser import Card
 from markdown2anki.vault import collect
 
@@ -204,10 +205,18 @@ def build_sync_plan(
             card_id = card.card_id
 
             if card_id is not None and card_id in seen_card_ids:
-                msg = f"Duplicate card ID '{card_id}' in {file_path.name}:{card.line}; skipping duplicate."
-                collected.diagnostics.append(msg)
+                diag = Diagnostic(
+                    file=file_path,
+                    line=card.line,
+                    level=DiagnosticLevel.ERROR,
+                    category=DiagnosticCategory.CONFLICT,
+                    message=f"Duplicate card ID '{card_id}' in {file_path.name}:{card.line}; skipping duplicate.",
+                    suggestion="Remove or re-generate the duplicate card ID to allow synchronization.",
+                    card_identifier=card_id,
+                )
+                collected.diagnostics.append(diag)
                 if trace_fn:
-                    trace_fn(msg)
+                    trace_fn(diag.message)
                 continue
 
             if note.model == MODEL_IMAGE_OCCLUSION:
@@ -435,7 +444,8 @@ def build_sync_plan(
         occlusions_to_stage=occlusions_to_stage,
         orphans=orphans,
         missing_in_anki=missing_in_anki,
-        diagnostics=[str(d) for d in collected.diagnostics],
+        diagnostics=list(collected.diagnostics),
+        skipped_cards_count=len(result.skipped),
         suspend_new_occlusions=vault_cfg.suspend_new_occlusions,
         suspend_new_clozes=vault_cfg.suspend_new_clozes,
         hash_media=vault_cfg.hash_media,
@@ -451,7 +461,7 @@ def execute_sync_plan(
     cloze_model_id: int | None = None,
 ) -> SyncReport:
     """Stage 3: Applies atomic Flag-Before-Insert persistence and Anki DB mutations."""
-    report = SyncReport()
+    report = SyncReport(diagnostics=list(plan.diagnostics), skipped_cards_count=plan.skipped_cards_count)
     has_any_creates = any(len(fp.creates) > 0 for fp in plan.file_plans)
     model_ids = ensure_models(
         col,
@@ -516,6 +526,14 @@ def execute_sync_plan(
                 (file_plan.file_path, "File modified externally in Obsidian after scan; skipped for safety to prevent overwriting.")
             )
             report.externally_modified_files.append(file_plan.file_path)
+            report.diagnostics.append(Diagnostic(
+                file=file_plan.file_path,
+                line=None,
+                level=DiagnosticLevel.WARNING,
+                category=DiagnosticCategory.CONFLICT,
+                message="File modified externally in Obsidian after scan; skipped for safety to prevent overwriting.",
+                suggestion="Re-scan the vault now to incorporate the latest external changes.",
+            ))
             continue
 
         # 2. Pre-validate media files and Flag-Before-Insert protocol: persist flags to Markdown FIRST
