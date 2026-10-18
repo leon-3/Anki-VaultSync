@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aqt import mw
 from aqt.qt import (
+    QEvent,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -26,7 +27,8 @@ class SyncNotification(QFrame):
 
     Uses native Anki window palette colors without custom colored text or emojis,
     matching the native look and feel of Anki Desktop. Stays visible for 10 seconds
-    and provides a clean [×] button to dismiss immediately.
+    and provides a clean [×] button to dismiss immediately. Closes automatically
+    if the parent window is minimized, hidden, or closed.
     """
 
     def __init__(
@@ -111,17 +113,19 @@ class SyncNotification(QFrame):
             lbl_added = QLabel(f"<b>Added:</b> {total_added} card{'s' if total_added != 1 else ''}")
             layout.addWidget(lbl_added)
 
-            # Detailed breakdown: basic first, then image clozes, then text clozes
+            # Detailed breakdown: only show categories with count > 0
             if total_added > 0:
                 if report.created_basic_count > 0:
                     lbl_bc = QLabel(f"   • Basic: <b>{report.created_basic_count}</b>")
                     layout.addWidget(lbl_bc)
 
-                lbl_ic = QLabel(f"   • Image Clozes: <b>{report.created_image_cloze_count}</b>")
-                layout.addWidget(lbl_ic)
+                if report.created_image_cloze_count > 0:
+                    lbl_ic = QLabel(f"   • Image Clozes: <b>{report.created_image_cloze_count}</b>")
+                    layout.addWidget(lbl_ic)
 
-                lbl_tc = QLabel(f"   • Text Clozes: <b>{report.created_text_cloze_count}</b>")
-                layout.addWidget(lbl_tc)
+                if report.created_text_cloze_count > 0:
+                    lbl_tc = QLabel(f"   • Text Clozes: <b>{report.created_text_cloze_count}</b>")
+                    layout.addWidget(lbl_tc)
 
             # d) Cards updated (at a sync with update)
             if include_updates:
@@ -152,6 +156,32 @@ class SyncNotification(QFrame):
 
         self.adjustSize()
         self._position_bottom_left(parent)
+
+        if parent is not None:
+            parent.installEventFilter(self)
+
+    def eventFilter(self, watched: Any, event: Any) -> bool:
+        if watched == self.parent():
+            event_type = event.type()
+            # If parent window is hidden or closed, dismiss tooltip
+            if event_type in (QEvent.Type.Hide, QEvent.Type.Close):
+                self.close()
+            elif event_type == QEvent.Type.WindowStateChange:
+                parent_w = self.parent()
+                if parent_w is not None and hasattr(parent_w, "isMinimized") and parent_w.isMinimized():
+                    self.close()
+            elif event_type == QEvent.Type.Move:
+                self._position_bottom_left(self.parent())
+        return super().eventFilter(watched, event)
+
+    def closeEvent(self, event: Any) -> None:
+        parent_w = self.parent()
+        if parent_w is not None:
+            try:
+                parent_w.removeEventFilter(self)
+            except Exception:
+                pass
+        super().closeEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent | None) -> None:
         if event is not None:
