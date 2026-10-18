@@ -1184,7 +1184,25 @@ class ConfigWindow(QDialog):
 
         # Section 1: Orphans
         count_orphans = len(self._current_orphans)
-        self.orphans_status_label.setText(f"{count_orphans} orphaned note(s) detected in Anki.")
+        suspended_count = 0
+        if count_orphans > 0 and mw is not None and getattr(mw, "col", None) is not None:
+            try:
+                nids = [o.note_id for o in self._current_orphans]
+                placeholders = ",".join("?" * len(nids))
+                rows = mw.col.db.all(
+                    f"SELECT DISTINCT nid FROM cards WHERE nid IN ({placeholders}) AND queue = -1",
+                    *nids,
+                )
+                suspended_count = len(rows)
+            except Exception:
+                suspended_count = 0
+
+        if suspended_count > 0:
+            self.orphans_status_label.setText(
+                f"{count_orphans} orphaned note(s) detected in Anki ({suspended_count} suspended)."
+            )
+        else:
+            self.orphans_status_label.setText(f"{count_orphans} orphaned note(s) detected in Anki.")
         self.view_orphans_btn.setEnabled(count_orphans > 0)
         self.suspend_orphans_btn.setEnabled(count_orphans > 0)
         self.delete_orphans_btn.setEnabled(count_orphans > 0)
@@ -1331,20 +1349,44 @@ class ConfigWindow(QDialog):
             return
 
         count = len(self._current_orphans)
+        from anki.notes import NoteId
+        nids = [NoteId(o.note_id) for o in self._current_orphans]
+
+        suspended_count = 0
+        try:
+            placeholders = ",".join("?" * len(nids))
+            suspended_rows = mw.col.db.all(
+                f"SELECT DISTINCT nid FROM cards WHERE nid IN ({placeholders}) AND queue = -1",
+                *nids,
+            )
+            suspended_count = len(suspended_rows)
+        except Exception as exc:
+            log_warning(f"Failed to check suspended cards for orphans: {exc}")
+
+        if suspended_count > 0:
+            warning_msg = (
+                f"WARNING: {suspended_count} of {count} orphaned note(s) contain suspended cards in Anki.\n\n"
+                "These cards may have been suspended to preserve review history and learning intervals.\n"
+                "Deleting them will permanently erase all review history, learning intervals, and statistics.\n\n"
+                f"Are you sure you want to permanently delete all {count} orphaned note(s) "
+                f"(including {suspended_count} suspended) from Anki?"
+            )
+        else:
+            warning_msg = (
+                f"Are you sure you want to permanently delete {count} orphaned note(s) from Anki?\n\n"
+                "All review history, learning intervals, and statistics for these cards will be lost."
+            )
+
         reply = QMessageBox.warning(
             self,
             "Delete Orphaned Cards?",
-            f"Are you sure you want to permanently delete {count} orphaned note(s) from Anki?\n\n"
-            "All review history, learning intervals, and statistics for these cards will be lost.",
+            warning_msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )
         if reply != QMessageBox.StandardButton.Yes:
             release_sync_lock()
             return
-
-        from anki.notes import NoteId
-        nids = [NoteId(o.note_id) for o in self._current_orphans]
 
         def _op(col) -> int:
             col.remove_notes(nids)

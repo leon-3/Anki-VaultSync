@@ -1040,3 +1040,51 @@ def test_shortcut_config_widget_roundtrip_and_conflicts():
     widget.reset_to_defaults()
     assert widget.validate() is True
     assert widget.get_shortcuts()["open_dashboard"] == "Ctrl+Alt+V"
+
+
+def test_delete_orphans_warning_suspended_and_active(tmp_path: Path, monkeypatch):
+    from unittest.mock import MagicMock
+    from aqt.qt import QMessageBox
+    from src.contracts import OrphanNoteRecord
+    from src.ui import config_window
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    orphan1 = OrphanNoteRecord(note_id=42, card_id="cid42", model_name="M2A Basic", preview_question="Q1")
+    orphan2 = OrphanNoteRecord(note_id=43, card_id="cid43", model_name="M2A Basic", preview_question="Q2")
+    plan = SyncPlan(
+        vault_path=tmp_path,
+        default_deck="Default",
+        file_plans=[],
+        orphans=[orphan1, orphan2],
+    )
+
+    mock_mw = MagicMock()
+    mock_mw.col.db.all.return_value = [(42,)]  # Note 42 has a suspended card
+    monkeypatch.setattr(config_window, "mw", mock_mw)
+
+    dlg = ConfigWindow(manager, "TestProfile", sync_plan=plan, initial_tab=ConfigWindow.TAB_MAINTENANCE)
+    assert "2 orphaned note(s) detected in Anki (1 suspended)" in dlg.orphans_status_label.text()
+
+    # Test warning dialog when suspended cards exist
+    recorded_warnings = []
+    def fake_warning(parent, title, text, buttons, default_btn):
+        recorded_warnings.append((title, text))
+        return QMessageBox.StandardButton.Cancel
+
+    monkeypatch.setattr(QMessageBox, "warning", fake_warning)
+    dlg._on_delete_orphans()
+
+    assert len(recorded_warnings) == 1
+    assert "WARNING: 1 of 2 orphaned note(s) contain suspended cards in Anki." in recorded_warnings[0][1]
+    assert "These cards may have been suspended to preserve review history" in recorded_warnings[0][1]
+    assert "Are you sure you want to permanently delete all 2 orphaned note(s) (including 1 suspended) from Anki?" in recorded_warnings[0][1]
+
+    # Now test when no suspended cards exist
+    mock_mw.col.db.all.return_value = []
+    dlg._on_delete_orphans()
+    assert len(recorded_warnings) == 2
+    assert "WARNING:" not in recorded_warnings[1][1]
+    assert "Are you sure you want to permanently delete 2 orphaned note(s) from Anki?" in recorded_warnings[1][1]
+
+    dlg.close()
