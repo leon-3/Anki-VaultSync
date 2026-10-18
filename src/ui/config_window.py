@@ -721,7 +721,7 @@ class ConfigWindow(QDialog):
         card_rules_l.addLayout(btn_row)
 
         rule_hint = QLabel(
-            "<i>Longest prefix match applies: e.g. rules for 'everyday' and 'everyday/deep' will route notes in the deep folder to the more specific deck.</i>"
+            "<i>Longest prefix match applies: e.g. rules for 'topic' and 'topic/subtopic' will route notes in the subtopic folder to the more specific deck.</i>"
         )
         rule_hint.setStyleSheet("font-size: 11px; color: rgba(180, 180, 180, 0.85);")
         rule_hint.setWordWrap(True)
