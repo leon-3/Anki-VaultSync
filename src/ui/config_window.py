@@ -1309,7 +1309,8 @@ class ConfigWindow(QDialog):
         if not self._current_orphans:
             return
         nids = [str(o.note_id) for o in self._current_orphans]
-        query = f"nid:{",".join(nids)}"
+        nid_str = ",".join(nids)
+        query = f"nid:{nid_str}"
         browser = dialogs.open("Browser", mw)
         browser.search_for(query)
         browser.activateWindow()
