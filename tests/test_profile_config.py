@@ -221,28 +221,3 @@ def test_new_secondary_profile_triggers_onboarding_despite_default_profile(tmp_p
     assert sec_settings.needs_onboarding() is True
 
 
-def test_welcome_note_generator_and_parser_compliance(tmp_path: Path):
-    from markdown2anki.parser import parse_file
-    from src.ui.welcome_note import create_welcome_note, WELCOME_NOTE_NAME
-
-    vault_dir = tmp_path / "MyVault"
-    vault_dir.mkdir()
-
-    note_path = create_welcome_note(vault_dir)
-    assert note_path.is_file()
-    assert note_path.name == WELCOME_NOTE_NAME
-
-    # Parse note and verify it produces exactly 2 cards: 1 basic, 1 cloze
-    from markdown2anki.build import build
-    cards = parse_file(note_path)
-    assert len(cards) == 2
-    assert "what is vaultsync" in cards[0].question.lower()
-    res = build(cards, cloze_notes=True)
-    assert len(res.notes) == 2
-    assert res.notes[0].model == "basic"
-    assert res.notes[1].model == "cloze"
-
-    # Second call should not overwrite existing file
-    note_path.write_text("# Modified content", encoding="utf-8")
-    second_path = create_welcome_note(vault_dir)
-    assert second_path.read_text(encoding="utf-8") == "# Modified content"

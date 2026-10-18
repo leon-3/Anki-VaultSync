@@ -257,3 +257,74 @@ def test_profile_will_close_cancels_pending_timer_and_closes_dialog(monkeypatch)
     assert timer.isActive() is False
     assert menu._onboarding_dialog_instance is None
     assert dummy_dlg.closed is True
+
+
+def test_page5_close_button_finishes_without_sync(tmp_path: Path):
+    vault_dir = tmp_path / "FinishVault"
+    vault_dir.mkdir()
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+
+    dlg = OnboardingDialog(manager, "TestProfile")
+    dlg.state.vault_path = vault_dir
+
+    # Move to page 5
+    dlg.stack.setCurrentIndex(4)
+    dlg._update_footer_buttons()
+
+    # Footer Next & Cancel should be hidden on page 5
+    assert dlg.btn_next.isVisible() is False
+    assert dlg.btn_cancel.isVisible() is False
+
+    # Page 5 buttons exist
+    assert hasattr(dlg.page_completion, "btn_close")
+    assert hasattr(dlg.page_completion, "btn_sync")
+    assert dlg.page_completion.btn_close.text() == "Close"
+    assert "Sync Vault Directly" in dlg.page_completion.btn_sync.text()
+
+    # Click Close
+    dlg.page_completion.btn_close.click()
+
+    assert dlg.state.run_initial_sync is False
+    settings = manager.load("TestProfile")
+    assert settings.onboarding_completed is True
+    # Sample note must NOT be created
+    assert not (vault_dir / "VaultSync Welcome.md").exists()
+
+
+def test_page5_sync_directly_button_triggers_sync(tmp_path: Path, monkeypatch):
+    vault_dir = tmp_path / "SyncDirectVault"
+    vault_dir.mkdir()
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+
+    dlg = OnboardingDialog(manager, "TestProfile")
+    dlg.state.vault_path = vault_dir
+
+    sync_called = []
+    import src.ui.menu as menu_mod
+    monkeypatch.setattr(menu_mod, "_run_menu_sync", lambda **kw: sync_called.append(kw))
+
+    dlg.stack.setCurrentIndex(4)
+    dlg._update_footer_buttons()
+
+    # Click Sync Vault Directly
+    dlg.page_completion.btn_sync.click()
+
+    assert dlg.state.run_initial_sync is True
+    assert len(sync_called) == 1
+    assert sync_called[0] == {"include_updates": True}
+    settings = manager.load("TestProfile")
+    assert settings.onboarding_completed is True
+    assert not (vault_dir / "VaultSync Welcome.md").exists()
+
+
+def test_page2_deck_hint_mentions_deck_routing_in_settings():
+    page = PageVaultDeck()
+    # Find all QLabel texts in page
+    from aqt.qt import QLabel
+    labels = page.findChildren(QLabel)
+    hint_found = any("routing rules" in lbl.text().lower() and "settings" in lbl.text().lower() for lbl in labels)
+    assert hint_found is True

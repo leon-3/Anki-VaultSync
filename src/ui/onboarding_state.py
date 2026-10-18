@@ -21,5 +21,4 @@ class OnboardingState:
     suspend_new_clozes: bool = False
     sync_on_startup: bool = False
     shortcuts: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SHORTCUTS))
-    create_sample_note: bool = True
-    run_initial_sync: bool = True
+    run_initial_sync: bool = False

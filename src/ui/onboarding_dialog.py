@@ -42,7 +42,6 @@ from markdown2anki.config import Config, load_vault_config, save_vault_config
 from ..profile_config import AddonProfileSettings, ProfileConfigManager
 from .onboarding_state import OnboardingState
 from .shortcuts import ShortcutConfigWidget
-from .welcome_note import create_welcome_note
 
 logger = logging.getLogger("anki_vaultsync")
 
@@ -434,8 +433,12 @@ class PageVaultDeck(OnboardingPageBase):
         self.deck_combo.currentTextChanged.connect(lambda _: self.validity_changed.emit(self.is_valid()))
         self.content_layout.addWidget(self.deck_combo)
 
-        deck_hint = QLabel("Cards not matched by any folder routing rule will automatically land in this deck.")
-        deck_hint.setStyleSheet("font-size: 11px; color: palette(window-text); opacity: 0.75;")
+        deck_hint = QLabel(
+            "Cards not matched by specific folder routing rules will land in this default deck. "
+            "Detailed folder-to-deck routing rules can be configured anytime later in Settings (Rules & Decks)."
+        )
+        deck_hint.setWordWrap(True)
+        deck_hint.setStyleSheet("font-size: 11px; color: palette(window-text); opacity: 0.8; margin-top: 4px;")
         self.content_layout.addWidget(deck_hint)
 
         self.content_layout.addStretch()
@@ -796,7 +799,9 @@ class PageWorkflow(OnboardingPageBase):
 
 
 class PageCompletion(OnboardingPageBase):
-    """Step 5: Setup Summary, sample note creation, and initial synchronization."""
+    """Step 5: Setup Summary and final actions."""
+
+    finish_requested = pyqtSignal(bool)  # False: Close without sync, True: Sync Vault Directly
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -805,7 +810,7 @@ class PageCompletion(OnboardingPageBase):
     def _init_ui(self) -> None:
         self._create_header(
             "Ready to Sync!",
-            "Review your configuration and run your first synchronization."
+            "Review your configuration and finish setup or synchronize immediately."
         )
 
         card_style = "QFrame { border: 1px solid palette(mid); border-radius: 8px; background: palette(base); }"
@@ -814,8 +819,8 @@ class PageCompletion(OnboardingPageBase):
         f_sum = QFrame()
         f_sum.setStyleSheet(card_style)
         l_sum = QVBoxLayout(f_sum)
-        l_sum.setContentsMargins(16, 14, 16, 14)
-        l_sum.setSpacing(8)
+        l_sum.setContentsMargins(18, 16, 18, 16)
+        l_sum.setSpacing(10)
 
         lbl_title = QLabel("Configuration Overview:")
         lbl_title.setStyleSheet("font-size: 13px; font-weight: 600; color: palette(text);")
@@ -827,24 +832,58 @@ class PageCompletion(OnboardingPageBase):
         l_sum.addWidget(self.summary_label)
         self.content_layout.addWidget(f_sum)
 
-        # Actions
-        f_act = QFrame()
-        f_act.setStyleSheet(card_style)
-        l_act = QVBoxLayout(f_act)
-        l_act.setContentsMargins(14, 12, 14, 12)
-        l_act.setSpacing(8)
+        self.content_layout.addSpacing(16)
 
-        self.cb_create_note = QCheckBox("Create sample note 'VaultSync Welcome.md' in your vault")
-        self.cb_create_note.setChecked(True)
-        self.cb_create_note.setStyleSheet("font-size: 13px; color: palette(text);")
-        l_act.addWidget(self.cb_create_note)
+        # Action Buttons Container (Button A: Close, Button B: Sync Vault Directly)
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(14)
 
-        self.cb_run_sync = QCheckBox("Run initial sync immediately upon completion")
-        self.cb_run_sync.setChecked(True)
-        self.cb_run_sync.setStyleSheet("font-size: 13px; color: palette(text);")
-        l_act.addWidget(self.cb_run_sync)
-        self.content_layout.addWidget(f_act)
+        self.btn_close = QPushButton("Close")
+        self.btn_close.setToolTip("Save configuration and close the wizard without running a sync.")
+        self.btn_close.setStyleSheet("""
+            QPushButton {
+                padding: 10px 20px;
+                font-size: 13px;
+                font-weight: 500;
+                border: 1px solid palette(mid);
+                border-radius: 6px;
+                background-color: palette(button);
+                color: palette(button-text);
+            }
+            QPushButton:hover {
+                background-color: palette(highlight);
+                color: palette(highlighted-text);
+            }
+        """)
+        self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_close.setAutoDefault(False)
+        self.btn_close.clicked.connect(lambda: self.finish_requested.emit(False))
 
+        self.btn_sync = QPushButton("⚡ Sync Vault Directly")
+        self.btn_sync.setToolTip("Save configuration and immediately start synchronizing your cards.")
+        self.btn_sync.setStyleSheet("""
+            QPushButton {
+                padding: 10px 24px;
+                font-size: 13px;
+                font-weight: 600;
+                border-radius: 6px;
+                background-color: #2da44e;
+                color: white;
+                border: 1px solid #2c974b;
+            }
+            QPushButton:hover {
+                background-color: #2c974b;
+            }
+        """)
+        self.btn_sync.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_sync.setDefault(True)
+        self.btn_sync.clicked.connect(lambda: self.finish_requested.emit(True))
+
+        btn_box.addStretch()
+        btn_box.addWidget(self.btn_close)
+        btn_box.addWidget(self.btn_sync)
+
+        self.content_layout.addLayout(btn_box)
         self.content_layout.addStretch()
 
     def on_enter(self, state: OnboardingState) -> None:
@@ -862,12 +901,9 @@ class PageCompletion(OnboardingPageBase):
             f"<b>Sync on Startup:</b> {startup_str}"
         )
         self.summary_label.setText(text)
-        self.cb_create_note.setChecked(state.create_sample_note)
-        self.cb_run_sync.setChecked(state.run_initial_sync)
 
     def on_leave(self, state: OnboardingState) -> None:
-        state.create_sample_note = self.cb_create_note.isChecked()
-        state.run_initial_sync = self.cb_run_sync.isChecked()
+        pass
 
 
 class OnboardingDialog(QDialog):
@@ -945,11 +981,6 @@ class OnboardingDialog(QDialog):
         self.btn_cancel.clicked.connect(self.reject)
         footer.addWidget(self.btn_cancel)
 
-        footer.addStretch()
-
-        self.step_label = QLabel("Step 1 of 5")
-        self.step_label.setStyleSheet("font-size: 11px; color: palette(window-text); opacity: 0.8;")
-        footer.addWidget(self.step_label)
 
         footer.addStretch()
 
@@ -965,22 +996,32 @@ class OnboardingDialog(QDialog):
 
         layout.addLayout(footer)
 
+        self.page_completion.finish_requested.connect(self._on_finish_requested)
         self.pages[0].on_enter(self.state)
         self._update_footer_buttons()
 
     def _update_footer_buttons(self) -> None:
         curr = self.stack.currentIndex()
         self.header.set_current_step(curr)
-        self.step_label.setText(f"Step {curr + 1} of {TOTAL_STEPS}")
         self.btn_back.setEnabled(curr > 0)
 
         is_valid = self.pages[curr].is_valid()
         self.btn_next.setEnabled(is_valid)
 
         if curr == TOTAL_STEPS - 1:
-            self.btn_next.setText("Finish & Start Using VaultSync")
+            self.btn_next.setVisible(False)
+            self.btn_cancel.setVisible(False)
         else:
+            self.btn_next.setVisible(True)
             self.btn_next.setText("Next")
+            existing = self._manager.load(self._profile_name)
+            cancel_text = "Cancel" if existing.onboarding_completed else "Set Up Later"
+            self.btn_cancel.setText(cancel_text)
+            self.btn_cancel.setVisible(True)
+
+    def _on_finish_requested(self, run_sync: bool) -> None:
+        self.state.run_initial_sync = run_sync
+        self._commit_onboarding()
 
     def _go_back(self) -> None:
         curr = self.stack.currentIndex()
@@ -1034,14 +1075,7 @@ class OnboardingDialog(QDialog):
             )
             return
 
-        # 2. Sample note creation (optional)
-        if self.state.create_sample_note and self.state.vault_path:
-            try:
-                create_welcome_note(self.state.vault_path)
-            except Exception as exc:
-                logger.warning(f"Failed to create sample welcome note: {exc}")
-
-        # 3. Save profile settings
+        # 2. Save profile settings
         profile_settings = self._manager.load(self._profile_name)
         profile_settings.vault_path = self.state.vault_path
         profile_settings.occlusion_dir = self.state.occlusion_dir if self.state.image_occlusion_mode == "stage" else None
@@ -1056,10 +1090,10 @@ class OnboardingDialog(QDialog):
         except Exception:
             pass
 
-        # 4. Accept dialog
+        # 3. Accept dialog
         self.accept()
 
-        # 5. Optional initial sync triggered after dialog closes
+        # 4. Optional initial sync triggered after dialog closes
         if self.state.run_initial_sync:
             try:
                 from .menu import _run_menu_sync
