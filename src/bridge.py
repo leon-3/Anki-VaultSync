@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import urllib.parse
 from typing import TYPE_CHECKING
+
+from .logger import log_warning
 
 from anki.collection import Collection
 from anki.consts import MODEL_CLOZE, MODEL_STD
@@ -201,7 +204,9 @@ def build_existing_note_index(
             continue
         card_id = match.group(1)
         if card_id in index:
-            # Skip duplicate marker in Anki to avoid silent overwriting
+            log_warning(
+                f"Duplicate card ID <!--m2a:{card_id}--> detected in Anki: note {nid} conflicts with note {index[card_id].note_id}. Skipping duplicate note {nid}."
+            )
             continue
         field_names = mid_to_fields.get(int(mid), BASIC_FIELDS)
         field_values = split_fields(raw_flds)
@@ -251,11 +256,11 @@ def import_media_and_rewrite_fields(
         stored_name = col.media.write_data(item.staged_filename, item.source_path.read_bytes())
         added_count += 1
         if stored_name != item.staged_filename:
+            old_name_quoted = re.escape(item.staged_filename)
+            old_name_url = re.escape(urllib.parse.quote(item.staged_filename))
+            pat = re.compile(rf"src=(['\"])(?:{old_name_quoted}|{old_name_url})\1", re.IGNORECASE)
             for k, html_val in updated_fields.items():
-                updated_fields[k] = html_val.replace(
-                    f'src="{item.staged_filename}"',
-                    f'src="{stored_name}"',
-                )
+                updated_fields[k] = pat.sub(f'src="{stored_name}"', html_val)
     return updated_fields, added_count
 
 
@@ -263,6 +268,7 @@ def apply_note_create(
     col: Collection,
     op: NoteCreateOp,
     model_ids: dict[str, int] | None = None,
+    hash_media_enabled: bool = True,
 ) -> tuple[int, list[int]]:
     """Creates a new Anki note and places all generated cards in the target deck.
 
@@ -295,7 +301,7 @@ def apply_note_create(
         raise ValueError(f"Model '{op.model_name}' (ID {target_mid}) not found in collection")
 
     note = col.new_note(model)
-    final_fields, media_count = import_media_and_rewrite_fields(col, op.fields, op.media_refs)
+    final_fields, media_count = import_media_and_rewrite_fields(col, op.fields, op.media_refs, hash_media_enabled=hash_media_enabled)
 
     # Copy fields into the note type definition
     model_field_names = [f["name"] for f in model["flds"]]
@@ -318,6 +324,7 @@ def apply_note_update(
     col: Collection,
     op: NoteUpdateOp,
     model_ids: dict[str, int] | None = None,
+    hash_media_enabled: bool = True,
 ) -> tuple[int, bool]:
     """Updates note fields and tags, converts model if changed, and moves cards if target deck changed."""
     note = col.get_note(NoteId(op.note_id))
@@ -358,7 +365,7 @@ def apply_note_update(
 
     # Skip media I/O and field updating if fields are untouched
     if op.fields_changed or model_converted:
-        final_fields, media_count = import_media_and_rewrite_fields(col, op.new_fields, op.media_refs)
+        final_fields, media_count = import_media_and_rewrite_fields(col, op.new_fields, op.media_refs, hash_media_enabled=hash_media_enabled)
 
         model = note.note_type()
         model_field_names = [f["name"] for f in model["flds"]] if model else []

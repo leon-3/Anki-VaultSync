@@ -105,6 +105,7 @@ class SyncPlan:
     diagnostics: list[str] = field(default_factory=list)
     suspend_new_occlusions: bool = True
     suspend_new_clozes: bool = False
+    hash_media: bool = True
 
     @property
     def total_files(self) -> int:

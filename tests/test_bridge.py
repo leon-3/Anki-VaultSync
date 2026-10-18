@@ -607,3 +607,67 @@ def test_apply_note_update_rejects_filtered_deck_target():
                 apply_note_update(col, update_op, model_ids)
         finally:
             col.close()
+
+
+def test_duplicate_marker_logs_warning_and_skips_note():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        col = Collection(str(Path(tmp_dir) / "collection.anki2"))
+        try:
+            model_ids = ensure_models(col)
+            # Create two notes with the exact same marker
+            op1 = NoteCreateOp(
+                card_id="dup_marker_123",
+                model_name="M2A Basic",
+                target_deck_name="Default",
+                fields={"Front": "Note 1", "Back": "Ans 1<!--m2a:dup_marker_123-->"},
+                tags=[],
+                source_file=Path("a.md"),
+                source_line=1,
+                media_refs=[],
+            )
+            apply_note_create(col, op1, model_ids)
+
+            op2 = NoteCreateOp(
+                card_id="dup_marker_123",
+                model_name="M2A Basic",
+                target_deck_name="Default",
+                fields={"Front": "Note 2", "Back": "Ans 2<!--m2a:dup_marker_123-->"},
+                tags=[],
+                source_file=Path("b.md"),
+                source_line=1,
+                media_refs=[],
+            )
+            apply_note_create(col, op2, model_ids)
+
+            idx = build_existing_note_index(col, model_ids)
+            assert len(idx) == 1
+            assert "dup_marker_123" in idx
+        finally:
+            col.close()
+
+
+def test_import_media_rewrites_single_quotes_and_urlencoded_filenames():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        col = Collection(str(Path(tmp_dir) / "collection.anki2"))
+        try:
+            img_file = Path(tmp_dir) / "diag ram.png"
+            img_file.write_bytes(b"image_data_diag")
+
+            item = MediaItem(source_path=img_file, staged_filename="diag ram.png")
+            # Force a collision by writing a pre-existing file in collection.media
+            col.media.write_data("diag ram.png", b"different_data")
+
+            fields = {
+                "Front": "Look at <img src='diag ram.png'>",
+                "Back": 'Also <img src="diag%20ram.png">',
+            }
+
+            updated, count = import_media_and_rewrite_fields(col, fields, [item])
+            assert count == 1
+            # Anki collision renames diag ram.png to e.g. diag ram_1.png or _diag ram.png
+            assert "diag ram.png" not in updated["Front"]
+            assert "diag%20ram.png" not in updated["Back"]
+            assert "src=\"" in updated["Front"]
+            assert "src=\"" in updated["Back"]
+        finally:
+            col.close()

@@ -194,7 +194,6 @@ def build_sync_plan(
             continue
 
         mtime_ns = file_path.stat().st_mtime_ns
-        sha256_hex = _compute_sha256(file_path)
 
         creates: list[NoteCreateOp] = []
         updates: list[NoteUpdateOp] = []
@@ -367,6 +366,7 @@ def build_sync_plan(
                 else:
                     unchanged_count += 1
 
+        sha256_hex = _compute_sha256(file_path) if (creates or updates) else ""
         file_plans.append(
             FileSyncPlan(
                 file_path=file_path,
@@ -438,6 +438,7 @@ def build_sync_plan(
         diagnostics=[str(d) for d in collected.diagnostics],
         suspend_new_occlusions=vault_cfg.suspend_new_occlusions,
         suspend_new_clozes=vault_cfg.suspend_new_clozes,
+        hash_media=vault_cfg.hash_media,
     )
 
 
@@ -526,7 +527,7 @@ def execute_sync_plan(
         # 3. Apply Note Creations in Anki with rollback on single failure
         for create_op in valid_creates:
             try:
-                media_added, created_card_ids = apply_note_create(col, create_op, model_ids)
+                media_added, created_card_ids = apply_note_create(col, create_op, model_ids, hash_media_enabled=plan.hash_media)
                 if create_op.card is not None:
                     create_op.card.card_id = create_op.card_id
                     flagged_cards.append(create_op.card)
@@ -569,7 +570,7 @@ def execute_sync_plan(
         # 4. Apply Approved Note Updates in Anki
         for update_op in approved_updates:
             try:
-                media_added, deck_moved = apply_note_update(col, update_op, model_ids)
+                media_added, deck_moved = apply_note_update(col, update_op, model_ids, hash_media_enabled=plan.hash_media)
                 report.updated_count += 1
                 report.media_added_count += media_added
                 if deck_moved:
@@ -617,7 +618,20 @@ def execute_sync_plan(
                 base_dir = Path(occlusion_dir).expanduser().resolve()
                 out_dir, flags, staged = export_occlusions(plan.occlusions_to_stage, base_dir)
                 if flags:
-                    write_flags(flags)
+                    valid_flags: list[tuple[Card, str]] = []
+                    for card, cid in flags:
+                        if card.file in report.externally_modified_files:
+                            report.warnings.append(
+                                f"{card.file.name}:{card.line} ({cid}): File modified externally; skipping image occlusion flag write."
+                            )
+                            continue
+                        valid_flags.append((card, cid))
+
+                    if valid_flags:
+                        flagged_count, problems = write_flags(valid_flags)
+                        if problems:
+                            for p in problems:
+                                report.warnings.append(f"Image occlusion flag mismatch: {p}")
                 total_imgs = sum(len(imgs) for imgs in staged.values())
                 report.occlusions_staged_count = total_imgs
                 report.created_image_cloze_count += len(plan.occlusions_to_stage)

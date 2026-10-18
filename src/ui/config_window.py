@@ -1328,6 +1328,8 @@ class ConfigWindow(QDialog):
                 all_cids.extend([c.id for c in note.cards()])
         if all_cids:
             mw.col.sched.suspend_cards(all_cids)
+            if hasattr(mw, "reset"):
+                mw.reset()
         QToolTip.showText(QCursor.pos(), f"{len(self._current_orphans)} orphaned note(s) ({len(all_cids)} card(s)) suspended.", self)
         self.orphans_status_label.setText(f"{len(self._current_orphans)} orphaned note(s) suspended.")
 
@@ -1352,7 +1354,8 @@ class ConfigWindow(QDialog):
             release_sync_lock()
             return
 
-        nids = [o.note_id for o in self._current_orphans]
+        from anki.notes import NoteId
+        nids = [NoteId(o.note_id) for o in self._current_orphans]
 
         def _op(col) -> int:
             col.remove_notes(nids)
@@ -1360,6 +1363,8 @@ class ConfigWindow(QDialog):
 
         def _on_success(c: int) -> None:
             release_sync_lock()
+            if mw is not None and hasattr(mw, "reset"):
+                mw.reset()
             if _is_deleted(self):
                 return
             QToolTip.showText(QCursor.pos(), f"{c} orphaned note(s) deleted permanently.", self)
@@ -1453,6 +1458,8 @@ class ConfigWindow(QDialog):
 
         def _on_success(report: SyncReport) -> None:
             release_sync_lock()
+            if mw is not None and hasattr(mw, "reset"):
+                mw.reset()
             if _is_deleted(self):
                 return
             QToolTip.showText(QCursor.pos(), f"Recreated {report.created_count} card(s) in Anki.", self)
@@ -1784,16 +1791,22 @@ class ConfigWindow(QDialog):
                     break
             if not found:
                 name = None
+                model_deleted = False
                 if mw is not None and hasattr(mw, "col") and mw.col is not None:
                     try:
                         m = mw.col.models.get(self._profile_settings.basic_model_id)
                         if m is not None:
                             name = m["name"]
+                        else:
+                            model_deleted = True
                     except Exception:
                         pass
-                display_text = name or f"Note Type ({self._profile_settings.basic_model_id})"
-                self.basic_model_combo.addItem(display_text, userData=self._profile_settings.basic_model_id)
-                self.basic_model_combo.setCurrentIndex(self.basic_model_combo.count() - 1)
+                if model_deleted:
+                    self.basic_model_combo.setCurrentIndex(0)
+                else:
+                    display_text = name or f"Note Type ({self._profile_settings.basic_model_id})"
+                    self.basic_model_combo.addItem(display_text, userData=self._profile_settings.basic_model_id)
+                    self.basic_model_combo.setCurrentIndex(self.basic_model_combo.count() - 1)
         else:
             self.basic_model_combo.setCurrentIndex(0)
 
@@ -1807,16 +1820,22 @@ class ConfigWindow(QDialog):
                     break
             if not found:
                 name = None
+                model_deleted = False
                 if mw is not None and hasattr(mw, "col") and mw.col is not None:
                     try:
                         m = mw.col.models.get(self._profile_settings.cloze_model_id)
                         if m is not None:
                             name = m["name"]
+                        else:
+                            model_deleted = True
                     except Exception:
                         pass
-                display_text = name or f"Note Type ({self._profile_settings.cloze_model_id})"
-                self.cloze_model_combo.addItem(display_text, userData=self._profile_settings.cloze_model_id)
-                self.cloze_model_combo.setCurrentIndex(self.cloze_model_combo.count() - 1)
+                if model_deleted:
+                    self.cloze_model_combo.setCurrentIndex(0)
+                else:
+                    display_text = name or f"Note Type ({self._profile_settings.cloze_model_id})"
+                    self.cloze_model_combo.addItem(display_text, userData=self._profile_settings.cloze_model_id)
+                    self.cloze_model_combo.setCurrentIndex(self.cloze_model_combo.count() - 1)
         else:
             self.cloze_model_combo.setCurrentIndex(0)
 
