@@ -593,6 +593,15 @@ def test_config_window_maintenance_tab_operations(tmp_path: Path):
     dlg._on_select_all_missing(True)
     assert len(dlg._get_selected_missing_records()) == 1
 
+    # Test sync lock protection for suspend and mark deleted
+    from src.sync_lock import acquire_sync_lock, release_sync_lock
+    acquire_sync_lock()
+    try:
+        dlg._on_suspend_orphans()
+        dlg._on_mark_missing_deleted()
+    finally:
+        release_sync_lock()
+
     dlg.close()
 
 def test_config_window_non_modal_and_view_orphans(tmp_path: Path, monkeypatch):
@@ -910,6 +919,25 @@ def test_sync_notification_popup(monkeypatch):
     assert "Up to date" in manual_texts
     assert "✔" not in manual_texts
     res_manual.close()
+
+    # Test only categories > 0 are displayed (clean notification)
+    basic_only_report = SyncReport(
+        created_count=3,
+        created_basic_count=3,
+        created_image_cloze_count=0,
+        created_text_cloze_count=0,
+    )
+    notif_basic = SyncNotification(basic_only_report, parent=dummy_mw, include_updates=False)
+    basic_texts = " ".join(lbl.text() for lbl in notif_basic.findChildren(QLabel))
+    assert "Basic: <b>3" in basic_texts
+    assert "Image Clozes" not in basic_texts
+    assert "Text Clozes" not in basic_texts
+
+    # Test parent event filter closes notification on parent hide
+    from aqt.qt import QEvent
+    dummy_mw.hide()
+    assert not notif_basic.isVisible()
+    notif_basic.close()
 
 
 

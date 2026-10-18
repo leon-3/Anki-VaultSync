@@ -363,6 +363,10 @@ def on_profile_did_open() -> None:
 def on_profile_will_close() -> None:
     global _main_window_instance, _config_window_instance, _onboarding_dialog_instance, _onboarding_timer
 
+    from ..sync_lock import is_sync_running, release_sync_lock
+    if is_sync_running():
+        logger.log_warning("Profile closing while VaultSync operation was active. Forcing sync lock release and closing dialogs.")
+
     if _onboarding_timer is not None:
         try:
             _onboarding_timer.stop()
@@ -389,6 +393,14 @@ def on_profile_will_close() -> None:
         except Exception:
             pass
         _config_window_instance = None
-    from ..sync_lock import release_sync_lock
+
+    import src.ui.notification as notif_mod
+    if getattr(notif_mod, "_active_notification", None) is not None:
+        try:
+            notif_mod._active_notification.close()
+        except Exception:
+            pass
+        notif_mod._active_notification = None
+
     release_sync_lock()
     clear_sync_undo_stack()

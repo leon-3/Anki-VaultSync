@@ -1326,19 +1326,26 @@ class ConfigWindow(QDialog):
     def _on_suspend_orphans(self) -> None:
         if not self._current_orphans or mw is None or mw.col is None:
             return
-        all_cids: list[int] = []
-        for o in self._current_orphans:
-            if hasattr(mw.col, "card_ids_of_note"):
-                all_cids.extend(mw.col.card_ids_of_note(o.note_id))
-            else:
-                note = mw.col.get_note(o.note_id)
-                all_cids.extend([c.id for c in note.cards()])
-        if all_cids:
-            mw.col.sched.suspend_cards(all_cids)
-            if hasattr(mw, "reset"):
-                mw.reset()
-        QToolTip.showText(QCursor.pos(), f"{len(self._current_orphans)} orphaned note(s) ({len(all_cids)} card(s)) suspended.", self)
-        self.orphans_status_label.setText(f"{len(self._current_orphans)} orphaned note(s) suspended.")
+        from ..sync_lock import acquire_sync_lock, release_sync_lock
+        if not acquire_sync_lock():
+            QToolTip.showText(QCursor.pos(), "Another operation is in progress.", self)
+            return
+        try:
+            all_cids: list[int] = []
+            for o in self._current_orphans:
+                if hasattr(mw.col, "card_ids_of_note"):
+                    all_cids.extend(mw.col.card_ids_of_note(o.note_id))
+                else:
+                    note = mw.col.get_note(o.note_id)
+                    all_cids.extend([c.id for c in note.cards()])
+            if all_cids:
+                mw.col.sched.suspend_cards(all_cids)
+                if hasattr(mw, "reset"):
+                    mw.reset()
+            QToolTip.showText(QCursor.pos(), f"{len(self._current_orphans)} orphaned note(s) ({len(all_cids)} card(s)) suspended.", self)
+            self.orphans_status_label.setText(f"{len(self._current_orphans)} orphaned note(s) suspended.")
+        finally:
+            release_sync_lock()
 
     def _on_delete_orphans(self) -> None:
         if not self._current_orphans or mw is None or mw.col is None:
@@ -1440,12 +1447,19 @@ class ConfigWindow(QDialog):
         if not selected:
             QMessageBox.information(self, "No Cards Selected", "Please select at least one card to mark as DELETED in Obsidian.")
             return
-        cards_to_flag = [rec.card for rec in selected if rec.card is not None]
-        if cards_to_flag:
-            flagged, problems = write_deleted_flags(cards_to_flag)
-            if problems:
-                QMessageBox.warning(self, "Some Cards Could Not Be Marked", "\n".join(problems[:10]))
-            QToolTip.showText(QCursor.pos(), f"Marked {flagged} card(s) as DELETED in Obsidian.", self)
+        from ..sync_lock import acquire_sync_lock, release_sync_lock
+        if not acquire_sync_lock():
+            QToolTip.showText(QCursor.pos(), "Another operation is in progress.", self)
+            return
+        try:
+            cards_to_flag = [rec.card for rec in selected if rec.card is not None]
+            if cards_to_flag:
+                flagged, problems = write_deleted_flags(cards_to_flag)
+                if problems:
+                    QMessageBox.warning(self, "Some Cards Could Not Be Marked", "\n".join(problems[:10]))
+                QToolTip.showText(QCursor.pos(), f"Marked {flagged} card(s) as DELETED in Obsidian.", self)
+        finally:
+            release_sync_lock()
         self._refresh_maintenance_data()
 
     def _on_resync_missing(self) -> None:
