@@ -15,6 +15,19 @@ if TYPE_CHECKING:
 _lock = threading.Lock()
 _sync_undo_stack: list[list[Card]] = []
 _sync_redo_stack: list[list[Card]] = []
+_last_undo_token: Any = None
+_last_redo_token: Any = None
+
+
+def _extract_token(changes: Any) -> Any:
+    """Extract an identity token from an OpChanges/OpChangesAfterUndo object to prevent double-execution."""
+    if changes is None:
+        return None
+    for attr in ("reverted_to_timestamp", "counter"):
+        val = getattr(changes, attr, None)
+        if val is not None and val != 0:
+            return (attr, val)
+    return None
 
 
 def _normalize_cards(cards: list[Any]) -> list[Card]:
@@ -46,9 +59,12 @@ def register_sync_added_cards(cards: list[Any]) -> None:
 
 def clear_sync_undo_stack() -> None:
     """Clear all recorded undo and redo entries (e.g. on profile close or reload)."""
+    global _last_undo_token, _last_redo_token
     with _lock:
         _sync_undo_stack.clear()
         _sync_redo_stack.clear()
+        _last_undo_token = None
+        _last_redo_token = None
 
 
 def pop_last_sync_cards() -> list[Card] | None:
@@ -80,10 +96,18 @@ def get_redo_stack_depth() -> int:
 
 
 def on_state_did_undo(changes: Any) -> None:
-    """Hook invoked by Anki's gui_hooks.state_did_undo after a backend undo."""
+    """Hook invoked by Anki's gui_hooks.state_did_undo or wrapped col.undo after a backend undo."""
+    global _last_undo_token
+
     op = getattr(changes, "operation", None)
     if op != "VaultSync":
         return
+
+    token = _extract_token(changes)
+    with _lock:
+        if token is not None and token == _last_undo_token:
+            return
+        _last_undo_token = token
 
     raw_cards = pop_last_sync_cards()
     if not raw_cards:
@@ -112,10 +136,18 @@ def on_state_did_undo(changes: Any) -> None:
 
 def on_state_did_redo(changes: Any = None) -> None:
     """Hook invoked when a VaultSync operation is redone in Anki."""
+    global _last_redo_token
+
     if changes is not None:
         op = getattr(changes, "operation", None)
         if op is not None and op != "VaultSync":
             return
+
+    token = _extract_token(changes)
+    with _lock:
+        if token is not None and token == _last_redo_token:
+            return
+        _last_redo_token = token
 
     raw_cards = pop_last_sync_redo_cards()
     if not raw_cards:
@@ -145,6 +177,25 @@ def on_state_did_redo(changes: Any = None) -> None:
             pass
     except Exception as exc:
         log_error(f"Redo VaultSync failed while restoring flags: {exc}")
+
+
+def attach_undo_hook(col: Collection) -> None:
+    """Wrap collection.undo to trigger on_state_did_undo when VaultSync is undone."""
+    if not hasattr(col, "undo"):
+        return
+    if getattr(col.undo, "_vaultsync_hooked", False):
+        return
+
+    orig_undo = col.undo
+
+    def _wrapped_undo(*args: Any, **kwargs: Any) -> Any:
+        res = orig_undo(*args, **kwargs)
+        if getattr(res, "operation", None) == "VaultSync":
+            on_state_did_undo(res)
+        return res
+
+    _wrapped_undo._vaultsync_hooked = True  # type: ignore[attr-defined]
+    col.undo = _wrapped_undo  # type: ignore[method-assign]
 
 
 def attach_redo_hook(col: Collection) -> None:

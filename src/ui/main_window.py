@@ -272,6 +272,30 @@ class MainWindow(QDialog):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFocus()
 
+        from aqt.qt import QShortcut, QKeySequence
+        self._undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
+        self._undo_shortcut.activated.connect(self._on_undo_triggered)
+        self._redo_shortcut = QShortcut(QKeySequence.StandardKey.Redo, self)
+        self._redo_shortcut.activated.connect(self._on_redo_triggered)
+
+    def _on_undo_triggered(self) -> None:
+        if self._is_busy:
+            return
+        import aqt
+        if getattr(aqt, "mw", None) is not None and hasattr(aqt.mw, "undo"):
+            aqt.mw.undo()
+            if not _is_deleted(self):
+                self._start_scan()
+
+    def _on_redo_triggered(self) -> None:
+        if self._is_busy:
+            return
+        import aqt
+        if getattr(aqt, "mw", None) is not None and hasattr(aqt.mw, "redo"):
+            aqt.mw.redo()
+            if not _is_deleted(self):
+                self._start_scan()
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self.setFocus()
@@ -520,9 +544,13 @@ class MainWindow(QDialog):
         self._set_buttons_busy(False)
         self._last_report = report
 
-        if mw is not None and hasattr(mw, "deckBrowser"):
-            mw.deckBrowser.refresh()
-            mw.reset()
+        if mw is not None:
+            if hasattr(mw, "deckBrowser"):
+                mw.deckBrowser.refresh()
+            if hasattr(mw, "update_undo_actions"):
+                mw.update_undo_actions()
+            if hasattr(mw, "reset"):
+                mw.reset()
 
         self._log(
             f"Sync finished: {report.created_count} added, {report.updated_count} updated, "

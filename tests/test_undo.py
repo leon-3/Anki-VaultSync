@@ -11,6 +11,7 @@ from markdown2anki.parser import parse_file
 from src.contracts import SyncPlan
 from src.undo import (
     attach_redo_hook,
+    attach_undo_hook,
     clear_sync_undo_stack,
     get_redo_stack_depth,
     get_undo_stack_depth,
@@ -262,3 +263,85 @@ def test_end_to_end_sync_undo_and_redo_cycle():
             assert get_undo_stack_depth() == 1
         finally:
             col.close()
+
+
+def test_zero_mutation_sync_does_not_pollute_undo_stack():
+    clear_sync_undo_stack()
+    with tempfile.TemporaryDirectory() as td:
+        tmp_path = Path(td)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+        (vault_path / "m2a.toml").write_text('vault = "."\ndeck = "TestDeck"\n', encoding="utf-8")
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            # User creates an initial note in Anki
+            m = col.models.by_name("Basic")
+            n = col.new_note(m)
+            n["Front"] = "User Note"
+            col.add_note(n, col.decks.all_names_and_ids()[0].id)
+            assert col.undo_status().undo == "Add Note"
+
+            # Sync with 0 changes runs
+            plan = build_sync_plan(col, vault_path)
+            assert plan.total_creates == 0
+            assert plan.total_updates == 0
+
+            report = execute_sync_plan(col, plan)
+            assert report.created_count == 0
+            assert report.updated_count == 0
+
+            # The undo stack must NOT be polluted with an empty VaultSync entry!
+            assert col.undo_status().undo == "Add Note"
+            assert get_undo_stack_depth() == 0
+        finally:
+            col.close()
+
+
+def test_attach_undo_hook_auto_unflags_card():
+    clear_sync_undo_stack()
+    with tempfile.TemporaryDirectory() as td:
+        tmp_path = Path(td)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+        (vault_path / "m2a.toml").write_text('vault = "."\ndeck = "TestDeck"\n', encoding="utf-8")
+        note_file = vault_path / "card.md"
+        note_file.write_text("# Test\n---\nWhat is osmosis?\nWater diffusion.\n", encoding="utf-8")
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            plan = build_sync_plan(col, vault_path)
+            report = execute_sync_plan(col, plan)
+            assert report.created_count == 1
+            assert "ADDED:" in note_file.read_text(encoding="utf-8")
+
+            # col.undo() must trigger on_state_did_undo via the hook automatically
+            undo_res = col.undo()
+            assert undo_res.operation == "VaultSync"
+
+            # Verify that the card was unflagged without calling on_state_did_undo manually
+            content = note_file.read_text(encoding="utf-8")
+            assert "ADDED:" not in content
+            assert "What is osmosis?" in content
+            assert get_undo_stack_depth() == 0
+            assert get_redo_stack_depth() == 1
+        finally:
+            col.close()
+
+
+def test_undo_redo_dedup_tokens():
+    clear_sync_undo_stack()
+    c1 = SimpleNamespace(location="a.md:1", card_id="c1", file=Path("a.md"), line=1, first_question_line="q1")
+    register_sync_added_cards([c1])
+    assert get_undo_stack_depth() == 1
+
+    changes = SimpleNamespace(operation="VaultSync", counter=42)
+    # First invocation
+    on_state_did_undo(changes)
+    assert get_undo_stack_depth() == 0
+    assert get_redo_stack_depth() == 1
+
+    # Second invocation with same token must be ignored
+    on_state_did_undo(changes)
+    assert get_undo_stack_depth() == 0
+    assert get_redo_stack_depth() == 1

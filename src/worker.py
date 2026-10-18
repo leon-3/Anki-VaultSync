@@ -452,12 +452,27 @@ def execute_sync_plan(
 ) -> SyncReport:
     """Stage 3: Applies atomic Flag-Before-Insert persistence and Anki DB mutations."""
     report = SyncReport()
-    model_ids = ensure_models(col, basic_model_id=basic_model_id, cloze_model_id=cloze_model_id)
+    has_any_creates = any(len(fp.creates) > 0 for fp in plan.file_plans)
+    model_ids = ensure_models(
+        col,
+        basic_model_id=basic_model_id,
+        cloze_model_id=cloze_model_id,
+        create=has_any_creates,
+    )
 
-    try:
-        undo_id: int | None = col.add_custom_undo_entry("VaultSync")
-    except Exception:
-        undo_id = None
+    from .undo import attach_redo_hook, attach_undo_hook
+    attach_undo_hook(col)
+    attach_redo_hook(col)
+
+    undo_id: int | None = None
+
+    def _ensure_undo() -> None:
+        nonlocal undo_id
+        if undo_id is None:
+            try:
+                undo_id = col.add_custom_undo_entry("VaultSync")
+            except Exception:
+                undo_id = None
 
     def _merge_undo() -> None:
         if undo_id is not None:
@@ -525,6 +540,8 @@ def execute_sync_plan(
                         continue
 
         # 3. Apply Note Creations in Anki with rollback on single failure
+        if valid_creates:
+            _ensure_undo()
         for create_op in valid_creates:
             try:
                 media_added, created_card_ids = apply_note_create(col, create_op, model_ids, hash_media_enabled=plan.hash_media)
@@ -568,6 +585,8 @@ def execute_sync_plan(
                 )
 
         # 4. Apply Approved Note Updates in Anki
+        if approved_updates:
+            _ensure_undo()
         for update_op in approved_updates:
             try:
                 media_added, deck_moved = apply_note_update(col, update_op, model_ids, hash_media_enabled=plan.hash_media)
@@ -602,6 +621,7 @@ def execute_sync_plan(
 
     # Batch initial card suspension (Image Occlusions and/or Clozes)
     if cards_to_suspend:
+        _ensure_undo()
         try:
             if hasattr(col.sched, "suspend_cards"):
                 col.sched.suspend_cards(cards_to_suspend)

@@ -213,9 +213,13 @@ def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
 
     def _on_success(report):
         release_sync_lock()
-        if mw is not None and hasattr(mw, "deckBrowser"):
-            mw.deckBrowser.refresh()
-            mw.reset()
+        if mw is not None:
+            if hasattr(mw, "deckBrowser"):
+                mw.deckBrowser.refresh()
+            if hasattr(mw, "update_undo_actions"):
+                mw.update_undo_actions()
+            if hasattr(mw, "reset"):
+                mw.reset()
 
         logger.log_info(
             f"{tag.capitalize()} finished: {report.created_count} added, {report.updated_count} updated, "
@@ -292,8 +296,9 @@ def on_profile_did_open() -> None:
     profile_name = _get_active_profile()
     settings = _manager.load(profile_name)
     apply_menu_shortcuts(settings)
-    from ..undo import attach_redo_hook
+    from ..undo import attach_redo_hook, attach_undo_hook
     if mw is not None and hasattr(mw, "col") and mw.col is not None:
+        attach_undo_hook(mw.col)
         attach_redo_hook(mw.col)
     if settings.sync_on_startup and settings.vault_path and settings.vault_path.is_dir():
         logger.log_info(f"Auto-sync on startup triggered for profile '{profile_name}'...")

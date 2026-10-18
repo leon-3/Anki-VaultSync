@@ -1458,8 +1458,11 @@ class ConfigWindow(QDialog):
 
         def _on_success(report: SyncReport) -> None:
             release_sync_lock()
-            if mw is not None and hasattr(mw, "reset"):
-                mw.reset()
+            if mw is not None:
+                if hasattr(mw, "update_undo_actions"):
+                    mw.update_undo_actions()
+                if hasattr(mw, "reset"):
+                    mw.reset()
             if _is_deleted(self):
                 return
             QToolTip.showText(QCursor.pos(), f"Recreated {report.created_count} card(s) in Anki.", self)
