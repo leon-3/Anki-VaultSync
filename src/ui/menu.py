@@ -25,15 +25,21 @@ _action_quick: QAction | None = None
 _action_update: QAction | None = None
 
 
+def _is_deleted(widget: Any) -> bool:
+    if widget is None:
+        return True
+    if sip is not None and hasattr(sip, "isdeleted"):
+        try:
+            return sip.isdeleted(widget)
+        except Exception:
+            return False
+    return False
+
+
 def _is_valid_action(action: Any) -> bool:
     if action is None:
         return False
-    if sip is not None and hasattr(sip, "isdeleted"):
-        try:
-            return not sip.isdeleted(action)
-        except Exception:
-            return False
-    return True
+    return not _is_deleted(action)
 
 
 def get_menu_actions() -> dict[str, QAction | None]:
@@ -134,15 +140,34 @@ def open_dashboard() -> None:
         _main_window_instance.raise_()
 
 
-def open_settings() -> None:
+def open_settings(
+    tab_index: int | str | None = None,
+    sync_plan: Any = None,
+    on_accepted: Any = None,
+) -> ConfigWindow:
     global _config_window_instance
     profile_name = _get_active_profile()
-    if _config_window_instance is None or not _config_window_instance.isVisible():
-        _config_window_instance = ConfigWindow(_manager, profile_name, mw)
+    if _config_window_instance is None or _is_deleted(_config_window_instance) or not _config_window_instance.isVisible():
+        _config_window_instance = ConfigWindow(
+            _manager,
+            profile_name,
+            mw,
+            initial_tab=tab_index,
+            sync_plan=sync_plan,
+        )
+        if on_accepted is not None:
+            _config_window_instance.accepted.connect(on_accepted)
         _config_window_instance.show()
     else:
+        if tab_index is not None:
+            _config_window_instance.switch_to_tab(tab_index)
+        if sync_plan is not None:
+            _config_window_instance.set_maintenance_plan(sync_plan)
+        if on_accepted is not None:
+            _config_window_instance.accepted.connect(on_accepted)
         _config_window_instance.activateWindow()
         _config_window_instance.raise_()
+    return _config_window_instance
 
 
 def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
@@ -153,6 +178,12 @@ def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
         if not is_startup:
             tooltip("VaultSync: Vault directory not configured. Opening Settings...")
             open_settings()
+        return
+
+    from ..sync_lock import acquire_sync_lock, release_sync_lock
+    if not acquire_sync_lock():
+        if not is_startup:
+            tooltip("VaultSync is already running. Please wait for it to complete.", period=3000)
         return
 
     vault_p = settings.vault_path
@@ -181,6 +212,7 @@ def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
         return report
 
     def _on_success(report):
+        release_sync_lock()
         if mw is not None and hasattr(mw, "deckBrowser"):
             mw.deckBrowser.refresh()
             mw.reset()
@@ -197,6 +229,7 @@ def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
         show_sync_notification(report, parent=mw, include_updates=include_updates, is_startup=is_startup)
 
     def _on_failure(exc: Exception) -> None:
+        release_sync_lock()
         logger.log_error(f"Menu sync failed: {exc}")
         tooltip(f"⚠️ VaultSync error: {exc}", period=5000)
 
@@ -269,10 +302,18 @@ def on_profile_did_open() -> None:
 
 def on_profile_will_close() -> None:
     global _main_window_instance, _config_window_instance
-    if _main_window_instance is not None:
-        _main_window_instance.close()
+    if _main_window_instance is not None and not _is_deleted(_main_window_instance):
+        try:
+            _main_window_instance.close()
+        except Exception:
+            pass
         _main_window_instance = None
-    if _config_window_instance is not None:
-        _config_window_instance.close()
+    if _config_window_instance is not None and not _is_deleted(_config_window_instance):
+        try:
+            _config_window_instance.close()
+        except Exception:
+            pass
         _config_window_instance = None
+    from ..sync_lock import release_sync_lock
+    release_sync_lock()
     clear_sync_undo_stack()

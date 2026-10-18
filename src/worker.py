@@ -556,7 +556,6 @@ def execute_sync_plan(
 
                 if (is_io_note and plan.suspend_new_occlusions) or (is_cloze_note and plan.suspend_new_clozes):
                     cards_to_suspend.extend(created_card_ids)
-                _merge_undo()
             except Exception as exc:
                 if create_op.card is not None:
                     try:
@@ -595,8 +594,6 @@ def execute_sync_plan(
                     report.updated_text_cloze_count += 1
                 else:
                     report.updated_basic_count += 1
-
-                _merge_undo()
             except Exception as exc:
                 report.warnings.append(
                     f"{file_plan.file_path.name}:{update_op.source_line} ({update_op.card_id}): {exc}"
@@ -610,7 +607,6 @@ def execute_sync_plan(
             elif hasattr(col.sched, "suspendCards"):
                 col.sched.suspendCards(cards_to_suspend)
             report.suspended_count += len(cards_to_suspend)
-            _merge_undo()
         except Exception as exc:
             report.warnings.append(f"Card suspension error: {exc}")
 
@@ -638,11 +634,7 @@ def execute_sync_plan(
                 f"{len(plan.occlusions_to_stage)} image occlusion(s) found, but no Image Occlusion Export Folder is configured in Settings."
             )
 
-    # Commit to SQLite and register in undo history
-    try:
-        col.save()
-    except Exception:
-        pass
+    # Merge undo entries into a single atomic VaultSync operation
     _merge_undo()
 
     report.flagged_cards = flagged_cards

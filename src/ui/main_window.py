@@ -322,6 +322,15 @@ class MainWindow(QDialog):
         self._log(f"ERROR: {exc}", level="ERROR")
         QMessageBox.critical(self, "VaultSync Error", f"An error occurred:\n\n{exc}")
 
+    def _update_action_button_counts(self) -> None:
+        if self._current_plan is None:
+            return
+        total_new = self._current_plan.total_creates + len(self._current_plan.occlusions_to_stage)
+        approved_updates = self._current_plan.approved_updates
+        total_sync_count = total_new + approved_updates
+        self.sync_btn.setText(f"Sync ({total_sync_count})")
+        self.diff_btn.setText(f"Preview Diff ({approved_updates})")
+
     def _start_scan(self) -> None:
         if self._is_busy:
             return
@@ -333,6 +342,11 @@ class MainWindow(QDialog):
             self._open_settings()
             return
 
+        from ..sync_lock import acquire_sync_lock, release_sync_lock
+        if not acquire_sync_lock():
+            self._set_status("Operation in progress. Please wait...", state="warning")
+            return
+
         self._set_buttons_busy(True)
         self._set_status("Scanning vault...", state="busy")
         self._log(f"Scanning vault: {self._settings.vault_path}...")
@@ -341,33 +355,55 @@ class MainWindow(QDialog):
         b_mid = self._settings.basic_model_id
         c_mid = self._settings.cloze_model_id
 
-        def _scan_op(col) -> SyncPlan:
-            return build_sync_plan(col, vault_p, basic_model_id=b_mid, cloze_model_id=c_mid)
+        def _scan_op(col) -> tuple[SyncPlan, int]:
+            plan = build_sync_plan(col, vault_p, basic_model_id=b_mid, cloze_model_id=c_mid)
+            unmasked = 0
+            try:
+                unmasked = len(col.find_notes("tag:TODO_PROCESS_OCCLUSION"))
+            except Exception:
+                unmasked = 0
+            return plan, unmasked
+
+        def _on_success(res: Any) -> None:
+            release_sync_lock()
+            if _is_deleted(self):
+                return
+            if isinstance(res, tuple):
+                plan, unmasked = res
+            else:
+                plan, unmasked = res, 0
+            self._on_scan_success(plan, unmasked)
+
+        def _on_failure(exc: Exception) -> None:
+            release_sync_lock()
+            if _is_deleted(self):
+                return
+            self._on_op_failure(exc)
+
+        import aqt
+        if getattr(aqt, "mw", None) is None:
+            try:
+                res = _scan_op(getattr(mw, "col", None))
+                _on_success(res)
+            except Exception as exc:
+                _on_failure(exc)
+            return
 
         QueryOp(
             parent=self,
             op=_scan_op,
-            success=self._on_scan_success,
-        ).failure(self._on_op_failure).with_progress("Scanning vault...").run_in_background()
+            success=_on_success,
+        ).failure(_on_failure).with_progress("Scanning vault...").run_in_background()
 
-    def _on_scan_success(self, plan: SyncPlan) -> None:
+    def _on_scan_success(self, plan: SyncPlan, unmasked_in_anki: int = 0) -> None:
         if _is_deleted(self):
             return
         self._current_plan = plan
         self._set_buttons_busy(False)
 
-        # Update card count values in aligned column
         total_new = plan.total_creates + len(plan.occlusions_to_stage)
         self.new_val_label.setText(str(total_new))
         self.modified_val_label.setText(str(plan.total_updates))
-
-        # Unprocessed / unmasked image occlusions currently in Anki collection
-        unmasked_in_anki = 0
-        if mw is not None and getattr(mw, "col", None) is not None:
-            try:
-                unmasked_in_anki = len(mw.col.find_notes("tag:TODO_PROCESS_OCCLUSION"))
-            except Exception:
-                unmasked_in_anki = 0
 
         self.occlusions_val_label.setText(str(unmasked_in_anki))
         if unmasked_in_anki > 0:
@@ -388,11 +424,9 @@ class MainWindow(QDialog):
         if plan.orphans:
             self._log(f"Detected {len(plan.orphans)} orphaned card(s) in Anki no longer found in vault.")
 
-        # Update button labels with counts
-        total_sync_count = total_new + plan.total_updates
-        self.sync_btn.setText(f"Sync ({total_sync_count})")
-        self.diff_btn.setText(f"Preview Diff ({plan.total_updates})")
+        self._update_action_button_counts()
 
+        total_sync_count = total_new + plan.approved_updates
         if total_sync_count > 0:
             self._set_status(f"Scan complete: {total_sync_count} item(s) ready to sync", state="ready")
         else:
@@ -402,26 +436,37 @@ class MainWindow(QDialog):
         if self._current_plan is None or self._current_plan.total_updates == 0:
             return
         dlg = DiffDialog(self._current_plan, self)
-        dlg.exec()
+        res = dlg.exec()
+        if _is_deleted(self):
+            return
         if getattr(dlg, "rescan_requested", False):
             self._start_scan()
             return
-        self.diff_btn.setText(f"Preview Diff ({self._current_plan.approved_updates})")
+        if res:
+            self._update_action_button_counts()
 
     def _start_sync(self, include_updates: bool) -> None:
         if self._is_busy or self._current_plan is None:
             return
         self._last_sync_included_updates = include_updates
 
-        # Check if diff preview is requested before updating
         if include_updates and self._settings.show_diff_before_update and self._current_plan.total_updates > 0:
             dlg = DiffDialog(self._current_plan, self)
-            if not dlg.exec():
+            res = dlg.exec()
+            if _is_deleted(self):
+                return
+            if not res:
                 if getattr(dlg, "rescan_requested", False):
                     self._start_scan()
                     return
                 self._log("Sync cancelled by user in diff preview.")
                 return
+            self._update_action_button_counts()
+
+        from ..sync_lock import acquire_sync_lock, release_sync_lock
+        if not acquire_sync_lock():
+            self._set_status("Operation in progress. Please wait...", state="warning")
+            return
 
         self._set_buttons_busy(True)
         self._set_status("Syncing cards to Anki...", state="busy")
@@ -442,11 +487,32 @@ class MainWindow(QDialog):
                 cloze_model_id=c_mid,
             )
 
+        def _on_success(report: SyncReport) -> None:
+            release_sync_lock()
+            if _is_deleted(self):
+                return
+            self._on_sync_success(report)
+
+        def _on_failure(exc: Exception) -> None:
+            release_sync_lock()
+            if _is_deleted(self):
+                return
+            self._on_op_failure(exc)
+
+        import aqt
+        if getattr(aqt, "mw", None) is None:
+            try:
+                res = _sync_op(getattr(mw, "col", None))
+                _on_success(res)
+            except Exception as exc:
+                _on_failure(exc)
+            return
+
         QueryOp(
             parent=self,
             op=_sync_op,
-            success=self._on_sync_success,
-        ).failure(self._on_op_failure).with_progress("Syncing cards to Anki...").run_in_background()
+            success=_on_success,
+        ).failure(_on_failure).with_progress("Syncing cards to Anki...").run_in_background()
 
     def _on_sync_success(self, report: SyncReport) -> None:
         if _is_deleted(self):
@@ -485,6 +551,8 @@ class MainWindow(QDialog):
                 on_rescan=self._start_scan,
             )
             dlg.exec()
+            if _is_deleted(self):
+                return
         else:
             self._set_status(
                 f"Sync complete: {report.created_count} added, {report.updated_count} updated",
@@ -495,6 +563,8 @@ class MainWindow(QDialog):
                 self.accept()
                 return
 
+        if _is_deleted(self):
+            return
         # Re-scan to refresh counters
         self._start_scan()
 
@@ -519,27 +589,17 @@ class MainWindow(QDialog):
         self._open_settings(tab_index=ConfigWindow.TAB_MAINTENANCE)
 
     def _open_settings(self, tab_index: int | str | None = None) -> None:
-        if self._config_dlg is None or not self._config_dlg.isVisible():
-            self._config_dlg = ConfigWindow(
-                self._manager,
-                self._profile_name,
-                parent=mw if mw is not None else self,
-                initial_tab=tab_index,
-                sync_plan=self._current_plan,
-            )
+        def _on_accepted() -> None:
+            if _is_deleted(self):
+                return
+            self._settings = self._manager.load(self._profile_name)
+            self._refresh_header()
+            if self._settings.vault_path and self._settings.vault_path.is_dir():
+                self._start_scan()
 
-            def _on_accepted() -> None:
-                self._settings = self._manager.load(self._profile_name)
-                self._refresh_header()
-                if self._settings.vault_path and self._settings.vault_path.is_dir():
-                    self._start_scan()
-
-            self._config_dlg.accepted.connect(_on_accepted)
-            self._config_dlg.show()
-        else:
-            if tab_index is not None:
-                self._config_dlg.switch_to_tab(tab_index)
-            if self._current_plan is not None:
-                self._config_dlg.set_maintenance_plan(self._current_plan)
-            self._config_dlg.activateWindow()
-            self._config_dlg.raise_()
+        from .menu import open_settings
+        self._config_dlg = open_settings(
+            tab_index=tab_index,
+            sync_plan=self._current_plan,
+            on_accepted=_on_accepted,
+        )

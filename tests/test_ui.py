@@ -912,3 +912,96 @@ def test_sync_notification_popup(monkeypatch):
     assert "✔" not in manual_texts
     res_manual.close()
 
+
+
+def test_diff_dialog_transactional_rollback_on_cancel():
+    from src.contracts import FileSyncPlan, NoteUpdateOp, SyncPlan
+    from src.ui.diff_dialog import DiffDialog
+
+    op = NoteUpdateOp(
+        note_id=1,
+        card_id="tx_rollback",
+        model_name="M2A Basic",
+        target_deck_name="Default",
+        old_deck_names=["Default"],
+        old_fields={"Front": "Q1", "Back": "A1"},
+        new_fields={"Front": "Q2", "Back": "A2"},
+        old_tags=[],
+        new_tags=[],
+        deck_changed=False,
+        fields_changed=True,
+        tags_changed=False,
+        source_file=Path("/vault/tx.md"),
+        source_line=1,
+        media_refs=[],
+    )
+    assert op.approved is True
+    fp = FileSyncPlan(file_path=Path("/vault/tx.md"), mtime_ns=1, sha256_hex="abc", creates=[], updates=[op], unchanged_count=0)
+    plan = SyncPlan(vault_path=Path("/vault"), default_deck="Default", file_plans=[fp])
+
+    dlg = DiffDialog(plan)
+    # User deselects all
+    dlg.select_all_cb.setChecked(False)
+    assert op.approved is False
+
+    # 1. User cancels (reject) -> rollback to original state
+    dlg.reject()
+    assert op.approved is True
+
+    # 2. User deselects and accepts -> modification is applied
+    dlg2 = DiffDialog(plan)
+    dlg2.select_all_cb.setChecked(False)
+    assert op.approved is False
+    dlg2.accept()
+    assert op.approved is False
+
+
+def test_main_window_action_button_counts_sync_and_diff(tmp_path: Path):
+    from src.contracts import FileSyncPlan, NoteCreateOp, NoteUpdateOp, SyncPlan
+    from src.ui.main_window import MainWindow
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    win = MainWindow(manager, "TestCounts")
+
+    u1 = NoteUpdateOp(
+        note_id=1, card_id="u1", model_name="M2A Basic", target_deck_name="D", old_deck_names=["D"],
+        old_fields={"Front": "A"}, new_fields={"Front": "B"}, old_tags=[], new_tags=[],
+        deck_changed=False, fields_changed=True, tags_changed=False, source_file=Path("a.md"), source_line=1, media_refs=[]
+    )
+    u2 = NoteUpdateOp(
+        note_id=2, card_id="u2", model_name="M2A Basic", target_deck_name="D", old_deck_names=["D"],
+        old_fields={"Front": "C"}, new_fields={"Front": "D"}, old_tags=[], new_tags=[],
+        deck_changed=False, fields_changed=True, tags_changed=False, source_file=Path("a.md"), source_line=2, media_refs=[]
+    )
+    c1 = NoteCreateOp(
+        card_id="c1", model_name="M2A Basic", target_deck_name="D", fields={"Front": "N"}, tags=[],
+        media_refs=[], source_file=Path("a.md"), source_line=3
+    )
+
+    fp = FileSyncPlan(file_path=Path("a.md"), mtime_ns=1, sha256_hex="x", creates=[c1], updates=[u1, u2], unchanged_count=0)
+    plan = SyncPlan(vault_path=Path("/v"), default_deck="D", file_plans=[fp])
+
+    win._on_scan_success(plan, unmasked_in_anki=0)
+    # 1 create + 2 approved updates = 3 total sync count
+    assert win.sync_btn.text() == "Sync (3)"
+    assert win.diff_btn.text() == "Preview Diff (2)"
+
+    # Disapprove u1
+    u1.approved = False
+    win._update_action_button_counts()
+    # 1 create + 1 approved update = 2 total sync count
+    assert win.sync_btn.text() == "Sync (2)"
+    assert win.diff_btn.text() == "Preview Diff (1)"
+    win.close()
+
+
+def test_profile_will_close_cleans_up_windows_and_lock():
+    from src.sync_lock import acquire_sync_lock, is_sync_running, release_sync_lock
+    import src.ui.menu as menu_mod
+
+    acquire_sync_lock()
+    assert is_sync_running() is True
+
+    menu_mod.on_profile_will_close()
+    assert is_sync_running() is False

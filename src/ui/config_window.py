@@ -1231,35 +1231,85 @@ class ConfigWindow(QDialog):
         self.mark_deleted_btn.setEnabled(count_missing > 0)
         self.resync_missing_btn.setEnabled(count_missing > 0)
 
-    def _refresh_maintenance_data(self) -> None:
-        if mw is not None and getattr(mw, "col", None) is not None and self._profile_settings.vault_path and self._profile_settings.vault_path.is_dir():
-            try:
-                plan = build_sync_plan(
-                    mw.col,
-                    self._profile_settings.vault_path,
-                    default_deck=self._default_deck_name,
-                    basic_model_id=self._profile_settings.basic_model_id,
-                    cloze_model_id=self._profile_settings.cloze_model_id,
-                )
-                self.set_maintenance_plan(plan)
-                return
-            except Exception as exc:
-                log_error(f"Failed to refresh maintenance data: {exc}")
+    def _set_maintenance_buttons_enabled(self, enabled: bool) -> None:
+        self.view_orphans_btn.setEnabled(enabled and len(self._current_orphans) > 0)
+        self.suspend_orphans_btn.setEnabled(enabled and len(self._current_orphans) > 0)
+        self.delete_orphans_btn.setEnabled(enabled and len(self._current_orphans) > 0)
+        self.mark_deleted_btn.setEnabled(enabled and len(self._current_missing) > 0)
+        self.resync_missing_btn.setEnabled(enabled and len(self._current_missing) > 0)
 
+    def _reset_maintenance_ui(self) -> None:
         self.orphans_status_label.setText("0 orphaned note(s) detected in Anki.")
-        self.view_orphans_btn.setEnabled(False)
-        self.suspend_orphans_btn.setEnabled(False)
-        self.delete_orphans_btn.setEnabled(False)
         self.missing_status_label.setText("0 card(s) detected with sync IDs in vault that no longer exist in Anki.")
         self.missing_table.setRowCount(0)
-        self.mark_deleted_btn.setEnabled(False)
-        self.resync_missing_btn.setEnabled(False)
+        self._set_maintenance_buttons_enabled(False)
+
+    def _refresh_maintenance_data(self) -> None:
+        if (
+            mw is None
+            or getattr(mw, "col", None) is None
+            or not self._profile_settings.vault_path
+            or not self._profile_settings.vault_path.is_dir()
+        ):
+            self._reset_maintenance_ui()
+            return
+
+        from ..sync_lock import acquire_sync_lock, release_sync_lock
+        if not acquire_sync_lock():
+            self.orphans_status_label.setText("Another operation is running. Please refresh later.")
+            return
+
+        self.orphans_status_label.setText("Scanning for maintenance data in background...")
+        self.missing_status_label.setText("Scanning vault...")
+        self._set_maintenance_buttons_enabled(False)
+
+        vault_p = self._profile_settings.vault_path
+        deck_name = self._default_deck_name
+        b_mid = self._profile_settings.basic_model_id
+        c_mid = self._profile_settings.cloze_model_id
+
+        def _op(col) -> SyncPlan:
+            return build_sync_plan(
+                col,
+                vault_p,
+                default_deck=deck_name,
+                basic_model_id=b_mid,
+                cloze_model_id=c_mid,
+            )
+
+        def _on_success(plan: SyncPlan) -> None:
+            release_sync_lock()
+            if _is_deleted(self):
+                return
+            self.set_maintenance_plan(plan)
+
+        def _on_failure(exc: Exception) -> None:
+            release_sync_lock()
+            if _is_deleted(self):
+                return
+            log_error(f"Failed to refresh maintenance data: {exc}")
+            self._reset_maintenance_ui()
+
+        import aqt
+        if getattr(aqt, "mw", None) is None:
+            try:
+                res = _op(getattr(mw, "col", None))
+                _on_success(res)
+            except Exception as exc:
+                _on_failure(exc)
+            return
+
+        QueryOp(
+            parent=self,
+            op=_op,
+            success=_on_success,
+        ).failure(_on_failure).run_in_background()
 
     def _on_view_orphans(self) -> None:
         if not self._current_orphans:
             return
         nids = [str(o.note_id) for o in self._current_orphans]
-        query = f"nid:{','.join(nids)}"
+        query = f"nid:{",".join(nids)}"
         browser = dialogs.open("Browser", mw)
         browser.search_for(query)
         browser.activateWindow()
@@ -1278,13 +1328,17 @@ class ConfigWindow(QDialog):
                 all_cids.extend([c.id for c in note.cards()])
         if all_cids:
             mw.col.sched.suspend_cards(all_cids)
-            mw.col.save()
         QToolTip.showText(QCursor.pos(), f"{len(self._current_orphans)} orphaned note(s) ({len(all_cids)} card(s)) suspended.", self)
         self.orphans_status_label.setText(f"{len(self._current_orphans)} orphaned note(s) suspended.")
 
     def _on_delete_orphans(self) -> None:
         if not self._current_orphans or mw is None or mw.col is None:
             return
+        from ..sync_lock import acquire_sync_lock, release_sync_lock
+        if not acquire_sync_lock():
+            QToolTip.showText(QCursor.pos(), "Another operation is in progress.", self)
+            return
+
         count = len(self._current_orphans)
         reply = QMessageBox.warning(
             self,
@@ -1295,12 +1349,40 @@ class ConfigWindow(QDialog):
             QMessageBox.StandardButton.Cancel,
         )
         if reply != QMessageBox.StandardButton.Yes:
+            release_sync_lock()
             return
+
         nids = [o.note_id for o in self._current_orphans]
-        mw.col.remove_notes(nids)
-        mw.col.save()
-        QToolTip.showText(QCursor.pos(), f"{count} orphaned note(s) deleted permanently.", self)
-        self._refresh_maintenance_data()
+
+        def _op(col) -> int:
+            col.remove_notes(nids)
+            return count
+
+        def _on_success(c: int) -> None:
+            release_sync_lock()
+            if _is_deleted(self):
+                return
+            QToolTip.showText(QCursor.pos(), f"{c} orphaned note(s) deleted permanently.", self)
+            self._refresh_maintenance_data()
+
+        def _on_failure(exc: Exception) -> None:
+            release_sync_lock()
+            if _is_deleted(self):
+                return
+            log_error(f"Failed to delete orphaned notes: {exc}")
+            QMessageBox.critical(self, "Error", f"Failed to delete orphaned notes: {exc}")
+            self._refresh_maintenance_data()
+
+        import aqt
+        if getattr(aqt, "mw", None) is None:
+            try:
+                res = _op(getattr(mw, "col", None))
+                _on_success(res)
+            except Exception as exc:
+                _on_failure(exc)
+            return
+
+        QueryOp(parent=self, op=_op, success=_on_success).failure(_on_failure).with_progress("Deleting orphaned notes...").run_in_background()
 
     def _on_select_all_missing(self, select: bool) -> None:
         for row in range(self.missing_table.rowCount()):
@@ -1337,25 +1419,63 @@ class ConfigWindow(QDialog):
             return
         if mw is None or mw.col is None or not self._profile_settings.vault_path:
             return
+        from ..sync_lock import acquire_sync_lock, release_sync_lock
+        if not acquire_sync_lock():
+            QToolTip.showText(QCursor.pos(), "Another operation is in progress.", self)
+            return
+
         selected_ids = {rec.card_id for rec in selected}
-        plan = build_sync_plan(
-            mw.col,
-            self._profile_settings.vault_path,
-            default_deck=self._default_deck_name,
-            basic_model_id=self._profile_settings.basic_model_id,
-            cloze_model_id=self._profile_settings.cloze_model_id,
-            recreate_missing_ids=selected_ids,
-        )
-        report = execute_sync_plan(
-            mw.col,
-            plan,
-            include_updates=False,
-            occlusion_dir=self._profile_settings.occlusion_dir,
-            basic_model_id=self._profile_settings.basic_model_id,
-            cloze_model_id=self._profile_settings.cloze_model_id,
-        )
-        QToolTip.showText(QCursor.pos(), f"Recreated {report.created_count} card(s) in Anki.", self)
-        self._refresh_maintenance_data()
+        vault_p = self._profile_settings.vault_path
+        deck_name = self._default_deck_name
+        b_mid = self._profile_settings.basic_model_id
+        c_mid = self._profile_settings.cloze_model_id
+        occ_dir = self._profile_settings.occlusion_dir
+
+        self._set_maintenance_buttons_enabled(False)
+
+        def _op(col) -> SyncReport:
+            plan = build_sync_plan(
+                col,
+                vault_p,
+                default_deck=deck_name,
+                basic_model_id=b_mid,
+                cloze_model_id=c_mid,
+                recreate_missing_ids=selected_ids,
+            )
+            return execute_sync_plan(
+                col,
+                plan,
+                include_updates=False,
+                occlusion_dir=occ_dir,
+                basic_model_id=b_mid,
+                cloze_model_id=c_mid,
+            )
+
+        def _on_success(report: SyncReport) -> None:
+            release_sync_lock()
+            if _is_deleted(self):
+                return
+            QToolTip.showText(QCursor.pos(), f"Recreated {report.created_count} card(s) in Anki.", self)
+            self._refresh_maintenance_data()
+
+        def _on_failure(exc: Exception) -> None:
+            release_sync_lock()
+            if _is_deleted(self):
+                return
+            log_error(f"Failed to resync missing cards: {exc}")
+            QMessageBox.critical(self, "Resync Failed", f"An error occurred while recreating cards:\n\n{exc}")
+            self._refresh_maintenance_data()
+
+        import aqt
+        if getattr(aqt, "mw", None) is None:
+            try:
+                res = _op(getattr(mw, "col", None))
+                _on_success(res)
+            except Exception as exc:
+                _on_failure(exc)
+            return
+
+        QueryOp(parent=self, op=_op, success=_on_success).failure(_on_failure).with_progress("Recreating cards in Anki...").run_in_background()
 
     def _init_tab_logs(self) -> None:
         layout = QVBoxLayout(self.tab_logs)
@@ -1581,11 +1701,7 @@ class ConfigWindow(QDialog):
                 basic_model_id=basic_id,
                 cloze_model_id=cloze_id,
             )
-            if hasattr(col, "save"):
-                try:
-                    col.save()
-                except Exception:
-                    pass
+# Saving is automatic in modern Anki
 
         def _success(_):
             if _is_deleted(self):

@@ -140,6 +140,9 @@ class DiffDialog(QDialog):
         self._file_plan_by_path: dict[Path, FileSyncPlan] = {
             fp.file_path: fp for fp in plan.file_plans
         }
+        self._original_approvals: dict[int, bool] = {
+            idx: op.approved for idx, op in enumerate(self._all_updates)
+        }
         self.rescan_requested = False
 
         self._init_ui()
@@ -208,6 +211,13 @@ class DiffDialog(QDialog):
         # Select first item
         if self.list_widget.count() > 0:
             self.list_widget.setCurrentRow(0)
+
+    def reject(self) -> None:
+        # Transactional rollback: revert approved flags if user cancelled
+        for idx, op in enumerate(self._all_updates):
+            if idx in self._original_approvals:
+                op.approved = self._original_approvals[idx]
+        super().reject()
 
     def _on_rescan_clicked(self) -> None:
         self.rescan_requested = True
