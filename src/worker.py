@@ -465,21 +465,33 @@ def execute_sync_plan(
     attach_redo_hook(col)
 
     undo_id: int | None = None
+    unmerged_ops: int = 0
 
     def _ensure_undo() -> None:
         nonlocal undo_id
         if undo_id is None:
             try:
                 undo_id = col.add_custom_undo_entry("VaultSync")
-            except Exception:
+            except Exception as exc:
+                log_warning(f"Could not initialize custom undo entry: {exc}")
                 undo_id = None
 
     def _merge_undo() -> None:
+        nonlocal unmerged_ops
         if undo_id is not None:
             try:
                 col.merge_undo_entries(undo_id)
-            except Exception:
-                pass
+                unmerged_ops = 0
+            except Exception as exc:
+                log_warning(f"Could not merge undo entries into VaultSync: {exc}")
+
+    def _record_op() -> None:
+        nonlocal unmerged_ops
+        unmerged_ops += 1
+        # Anki's Rust backend undo ring buffer holds ~20-25 entries.
+        # Collapsing every 5 operations ensures the target entry never drops off the buffer.
+        if unmerged_ops >= 5:
+            _merge_undo()
 
     cards_to_suspend: list[int] = []
     flagged_cards: list[Card] = []
@@ -574,6 +586,7 @@ def execute_sync_plan(
 
                 if (is_io_note and plan.suspend_new_occlusions) or (is_cloze_note and plan.suspend_new_clozes):
                     cards_to_suspend.extend(created_card_ids)
+                _record_op()
             except Exception as exc:
                 if create_op.card is not None:
                     try:
@@ -614,6 +627,7 @@ def execute_sync_plan(
                     report.updated_text_cloze_count += 1
                 else:
                     report.updated_basic_count += 1
+                _record_op()
             except Exception as exc:
                 report.warnings.append(
                     f"{file_plan.file_path.name}:{update_op.source_line} ({update_op.card_id}): {exc}"
@@ -628,6 +642,7 @@ def execute_sync_plan(
             elif hasattr(col.sched, "suspendCards"):
                 col.sched.suspendCards(cards_to_suspend)
             report.suspended_count += len(cards_to_suspend)
+            _merge_undo()
         except Exception as exc:
             report.warnings.append(f"Card suspension error: {exc}")
 

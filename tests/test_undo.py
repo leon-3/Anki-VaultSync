@@ -345,3 +345,48 @@ def test_undo_redo_dedup_tokens():
     on_state_did_undo(changes)
     assert get_undo_stack_depth() == 0
     assert get_redo_stack_depth() == 1
+
+
+def test_large_sync_with_occlusions_and_suspension_merges_atomically():
+    """Verify that syncing more than 30 cards (which exceeds Anki backend ring buffer)
+    with card suspension still merges atomically into a single VaultSync undo step."""
+    clear_sync_undo_stack()
+    with tempfile.TemporaryDirectory() as td:
+        tmp_path = Path(td)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+        img = vault_path / "img.png"
+        img.write_bytes(b"image-data")
+        (vault_path / "m2a.toml").write_text('vault = "."\ndeck = "TestDeck"\nimage_occlusion_mode = "native"\nsuspend_new_occlusions = true\n', encoding="utf-8")
+
+        # Create 40 notes (exceeding standard 25-step undo ring buffer)
+        lines = []
+        for i in range(40):
+            lines.append(f"---\nImage Cloze: IO Question {i}\n![[img.png]]\n")
+        (vault_path / "ios.md").write_text("\n".join(lines), encoding="utf-8")
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            plan = build_sync_plan(col, vault_path)
+            assert plan.total_creates == 40
+
+            report = execute_sync_plan(col, plan)
+            assert report.created_count == 40
+            assert report.suspended_count == 40
+
+            # MUST be single atomic VaultSync step, NOT Suspend or Add Note!
+            status = col.undo_status()
+            assert status.undo == "VaultSync"
+            assert get_undo_stack_depth() == 1
+
+            # Trigger undo: all 40 cards must be undone and unflagged in one step
+            undo_res = col.undo()
+            assert undo_res.operation == "VaultSync"
+            assert get_undo_stack_depth() == 0
+            assert get_redo_stack_depth() == 1
+
+            # Markdown must have all ADDED flags removed
+            content = (vault_path / "ios.md").read_text(encoding="utf-8")
+            assert "ADDED:" not in content
+        finally:
+            col.close()
