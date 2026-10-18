@@ -125,9 +125,11 @@ def on_state_did_undo(changes: Any) -> None:
         )
         try:
             from aqt import mw
-            from aqt.utils import tooltip
+            from aqt.qt import QTimer
+            from aqt.utils import closeTooltip, tooltip
             if mw is not None and cleared > 0:
-                tooltip(f"VaultSync: Cleared flags for {cleared} card(s) in Obsidian.", parent=mw, period=3000)
+                tooltip(f"VaultSync: Cleared flags for {cleared} card(s) in Obsidian.", period=1200)
+                QTimer.singleShot(1300, closeTooltip)
         except Exception:
             pass
     except Exception as exc:
@@ -170,9 +172,11 @@ def on_state_did_redo(changes: Any = None) -> None:
         )
         try:
             from aqt import mw
-            from aqt.utils import tooltip
+            from aqt.qt import QTimer
+            from aqt.utils import closeTooltip, tooltip
             if mw is not None and flagged > 0:
-                tooltip(f"VaultSync: Restored flags for {flagged} card(s) in Obsidian.", parent=mw, period=3000)
+                tooltip(f"VaultSync: Restored flags for {flagged} card(s) in Obsidian.", period=1200)
+                QTimer.singleShot(1300, closeTooltip)
         except Exception:
             pass
     except Exception as exc:
