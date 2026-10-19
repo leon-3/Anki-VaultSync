@@ -13,6 +13,7 @@ try:
         QDialog,
         QHBoxLayout,
         QHeaderView,
+        QIcon,
         QLabel,
         QMenu,
         QModelIndex,
@@ -40,9 +41,70 @@ except ImportError:
         QVBoxLayout,
     )
     from PyQt6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt, QUrl
-    from PyQt6.QtGui import QAction, QColor, QDesktopServices
+    from PyQt6.QtGui import QAction, QColor, QDesktopServices, QIcon
 
 from markdown2anki.diagnostics import Diagnostic, DiagnosticCategory, DiagnosticLevel
+
+_TABLE_STYLE = """
+    QTableView {
+        background-color: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        font-size: 12px;
+        gridline-color: rgba(255, 255, 255, 0.08);
+        outline: none;
+    }
+    QTableView::item {
+        background-color: transparent;
+        padding: 4px 8px;
+        border: none;
+    }
+    QTableView::item:selected {
+        background-color: rgba(33, 150, 243, 0.25);
+        color: #ffffff;
+    }
+    QHeaderView {
+        background-color: transparent;
+        border: none;
+    }
+    QHeaderView::section {
+        background-color: transparent;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 6px 8px;
+        border: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        color: rgba(220, 220, 220, 0.95);
+    }
+"""
+
+_BTN_STYLE = """
+    QPushButton {
+        font-size: 12px;
+        padding: 5px 14px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        background-color: rgba(255, 255, 255, 0.04);
+        color: palette(window-text);
+        min-height: 22px;
+    }
+    QPushButton:hover:enabled {
+        background-color: #2196F3;
+        border: 1px solid #1E88E5;
+        color: #ffffff;
+    }
+    QPushButton:pressed {
+        background-color: #1976D2;
+        border: 1px solid #1565C0;
+        color: #ffffff;
+    }
+    QPushButton:disabled {
+        color: rgba(180, 180, 180, 0.4);
+        border-color: rgba(255, 255, 255, 0.06);
+        background-color: transparent;
+    }
+"""
+
 from ..contracts import SyncReport
 
 
@@ -301,8 +363,10 @@ class SyncIssuesDialog(QDialog):
         self.table_view.setModel(self.proxy_model)
         self.table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.table_view.setSelectionMode(QTableView.SelectionMode.SingleSelection)
-        self.table_view.setAlternatingRowColors(True)
+        self.table_view.setAlternatingRowColors(False)
+        self.table_view.setShowGrid(True)
         self.table_view.verticalHeader().setVisible(False)
+        self.table_view.setStyleSheet(_TABLE_STYLE)
         self.table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_view.customContextMenuRequested.connect(self._on_context_menu)
         self.table_view.doubleClicked.connect(self._on_row_double_clicked)
@@ -327,18 +391,24 @@ class SyncIssuesDialog(QDialog):
         btn_layout.setSpacing(8)
 
         copy_btn = QPushButton("Copy Issues")
+        copy_btn.setIcon(QIcon())
+        copy_btn.setStyleSheet(_BTN_STYLE)
         copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         copy_btn.clicked.connect(self._copy_issues)
         btn_layout.addWidget(copy_btn)
 
         if self._report is not None and self._report.occlusion_dir and self._report.occlusion_dir.is_dir():
             occ_btn = QPushButton("Open Occlusions Folder")
+            occ_btn.setIcon(QIcon())
+            occ_btn.setStyleSheet(_BTN_STYLE)
             occ_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             occ_btn.clicked.connect(self._open_occlusion_dir)
             btn_layout.addWidget(occ_btn)
 
         if self._on_open_logs:
             logs_btn = QPushButton("View Full Log...")
+            logs_btn.setIcon(QIcon())
+            logs_btn.setStyleSheet(_BTN_STYLE)
             logs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             logs_btn.clicked.connect(self._view_logs)
             btn_layout.addWidget(logs_btn)
@@ -347,21 +417,15 @@ class SyncIssuesDialog(QDialog):
 
         if self._on_rescan:
             rescan_btn = QPushButton("Re-scan Vault Now")
+            rescan_btn.setIcon(QIcon())
+            rescan_btn.setStyleSheet(_BTN_STYLE)
             rescan_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            rescan_btn.setStyleSheet("""
-                QPushButton {
-                    font-size: 13px;
-                    font-weight: bold;
-                    background-color: #007acc;
-                    color: white;
-                    border-radius: 6px;
-                    padding: 5px 14px;
-                }
-            """)
             rescan_btn.clicked.connect(self._trigger_rescan)
             btn_layout.addWidget(rescan_btn)
 
         close_btn = QPushButton("Dismiss")
+        close_btn.setIcon(QIcon())
+        close_btn.setStyleSheet(_BTN_STYLE)
         close_btn.setDefault(True)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(self.accept)

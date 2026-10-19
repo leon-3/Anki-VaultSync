@@ -14,6 +14,7 @@ from aqt.qt import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QIcon,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -37,6 +38,34 @@ def _is_deleted(widget: Any) -> bool:
             return False
     return False
 from aqt.utils import tooltip
+
+_BTN_ACTION_STYLE = """
+    QPushButton {
+        font-size: 13px;
+        font-weight: normal;
+        border-radius: 6px;
+        padding: 6px 14px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        background-color: rgba(255, 255, 255, 0.04);
+        color: palette(window-text);
+    }
+    QPushButton:hover:enabled {
+        background-color: #2196F3;
+        border: 1px solid #1E88E5;
+        color: #ffffff;
+    }
+    QPushButton:pressed {
+        background-color: #1976D2;
+        border: 1px solid #1565C0;
+        color: #ffffff;
+    }
+    QPushButton:disabled {
+        color: rgba(180, 180, 180, 0.4);
+        border-color: rgba(255, 255, 255, 0.06);
+        background-color: transparent;
+    }
+"""
+
 
 from .. import logger
 from ..contracts import OcclusionStatus, SyncPlan, SyncReport, UnflagReport
@@ -163,6 +192,8 @@ class MainWindow(QDialog):
 
         self._init_ui()
         self._refresh_view()
+        for btn in self.findChildren(QPushButton):
+            btn.setIcon(QIcon())
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -179,13 +210,8 @@ class MainWindow(QDialog):
         self.settings_btn.setAutoDefault(False)
         self.settings_btn.setDefault(False)
         self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.settings_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 13px;
-                border-radius: 6px;
-                padding: 6px 14px;
-            }
-        """)
+        self.settings_btn.setStyleSheet(_BTN_ACTION_STYLE)
+        self.settings_btn.setIcon(QIcon())
         self.settings_btn.clicked.connect(self._open_settings)
         self.change_vault_btn = self.settings_btn  # alias for backwards compatibility
 
@@ -334,13 +360,21 @@ class MainWindow(QDialog):
         guide_btn_style = """
             QPushButton {
                 font-size: 11px;
-                border: 1px solid rgba(130, 130, 130, 0.3);
+                border: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 5px;
                 padding: 4px 10px;
-                background: transparent;
+                background: rgba(255, 255, 255, 0.04);
+                color: palette(window-text);
             }
-            QPushButton:hover {
-                background: rgba(130, 130, 130, 0.1);
+            QPushButton:hover:enabled {
+                background-color: #2196F3;
+                border: 1px solid #1E88E5;
+                color: #ffffff;
+            }
+            QPushButton:pressed {
+                background-color: #1976D2;
+                border: 1px solid #1565C0;
+                color: #ffffff;
             }
         """
 
@@ -452,14 +486,7 @@ class MainWindow(QDialog):
         self.title_actions.setStyleSheet("font-size: 15px; font-weight: bold; border: none; background: transparent;")
         actions_layout.addWidget(self.title_actions)
 
-        action_btn_style = """
-            QPushButton {
-                font-size: 13px;
-                font-weight: normal;
-                border-radius: 6px;
-                padding: 6px 14px;
-            }
-        """
+        action_btn_style = _BTN_ACTION_STYLE
 
         self.sync_btn = QPushButton("Sync")
         self.sync_btn.setFixedHeight(36)
@@ -541,6 +568,14 @@ class MainWindow(QDialog):
                 font-size: 12px;
                 padding: 2px 10px;
                 border-radius: 4px;
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                background-color: rgba(255, 255, 255, 0.04);
+                color: palette(window-text);
+            }
+            QPushButton:hover:enabled {
+                background-color: #2196F3;
+                border: 1px solid #1E88E5;
+                color: #ffffff;
             }
         """)
         self.status_report_btn.setVisible(False)

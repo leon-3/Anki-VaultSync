@@ -25,6 +25,7 @@ from aqt.qt import (
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
+    QIcon,
     QLabel,
     QLineEdit,
     QKeySequence,
@@ -183,6 +184,121 @@ def _wrap_with_info(cb: QCheckBox, key: str, add_stretch: bool = True) -> QHBoxL
 
 _CHECKMARK_SVG_PATH = Path(__file__).parent / "assets" / "checkmark.svg"
 
+_BTN_STYLE = """
+    QPushButton {
+        font-size: 12px;
+        padding: 5px 12px;
+        border-radius: 5px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        background-color: rgba(255, 255, 255, 0.04);
+        color: palette(window-text);
+        min-height: 22px;
+    }
+    QPushButton:hover:enabled {
+        background-color: #2196F3;
+        border: 1px solid #1E88E5;
+        color: #ffffff;
+    }
+    QPushButton:pressed {
+        background-color: #1976D2;
+        border: 1px solid #1565C0;
+        color: #ffffff;
+    }
+    QPushButton:disabled {
+        color: rgba(180, 180, 180, 0.4);
+        border-color: rgba(255, 255, 255, 0.06);
+        background-color: transparent;
+    }
+"""
+
+_BTN_DANGER_STYLE = """
+    QPushButton {
+        font-size: 12px;
+        padding: 5px 12px;
+        border-radius: 5px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        background-color: rgba(255, 255, 255, 0.04);
+        color: #ff6b6b;
+        font-weight: 600;
+        min-height: 22px;
+    }
+    QPushButton:hover:enabled {
+        background-color: #e53935;
+        border: 1px solid #d32f2f;
+        color: #ffffff;
+    }
+    QPushButton:pressed {
+        background-color: #c62828;
+        border: 1px solid #b71c1c;
+        color: #ffffff;
+    }
+    QPushButton:disabled {
+        color: rgba(180, 180, 180, 0.4);
+        border-color: rgba(255, 255, 255, 0.06);
+        background-color: transparent;
+    }
+"""
+
+_BTN_CLEAR_STYLE = """
+    QPushButton {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        background-color: rgba(255, 255, 255, 0.04);
+        color: palette(window-text);
+        min-height: 18px;
+        max-width: 48px;
+    }
+    QPushButton:hover:enabled {
+        background-color: #2196F3;
+        border: 1px solid #1E88E5;
+        color: #ffffff;
+    }
+    QPushButton:pressed {
+        background-color: #1976D2;
+        border: 1px solid #1565C0;
+        color: #ffffff;
+    }
+"""
+
+_TABLE_STYLE = """
+    QTableWidget, QTableView {
+        background-color: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        font-size: 12px;
+        gridline-color: rgba(255, 255, 255, 0.08);
+        outline: none;
+    }
+    QTableWidget::item, QTableView::item {
+        background-color: transparent;
+        padding: 4px 8px;
+        border: none;
+    }
+    QTableWidget::item:selected, QTableView::item:selected {
+        background-color: rgba(33, 150, 243, 0.25);
+        color: #ffffff;
+    }
+    QHeaderView {
+        background-color: transparent;
+        border: none;
+    }
+    QHeaderView::section {
+        background-color: transparent;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 6px 8px;
+        border: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        color: rgba(220, 220, 220, 0.95);
+    }
+    QTableCornerButton::section {
+        background-color: transparent;
+        border: none;
+    }
+"""
+
 def _is_path_ignored(rel_parts: tuple[str, ...], name: str, ignore_patterns: list[str]) -> bool:
     """Check if a folder or file should be ignored during vault traversal."""
     if name.startswith("."):
@@ -258,7 +374,8 @@ class ConfigWindow(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Settings")
-        self.resize(780, 620)
+        self.resize(680, 620)
+        self.setMinimumWidth(620)
         self.setWindowModality(Qt.WindowModality.NonModal)
         self.setStyleSheet("""
             QCheckBox {
@@ -346,7 +463,7 @@ class ConfigWindow(QDialog):
                     or (target in ("deck", "decks", "deck rules", "deck routing", "decks & tags", "routing") and idx == self.TAB_DECK_RULES)
                     or (target in ("tag", "tags", "tag rules", "tag routing", "aliases", "tag aliases") and idx == self.TAB_TAG_RULES)
                     or (target in ("maintenance", "orphans", "deleted", "deleted cards") and idx == self.TAB_DELETED_CARDS)
-                    or (target in ("card types", "card types & media", "rules", "media") and idx == self.TAB_CARD_TYPES)
+                    or (target in ("card types", "card types & media", "rules", "media", "custom note type", "custom note types", "note types", "cusotm note type") and idx == self.TAB_CARD_TYPES)
                     or (target in ("shortcuts", "logs", "shortcuts & logs") and idx == self.TAB_SHORTCUTS_LOGS)
                 ):
                     self.tabs.setCurrentIndex(idx)
@@ -478,22 +595,47 @@ class ConfigWindow(QDialog):
         if save_btn:
             save_btn.setDefault(False)
             save_btn.setAutoDefault(False)
+            save_btn.setIcon(QIcon())
+            save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         cancel_btn = self.button_box.button(QDialogButtonBox.StandardButton.Cancel)
         if cancel_btn:
             cancel_btn.setDefault(False)
             cancel_btn.setAutoDefault(False)
+            cancel_btn.setIcon(QIcon())
+            cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        for btn in self.button_box.buttons():
+            btn.setIcon(QIcon())
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.button_box.setStyleSheet("""
             QPushButton {
                 font-size: 13px;
                 border-radius: 6px;
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                background-color: rgba(255, 255, 255, 0.04);
+                color: palette(window-text);
                 padding: 6px 18px;
                 min-height: 26px;
+            }
+            QPushButton:hover:enabled {
+                background-color: #2196F3;
+                border: 1px solid #1E88E5;
+                color: #ffffff;
+            }
+            QPushButton:pressed {
+                background-color: #1976D2;
+                border: 1px solid #1565C0;
+                color: #ffffff;
             }
         """)
         self.button_box.accepted.connect(self._on_save)
         self.button_box.rejected.connect(self.reject)
         main_layout.addWidget(self.button_box)
+
+        for btn in self.findChildren(QPushButton):
+            btn.setIcon(QIcon())
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFocus()
@@ -553,7 +695,7 @@ class ConfigWindow(QDialog):
         self.vault_edit.textChanged.connect(self._on_vault_text_changed)
         self.vault_edit.editingFinished.connect(lambda: self._load_vault_from_path(self.vault_edit.text()))
         vault_browse = QPushButton("Browse...")
-        vault_browse.setStyleSheet(btn_style)
+        vault_browse.setStyleSheet(_BTN_STYLE)
         vault_browse.setCursor(Qt.CursorShape.PointingHandCursor)
         vault_browse.clicked.connect(self._browse_vault)
         vault_row.addWidget(self.vault_edit, 1)
@@ -791,6 +933,36 @@ class ConfigWindow(QDialog):
                 pass
         return names
 
+    def _get_available_models(self) -> list[tuple[str, int]]:
+        models: list[tuple[str, int]] = []
+        if mw is not None and hasattr(mw, "col") and mw.col is not None:
+            try:
+                if hasattr(mw.col.models, "all_names_and_ids"):
+                    for m in mw.col.models.all_names_and_ids():
+                        models.append((m.name, int(m.id)))
+                elif hasattr(mw.col.models, "all"):
+                    for m in mw.col.models.all():
+                        name = m.get("name") if isinstance(m, dict) else getattr(m, "name", "")
+                        mid = m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
+                        if name and mid is not None:
+                            models.append((str(name), int(mid)))
+            except Exception:
+                pass
+        return sorted(models, key=lambda x: x[0].lower())
+
+    def _populate_model_combos(self) -> None:
+        if not hasattr(self, "basic_model_combo") or not hasattr(self, "cloze_model_combo"):
+            return
+        self.basic_model_combo.clear()
+        self.cloze_model_combo.clear()
+
+        self.basic_model_combo.addItem("Default (M2A Basic)", userData=None)
+        self.cloze_model_combo.addItem("Default (M2A Cloze)", userData=None)
+
+        for name, mid in self._get_available_models():
+            self.basic_model_combo.addItem(name, userData=mid)
+            self.cloze_model_combo.addItem(name, userData=mid)
+
     def _get_available_tag_names(self) -> list[str]:
         tags: list[str] = []
         if mw is not None and hasattr(mw, "col") and mw.col is not None:
@@ -1007,7 +1179,10 @@ class ConfigWindow(QDialog):
         self.routing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.routing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.routing_table.setMinimumHeight(200)
-        self.routing_table.setStyleSheet(table_style)
+        self.routing_table.setShowGrid(True)
+        self.routing_table.setAlternatingRowColors(False)
+        self.routing_table.verticalHeader().setVisible(False)
+        self.routing_table.setStyleSheet(_TABLE_STYLE)
         self.routing_table.setToolTip(format_tooltip_box("deck_routing"))
         self.routing_table.itemChanged.connect(self._on_routing_item_changed)
         table_row.addWidget(self.routing_table, stretch=2)
@@ -1060,12 +1235,12 @@ class ConfigWindow(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         add_btn = QPushButton("Add Rule")
-        add_btn.setStyleSheet(btn_style)
+        add_btn.setStyleSheet(_BTN_STYLE)
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_btn.clicked.connect(self._add_routing_row)
 
         remove_btn = QPushButton("Remove Selected")
-        remove_btn.setStyleSheet(btn_style)
+        remove_btn.setStyleSheet(_BTN_DANGER_STYLE)
         remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         remove_btn.clicked.connect(self._remove_routing_row)
 
@@ -1152,7 +1327,10 @@ class ConfigWindow(QDialog):
         self.alias_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.alias_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.alias_table.setMinimumHeight(200)
-        self.alias_table.setStyleSheet(table_style)
+        self.alias_table.setShowGrid(True)
+        self.alias_table.setAlternatingRowColors(False)
+        self.alias_table.verticalHeader().setVisible(False)
+        self.alias_table.setStyleSheet(_TABLE_STYLE)
         self.alias_table.setToolTip(format_tooltip_box("tag_aliases"))
         self.alias_table.itemChanged.connect(self._on_alias_item_changed)
         table_row.addWidget(self.alias_table, stretch=2)
@@ -1205,12 +1383,12 @@ class ConfigWindow(QDialog):
         alias_btn_row = QHBoxLayout()
         alias_btn_row.setSpacing(8)
         add_alias_btn = QPushButton("Add Tag Alias")
-        add_alias_btn.setStyleSheet(btn_style)
+        add_alias_btn.setStyleSheet(_BTN_STYLE)
         add_alias_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_alias_btn.clicked.connect(self._add_alias_row)
 
         remove_alias_btn = QPushButton("Remove Selected")
-        remove_alias_btn.setStyleSheet(btn_style)
+        remove_alias_btn.setStyleSheet(_BTN_DANGER_STYLE)
         remove_alias_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         remove_alias_btn.clicked.connect(self._remove_alias_row)
 
@@ -1306,32 +1484,53 @@ class ConfigWindow(QDialog):
         self.occlusion_edit.setToolTip(format_tooltip_box("occlusion_dir"))
         _dim_placeholder(self.occlusion_edit)
         occ_browse = QPushButton("Browse...")
-        occ_browse.setStyleSheet(btn_style)
+        occ_browse.setStyleSheet(_BTN_STYLE)
         occ_browse.setCursor(Qt.CursorShape.PointingHandCursor)
         occ_browse.clicked.connect(self._browse_occlusion)
         sf_layout.addWidget(self.occlusion_edit, 1)
         sf_layout.addWidget(occ_browse)
         card_io_l.addWidget(self.staging_folder_row)
 
-        row_io_opts = QHBoxLayout()
-        row_io_opts.setSpacing(16)
         self.suspend_new_occlusions_cb = QCheckBox("Suspend New Occlusions Until Masked")
         self.suspend_new_occlusions_cb.setToolTip(format_tooltip_box("suspend_new_occlusions"))
-        row_io_opts.addLayout(_wrap_with_info(self.suspend_new_occlusions_cb, "suspend_new_occlusions", add_stretch=False))
-
-        self.re_stage_cb = QCheckBox("Re-export Existing Occlusion Images")
-        self.re_stage_cb.setToolTip(format_tooltip_box("re_stage_occlusions"))
-        row_io_opts.addLayout(_wrap_with_info(self.re_stage_cb, "re_stage_occlusions", add_stretch=False))
-
-        self.freeze_image_occlusions_cb = QCheckBox("Freeze Occlusion Notes (Skip Updates)")
-        self.freeze_image_occlusions_cb.setToolTip(format_tooltip_box("freeze_image_occlusions"))
-        row_io_opts.addLayout(_wrap_with_info(self.freeze_image_occlusions_cb, "freeze_image_occlusions", add_stretch=False))
 
         self.auto_unflag_occlusions_cb = QCheckBox("Auto-unflag Completed Occlusions During Sync")
         self.auto_unflag_occlusions_cb.setToolTip(format_tooltip_box("auto_unflag_occlusions"))
-        row_io_opts.addLayout(_wrap_with_info(self.auto_unflag_occlusions_cb, "auto_unflag_occlusions", add_stretch=False))
-        row_io_opts.addStretch()
-        card_io_l.addLayout(row_io_opts)
+
+        self.freeze_image_occlusions_cb = QCheckBox("Freeze Occlusion Notes (Skip Updates)")
+        self.freeze_image_occlusions_cb.setToolTip(format_tooltip_box("freeze_image_occlusions"))
+
+        self.re_stage_cb = QCheckBox("Re-export Existing Occlusion Images")
+        self.re_stage_cb.setToolTip(format_tooltip_box("re_stage_occlusions"))
+
+        grid_io_opts = QGridLayout()
+        grid_io_opts.setContentsMargins(0, 4, 0, 0)
+        grid_io_opts.setHorizontalSpacing(20)
+        grid_io_opts.setVerticalSpacing(8)
+
+        grid_io_opts.addLayout(
+            _wrap_with_info(self.suspend_new_occlusions_cb, "suspend_new_occlusions", add_stretch=False),
+            0,
+            0,
+        )
+        grid_io_opts.addLayout(
+            _wrap_with_info(self.auto_unflag_occlusions_cb, "auto_unflag_occlusions", add_stretch=False),
+            0,
+            1,
+        )
+        grid_io_opts.addLayout(
+            _wrap_with_info(self.freeze_image_occlusions_cb, "freeze_image_occlusions", add_stretch=False),
+            1,
+            0,
+        )
+        grid_io_opts.addLayout(
+            _wrap_with_info(self.re_stage_cb, "re_stage_occlusions", add_stretch=False),
+            1,
+            1,
+        )
+        grid_io_opts.setColumnStretch(0, 1)
+        grid_io_opts.setColumnStretch(1, 1)
+        card_io_l.addLayout(grid_io_opts)
         layout.addWidget(card_io)
 
         # Section 3: Media & Note Type Bindings
@@ -1371,6 +1570,7 @@ class ConfigWindow(QDialog):
         self.cloze_model_combo.setToolTip(format_tooltip_box("cloze_model_id"))
         grid_models.addWidget(self.cloze_model_combo, 1, 1)
         grid_models.setColumnStretch(2, 1)
+        self._populate_model_combos()
 
         card_bind_l.addLayout(grid_models)
         layout.addWidget(card_bind)
@@ -1431,33 +1631,19 @@ class ConfigWindow(QDialog):
         orph_btns.setSpacing(8)
 
         self.view_orphans_btn = QPushButton("View in Anki Browser")
-        self.view_orphans_btn.setStyleSheet(btn_style)
+        self.view_orphans_btn.setStyleSheet(_BTN_STYLE)
         self.view_orphans_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.view_orphans_btn.clicked.connect(self._on_view_orphans)
 
         self.orphans_btn = self.view_orphans_btn  # Backwards compatibility alias
 
         self.suspend_orphans_btn = QPushButton("Suspend All Orphaned Cards")
-        self.suspend_orphans_btn.setStyleSheet(btn_style)
+        self.suspend_orphans_btn.setStyleSheet(_BTN_STYLE)
         self.suspend_orphans_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.suspend_orphans_btn.setToolTip("Suspend cards of orphaned notes to preserve review history and intervals.")
         self.suspend_orphans_btn.clicked.connect(self._on_suspend_orphans)
 
-        self._btn_delete_orphans_style = """
-            QPushButton {
-                font-size: 12px;
-                padding: 5px 12px;
-                border-radius: 5px;
-                min-height: 22px;
-            }
-            QPushButton:enabled {
-                color: #ff6b6b;
-                font-weight: 600;
-            }
-            QPushButton:disabled {
-                color: rgba(180, 180, 180, 0.4);
-            }
-        """
+        self._btn_delete_orphans_style = _BTN_DANGER_STYLE
         self.delete_orphans_btn = QPushButton("Delete Permanently...")
         self.delete_orphans_btn.setStyleSheet(self._btn_delete_orphans_style)
         self.delete_orphans_btn.setEnabled(False)
@@ -1489,12 +1675,12 @@ class ConfigWindow(QDialog):
         hdr_ctrl_row.addStretch()
 
         sel_all_btn = QPushButton("Select All")
-        sel_all_btn.setStyleSheet(btn_style)
+        sel_all_btn.setStyleSheet(_BTN_STYLE)
         sel_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         sel_all_btn.clicked.connect(lambda: self._on_select_all_missing(True))
 
         desel_all_btn = QPushButton("Deselect All")
-        desel_all_btn.setStyleSheet(btn_style)
+        desel_all_btn.setStyleSheet(_BTN_STYLE)
         desel_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         desel_all_btn.clicked.connect(lambda: self._on_select_all_missing(False))
 
@@ -1511,24 +1697,27 @@ class ConfigWindow(QDialog):
         self.missing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.missing_table.setMinimumHeight(130)
         self.missing_table.setMaximumHeight(180)
-        self.missing_table.setStyleSheet(table_style)
+        self.missing_table.setShowGrid(True)
+        self.missing_table.setAlternatingRowColors(False)
+        self.missing_table.verticalHeader().setVisible(False)
+        self.missing_table.setStyleSheet(_TABLE_STYLE)
         card_del_l.addWidget(self.missing_table)
 
         action_row = QHBoxLayout()
         action_row.setSpacing(8)
 
         self.mark_deleted_btn = QPushButton("Mark Selected as DELETED in Obsidian")
-        self.mark_deleted_btn.setStyleSheet(btn_style)
+        self.mark_deleted_btn.setStyleSheet(_BTN_STYLE)
         self.mark_deleted_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.mark_deleted_btn.clicked.connect(self._on_mark_missing_deleted)
 
         self.resync_missing_btn = QPushButton("Resync / Recreate Selected in Anki")
-        self.resync_missing_btn.setStyleSheet(btn_style)
+        self.resync_missing_btn.setStyleSheet(_BTN_STYLE)
         self.resync_missing_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.resync_missing_btn.clicked.connect(self._on_resync_missing)
 
         refresh_maint_btn = QPushButton("Refresh Scan")
-        refresh_maint_btn.setStyleSheet(btn_style)
+        refresh_maint_btn.setStyleSheet(_BTN_STYLE)
         refresh_maint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_maint_btn.clicked.connect(self._refresh_maintenance_data)
 
@@ -1552,12 +1741,12 @@ class ConfigWindow(QDialog):
         io_maint_btns.setSpacing(8)
 
         self.view_unmasked_maint_btn = QPushButton("View in Anki Browser")
-        self.view_unmasked_maint_btn.setStyleSheet(btn_style)
+        self.view_unmasked_maint_btn.setStyleSheet(_BTN_STYLE)
         self.view_unmasked_maint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.view_unmasked_maint_btn.clicked.connect(self._on_view_unmasked_browser)
 
         self.unflag_maint_btn = QPushButton("Unflag Completed Occlusions Now")
-        self.unflag_maint_btn.setStyleSheet(btn_style)
+        self.unflag_maint_btn.setStyleSheet(_BTN_STYLE)
         self.unflag_maint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.unflag_maint_btn.setEnabled(False)
         self.unflag_maint_btn.clicked.connect(self._on_unflag_maint_clicked)
@@ -2001,15 +2190,7 @@ class ConfigWindow(QDialog):
         grid_sc.setHorizontalSpacing(10)
         grid_sc.setVerticalSpacing(4)
 
-        btn_clear_style = """
-            QPushButton {
-                font-size: 11px;
-                padding: 2px 8px;
-                border-radius: 4px;
-                min-height: 18px;
-                max-width: 48px;
-            }
-        """
+        btn_clear_style = _BTN_CLEAR_STYLE
 
         # 1. Dash
         lbl_dash = QLabel("Open Dashboard: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
@@ -2086,7 +2267,7 @@ class ConfigWindow(QDialog):
         card_sc_l.addLayout(sc_container)
 
         btn_reset_sc = QPushButton("Reset Shortcuts to Defaults")
-        btn_reset_sc.setStyleSheet(btn_style)
+        btn_reset_sc.setStyleSheet(_BTN_STYLE)
         btn_reset_sc.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_reset_sc.clicked.connect(self._reset_shortcuts_to_defaults)
         r_rst = QHBoxLayout()
@@ -2109,13 +2290,13 @@ class ConfigWindow(QDialog):
         log_hdr.addStretch()
         open_folder_btn = QPushButton("Open Folder")
         open_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        open_folder_btn.setStyleSheet(btn_style)
+        open_folder_btn.setStyleSheet(_BTN_STYLE)
         open_folder_btn.clicked.connect(self._open_log_folder)
         log_hdr.addWidget(open_folder_btn)
 
         clear_btn = QPushButton("Clear Logs")
         clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_btn.setStyleSheet(btn_style)
+        clear_btn.setStyleSheet(_BTN_DANGER_STYLE)
         clear_btn.clicked.connect(self._clear_logs)
         log_hdr.addWidget(clear_btn)
         card_log_l.addLayout(log_hdr)
@@ -2497,6 +2678,7 @@ class ConfigWindow(QDialog):
                 warn_lbl.setVisible(False)
 
     def _populate_fields(self) -> None:
+        self._populate_model_combos()
         if self._profile_settings.vault_path:
             self.vault_edit.setText(str(self._profile_settings.vault_path))
         if self._profile_settings.occlusion_dir:
@@ -2876,10 +3058,14 @@ class ConfigWindow(QDialog):
 
                 # Synchronize note types and output directory with m2a.toml
                 basic_model_name = self.basic_model_combo.currentText().strip()
-                if basic_model_name:
+                if basic_id is None or basic_model_name.startswith("Default"):
+                    cfg.anki_basic_model = "M2A Basic"
+                elif basic_model_name:
                     cfg.anki_basic_model = basic_model_name
                 cloze_model_name = self.cloze_model_combo.currentText().strip()
-                if cloze_model_name:
+                if cloze_id is None or cloze_model_name.startswith("Default"):
+                    cfg.anki_cloze_model = "M2A Cloze"
+                elif cloze_model_name:
                     cfg.anki_cloze_model = cloze_model_name
                 if occ_path:
                     cfg.output_dir = occ_path

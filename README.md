@@ -1,8 +1,8 @@
 # Anki-VaultSync
 
-**Anki-VaultSync** is a native Anki Desktop add-on providing a visual interface for synchronizing Markdown and Obsidian flashcard vaults directly with your Anki collection.
+**Anki-VaultSync** is a native Anki Desktop add-on that seamlessly synchronizes flashcard notes written in Obsidian or standard Markdown directly with your Anki collection.
 
-It embeds the decoupled core engine of [**Markdown2Anki**](https://github.com/leon-3/Markdown2Anki) directly inside the Anki desktop process—requiring **no AnkiConnect, no local HTTP servers, and no command-line tools**.
+It embeds the pure-Python core engine of [**Markdown2Anki**](https://github.com/leon-3/Markdown2Anki) directly inside the Anki desktop process—requiring **no AnkiConnect, no local HTTP servers, and no command-line tools**.
 
 ---
 
@@ -10,40 +10,42 @@ It embeds the decoupled core engine of [**Markdown2Anki**](https://github.com/le
 
 - **Direct In-Process Integration**:
   - Interacts directly with Anki's SQLite database (`mw.col`) inside the native Anki desktop process.
-  - Changes are applied using atomic database operations with full Anki Undo support (`Ctrl+Z`).
+  - Changes are applied using atomic database transactions with full Anki Undo support (`Ctrl+Z`).
 - **Modern Visual Dashboard**:
-  - Live metric counters for **New Cards**, **Modified Cards**, **Image Occlusions**, and **Orphaned Cards**.
+  - Metric counters for **New Cards**, **Modified Cards**, **Image Occlusions**, and **Orphaned Cards**.
   - One-click **Sync**, **Preview Diff**, and **Rescan Vault** actions with real-time status indicators.
-- **Interactive Diff Inspection**:
+- **Real-Time Status Bar Indicator**:
+  - Toggleable indicator in Anki's main bottom status bar showing pending new and modified cards (`VaultSync: 3 new, 1 mod`).
+  - Context menu for instant quick sync, full sync, or opening the dashboard.
+- **Interactive Rich Diff Inspection**:
   - Visual HTML diff dialog displaying exact word-level changes (`<ins>` / `<del>`), deck moves, and tag changes before applying edits to Anki.
+- **Atomic Flag-Before-Insert Protocol**:
+  - Guarantees data integrity by writing unique card IDs (`%%id%%`) to Markdown disk files *before* inserting records into Anki's database, preventing duplicate creation if a crash or power loss occurs.
+  - Concurrency-safe: verifies file modification times (`st_mtime_ns`) and SHA-256 hashes to prevent overwriting notes edited externally during sync preparation.
 - **In-Place Note Updates & Type Conversion**:
   - Notes are tracked with persistent 6-character IDs (`%%k3f9qz%%` in Obsidian, `<!--m2a:id-->` in Anki).
   - Updating edited flashcards updates note fields in place without resetting review intervals, ease factors, or learning schedules.
-  - Seamlessly handles **Note Type Conversions** (e.g. Basic $\\leftrightarrow$ Cloze) in-place using Anki's internal schema transition API without losing review history.
+  - Seamlessly handles **Note Type Conversions** (e.g. Basic $\leftrightarrow$ Cloze) in-place using Anki's internal schema transition API without losing review history.
+- **Undo / Redo Synchronization (`Ctrl+Z` / `Ctrl+Y`)**:
+  - Reverting a sync inside Anki automatically clears `ADDED` flags from your Obsidian Markdown files on disk. Redoing a sync restores the flags.
+- **Dedicated Deleted Cards Maintenance**:
+  - **Orphaned Cards in Anki**: View orphaned cards in Anki's native browser (`nid:...`), suspend cards safely to preserve review history, or delete permanently.
+  - **Cards Deleted in Anki**: Detect notes that still have sync IDs in Markdown but were deleted from Anki; mark them as `DELETED:` in Obsidian or re-export them into Anki.
+- **Native Image Occlusions**:
+  - Creates native Anki 23.10+ / 24+ Image Occlusion notes with `TODO_PROCESS_OCCLUSION` tags, suspending new cards until masks are drawn in Anki.
+  - Automatically unsuspends cards and removes the processing tag once masks are drawn.
 - **Filtered / Cram Deck Integrity**:
-  - Fully aware of Anki's filtered deck mechanics: cards currently studied in dynamic Cram decks retain their true home deck (`odid`), preventing false "deck moved" diff notifications during routine scans.
-- **High-Performance Media & Scan Pipeline**:
-  - **Deduplicated Media Writes**: Immutable content-hashed media files existing in Anki's media folder are never rewritten redundantly.
-  - **Zero Media I/O on Metadata Updates**: Changing tags or deck routing updates SQLite directly without touching disk media.
-  - **Instant Diff Inspection**: Uses nanosecond filesystem timestamps (`st_mtime_ns`) to bypass disk reads when inspecting unmodified files.
-- **Robustness & Collision Protection**:
-  - **Duplicate ID Detection**: Detects and reports duplicated `%%id%%` markers in Markdown and duplicate markers in Anki, preventing accidental data overwrites.
-  - **Non-Blocking Thread Safety**: Background operations run asynchronously via `QueryOp` with modal progress dialogs and automatic exception recovery to prevent UI lockups.
-- **Orphaned Card Detection**:
-  - Automatically identifies flashcards in Anki whose source notes were deleted or moved out of the vault.
-  - Dedicated **Find & View Orphaned Cards in Browser** button filters orphaned cards directly in Anki's native Card Browser (`nid:...`).
-- **Longest-Prefix Deck Routing**:
-  - Declaratively map vault folder trees directly to target Anki decks via an interactive table. More specific subdirectories automatically override parent folder rules.
-- **Flexible Tag Aliasing & Suppression**:
-  - Replace long folder paths with clean tag abbreviations, or suppress specific folders completely by mapping them to an empty alias (`""`).
-- **Comment-Preserving Vault Configuration**:
-  - Vault-level configuration is written directly to `<vault>/m2a.toml` using `tomlkit`, preserving all existing comments and formatting.
+  - Aware of Anki's dynamic filtered deck mechanics: cards studied in dynamic Cram decks retain their true home deck (`odid`), preventing false "deck moved" diff notifications during routine scans.
+- **Automatic Collection Backups**:
+  - Automatically creates a timestamped Anki collection backup before every synchronization.
+- **Custom Keyboard Shortcuts**:
+  - Fully configurable global shortcuts for Open Dashboard (`Ctrl+Alt+V`), Quick Sync (`Ctrl+Alt+S`), and Full Sync (`Ctrl+Alt+U`) with real-time conflict detection.
 
 ---
 
 ## Dashboard Overview
 
-Open the dashboard inside Anki via **Tools $\rightarrow$ VaultSync Dashboard**:
+Open the dashboard inside Anki via **Tools $\rightarrow$ VaultSync Dashboard** or shortcut `Ctrl+Alt+V`:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -55,13 +57,16 @@ Open the dashboard inside Anki via **Tools $\rightarrow$ VaultSync Dashboard**:
 │  [ 12 ] New Cards       [  3 ] Modified                         │
 │  [  1 ] Occlusions      [  0 ] Orphans                          │
 ├─────────────────────────────────────────────────────────────────┤
+│ Sync Options:                                                   │
+│  [x] Include Modified Cards (3)   [x] Unflag Completed (1)      │
+├─────────────────────────────────────────────────────────────────┤
 │ Actions:                                                        │
 │  [     Sync (15)     ]  [ Preview Diff (3) ]  [ Rescan Vault ]  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-* **Sync**: Writes markdown card IDs to disk, imports new notes, and commits field/tag updates to Anki.
-* **Preview Diff**: Opens the diff inspector to review and selectively approve updates before committing them.
+* **Sync**: Writes markdown card IDs to disk, imports new notes, commits field/tag updates, and unsuspends completed occlusions.
+* **Preview Diff**: Opens the rich HTML diff dialog to review and selectively approve updates before committing them.
 * **Rescan Vault**: Re-reads all Markdown files in the vault and compares them against the current collection.
 
 ---
@@ -70,48 +75,67 @@ Open the dashboard inside Anki via **Tools $\rightarrow$ VaultSync Dashboard**:
 
 The Settings window (`ConfigWindow`) is organized into six specialized tabs:
 
-### 1. General
-* **Obsidian Vault Folder**: Path to your local Markdown vault directory.
-* **Image Occlusion Base Folder**: Directory where occlusion images are exported into an `occlusions/` subfolder alongside an `index.md` tag map.
-* **Sync Behavior**:
-  * *Show Diff Preview Dialog Before Updating Modified Cards*: Always prompts with the visual diff window prior to modifying existing notes.
-  * *Automatically Close Dashboard on Successful Sync*: Auto-dismisses the dashboard when synchronization finishes with zero errors.
-  * *Auto-sync on Anki Startup*: Runs a background scan and synchronization when Anki launches.
-* **Tag Formatting**:
-  * *Base Tag Prefix*: Optional root tag prepended to all synced cards (e.g. `vault`).
-  * *Pad Single-Digit Tag Numbers*: Formats single-digit folder names with leading zeros (e.g. `'1. Chapter'` $\rightarrow$ `'01_Chapter'`) for natural sorting in Anki's card browser. Alphanumeric terms like `MP3` or `ISO9001` are automatically protected.
+### 1. General & Sync
+* **Vault Location**: Specify the local root directory of your Obsidian or Markdown vault.
+* **Ignored Directories & Files**: Glob patterns or directory names to skip during scanning (e.g. `.obsidian`, `templates/*`, `archive`, `ai`).
+* **Sync Behavior & Safety**:
+  * *Create Collection Backup Before Sync*: Generates an automatic Anki backup prior to mutating notes.
+  * *Show Diff Preview Before Updating*: Prompts with the visual diff window prior to modifying existing notes.
+  * *Close Dashboard on Successful Sync*: Auto-dismisses the dashboard when synchronization finishes with zero errors.
+  * *Auto-sync on Anki Startup (Background)*: Scans and synchronizes notes automatically in the background when Anki launches.
+  * *Show Status Bar Indicator*: Toggles the live pending-cards indicator in Anki's main bottom status bar.
 
-### 2. Deck Routing
+### 2. Deck Rules
 * **Default Target Deck**: Dropdown selecting the fallback Anki deck for notes that do not match any routing rules.
-* **Deck Routing Rules**:
-  * An interactive table mapping vault folder paths to destination Anki decks.
-  * Uses **Longest-Prefix Matching**: a rule for `computer_science/algorithms` takes precedence over a rule for `computer_science`.
-  * Includes a **Browse Folder...** button to easily select relative vault directories.
+* **Deck Rules & Folder Mapping**:
+  * Interactive table mapping vault folder paths to destination Anki decks.
+  * Uses **Longest-Prefix Matching (LPM)**: a rule for `computer_science/algorithms` takes precedence over a rule for `computer_science`.
+  * Subfolders automatically inherit the parent folder rule unless explicitly overridden.
 
-### 3. Tag Aliasing
+### 3. Tag Rules
+* **Base Tag Prefix**: Optional root tag prepended before all generated tags (e.g. `vault`).
+* **Pad Folder Numbers (01, 02...)**: Formats single-digit folder names with leading zeros (e.g. `'1. Chapter'` $\rightarrow$ `'01_Chapter'`) for natural sorting in Anki's card browser. Alphanumeric terms like `MP3`, `ISO9001`, or `2D Geometry` are automatically protected.
 * **Tag Path Aliases**:
   * Map folder paths to custom hierarchical tags (e.g. `"pen and paper"` $\rightarrow$ `"work::writing"`).
-  * **Tag Suppression**: Set the replacement to an empty value to omit that folder level from generated tags (useful for non-topical organization folders like `archive` or `general`).
-* Aliased tags are authoritative and exempt from automatic digit padding.
+  * **Tag Suppression**: Set the replacement to an empty value (`""`) to omit that folder level from generated tags (useful for non-topical folders like `archive` or `general`).
+  * Aliased tags are authoritative and exempt from automatic digit padding.
 
-### 4. Card Rules and Media
-* **Parsing & Media Options**:
-  * *Convert Cloze Syntax*: Supports native Anki `{{c1::...}}` cloze deletion syntax.
-  * *Hash Media*: Renames embedded images and attachments to deterministic SHA-256 hashes (`<8hex>_01.ext`) to avoid naming collisions.
-  * *Re-stage Already Flagged Image Occlusions*: Forces re-exporting image occlusions during routine syncs.
-* **Ignored Directories & Files**:
-  * Multi-line text field for glob patterns or folders to skip during scanning (e.g. `.obsidian`, `templates/*`, `archive`, `ai`).
+### 4. Card Types & Media
+* **Cloze Deletions**:
+  * *Convert Cloze Syntax*: Converts `{{c1::...}}` cloze deletion syntax into native Anki Cloze notes.
+  * *Suspend Newly Created Cloze Cards*: Suspends new cloze cards until manually reviewed.
+* **Image Occlusion Settings**:
+  * *Mode*: Choose between **Direct Native Image Occlusions** (recommended for Anki 23.10+) or **Folder Staging** (legacy/manual).
+  * *Export Folder*: Destination folder when using staging mode.
+  * *Suspend New Occlusions Until Masked*: Suspends new Image Occlusion cards until masks are drawn in Anki.
+  * *Re-export Existing Occlusion Images*: Forces re-exporting image occlusions during routine syncs.
+  * *Freeze Occlusion Notes (Skip Updates)*: Prevents future syncs from overwriting drawn occlusion masks.
+  * *Auto-unflag Completed Occlusions During Sync*: Automatically removes `TODO_PROCESS_OCCLUSION` and unsuspends cards once masks are drawn.
+* **Media & Note Type Bindings**:
+  * *Hash Media*: Renames embedded images and attachments to deterministic 8-character hex SHA-256 hashes (`<8hex>_01.ext`) with collision-safe counters.
+  * *Custom Note Type Bindings*: Bind cards to existing custom Anki Note Types instead of the default `M2A Basic` and `M2A Cloze` templates.
 
-### 5. Advanced
-* **Custom Note Type Bindings**:
-  * Bind VaultSync cards to existing Anki Note Types instead of the default `M2A Basic` and `M2A Cloze` templates.
-* **Maintenance & Diagnostic Tools**:
-  * *Repair / Re-apply M2A Note Type Templates*: Restores standard CSS styles and card front/back layouts.
-  * *Find & View Orphaned Cards in Browser*: Opens Anki's native browser searching for notes whose Obsidian source files no longer exist.
+### 5. Deleted Cards
+* **Orphaned Cards in Anki (Deleted from Obsidian)**:
+  * Detects cards in Anki whose source notes were removed from your vault.
+  * *View in Anki Browser*: Opens Anki's native browser filtering orphaned notes (`nid:...`).
+  * *Suspend All Orphaned Cards*: Suspends cards safely, preserving review intervals, ease factors, and history.
+  * *Delete Permanently*: Deletes orphaned notes from the collection after explicit confirmation.
+* **Cards Deleted in Anki (Still Active in Obsidian)**:
+  * Displays notes in Obsidian with sync IDs that no longer exist in Anki.
+  * *Mark Selected as DELETED in Obsidian*: Writes `DELETED: ... %%id%%` to the note lines in your vault.
+  * *Resync / Recreate Selected in Anki*: Re-exports selected cards back into Anki as new notes.
+* **Image Occlusion Maintenance**:
+  * Monitors notes with `TODO_PROCESS_OCCLUSION` awaiting masks.
+  * Provides quick access to view unmasked notes in Anki's browser or unflag completed ones immediately.
 
-### 6. Logs
-* Live reverse-chronological log viewer showing recent operations and warnings across sessions.
-* **Open Logs Folder** and **Clear Logs** buttons for diagnostic maintenance.
+### 6. Shortcuts & Logs
+* **Keyboard Shortcuts**:
+  * Configure custom shortcuts for **Open Dashboard**, **Quick Sync (New)**, and **Full Sync (New + Modified)**.
+  * Includes real-time conflict detection against standard Anki shortcuts.
+* **Diagnostic Logs**:
+  * Live reverse-chronological log viewer showing recent operations, warnings, and error traces.
+  * **Open Logs Folder** and **Clear Log** buttons for diagnostic maintenance.
 
 ---
 
@@ -138,39 +162,58 @@ The determinant of an identity matrix is {{c1::1}}.
 ---
 Image Cloze
 ![[matrix_transformation.png]]
+
+---
+How do you implement quicksort in C?
+```c
+#CODE#
+void quicksort(int *arr, int low, int high) { ... }
+```
 ````
 
 ---
 
 ## Installation & Development Setup
 
-### Symlink Installation
+### Symlink Installation (Development)
 Symlink this repository into your Anki `addons21` directory:
 
 ```bash
 # Linux
-ln -s "/home/leon/Coding/Anki Vault Synchronization/Anki-VaultSync" ~/.local/share/Anki2/addons21/anki-vaultsync
+ln -s "/path/to/Anki-VaultSync" ~/.local/share/Anki2/addons21/anki_vaultsync
 
 # macOS
-ln -s "/path/to/Anki-VaultSync" ~/Library/Application\ Support/Anki2/addons21/anki-vaultsync
+ln -s "/path/to/Anki-VaultSync" ~/Library/Application\ Support/Anki2/addons21/anki_vaultsync
 
 # Windows (Command Prompt as Administrator)
-mklink /D "%APPDATA%\Anki2\addons21\anki-vaultsync" "C:\path\to\Anki-VaultSync"
+mklink /D "%APPDATA%\Anki2\addons21\anki_vaultsync" "C:\path\to\Anki-VaultSync"
 ```
 
+> [!NOTE]
+> **Linux Flatpak Users:** If you run Anki via Flatpak (`net.ankiweb.Anki`), grant filesystem access to your home or vault folder:
+> ```bash
+> flatpak override --user --filesystem=home net.ankiweb.Anki
+> ```
+> And symlink into `~/.var/app/net.ankiweb.Anki/data/Anki2/addons21/anki_vaultsync`.
+
 ### Vendoring the Engine
-To update the bundled `markdown2anki` core engine from the local sibling repository:
+When parser logic in the sibling repository `Markdown2Anki` changes, sync the vendored package and verify AST imports:
 
 ```bash
 python3 scripts/bundle.py
 ```
 
+To build a standalone `.ankiaddon` package archive:
+```bash
+python3 scripts/bundle.py --package
+```
+
 ### Running Tests
-Execute the automated test suite using pytest with headless Qt:
+Execute the automated test suite using pytest:
 
 ```bash
-QT_QPA_PLATFORM=offscreen pytest tests/
+pytest tests/
 ```
 
 > [!NOTE]
-> The test suite includes an automated `conftest.py` fixture that safely mocks all modal `QMessageBox` popups, guaranteeing non-blocking test execution in headless CI environments.
+> The test suite includes an automated `conftest.py` fixture that safely mocks modal `QMessageBox` popups, guaranteeing non-blocking test execution in headless environments.

@@ -395,20 +395,22 @@ class DiffDialog(QDialog):
         self.apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.apply_btn.setStyleSheet("""
             QPushButton {
-                background-color: palette(highlight);
-                color: palette(highlighted-text);
+                background-color: #2196F3;
+                color: #ffffff;
                 font-weight: 600;
                 font-size: 12px;
-                border: none;
+                border: 1px solid #1E88E5;
                 border-radius: 6px;
                 padding: 6px 16px;
                 min-height: 24px;
             }
             QPushButton:hover {
                 background-color: #1976D2;
+                border-color: #1565C0;
             }
             QPushButton:pressed {
-                background-color: #1565C0;
+                background-color: #0D47A1;
+                border-color: #0D47A1;
             }
         """)
 
@@ -427,7 +429,14 @@ class DiffDialog(QDialog):
                 color: palette(window-text);
             }
             QPushButton:hover {
-                background-color: rgba(130, 130, 130, 0.12);
+                background-color: #2196F3;
+                border-color: #1E88E5;
+                color: #ffffff;
+            }
+            QPushButton:pressed {
+                background-color: #1976D2;
+                border-color: #1565C0;
+                color: #ffffff;
             }
         """)
 
@@ -449,9 +458,18 @@ class DiffDialog(QDialog):
                 color: palette(window-text);
             }
             QPushButton:hover {
-                background-color: rgba(130, 130, 130, 0.12);
+                background-color: #2196F3;
+                border-color: #1E88E5;
+                color: #ffffff;
+            }
+            QPushButton:pressed {
+                background-color: #1976D2;
+                border-color: #1565C0;
+                color: #ffffff;
             }
         """)
+        for btn in self.button_box.buttons():
+            btn.setIcon(QIcon())
         self.rescan_btn.clicked.connect(self._on_rescan_clicked)
         self.button_box.addButton(self.rescan_btn, QDialogButtonBox.ButtonRole.ActionRole)
 

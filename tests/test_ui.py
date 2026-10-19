@@ -1633,3 +1633,109 @@ def test_config_window_show_status_bar_toggle(tmp_path: Path):
     dlg2 = ConfigWindow(manager, "TestStatusBarToggle")
     assert dlg2.show_status_bar_cb.isChecked() is False
     dlg2.close()
+
+
+def test_design_polish_tables_buttons_and_layout(tmp_path: Path, monkeypatch):
+    from unittest.mock import MagicMock
+    from aqt.qt import QPushButton, QTableWidget, QTableView
+    from src.contracts import SyncPlan, SyncReport
+    from src.ui.sync_report_dialog import SyncIssuesDialog
+    from markdown2anki.diagnostics import Diagnostic, DiagnosticLevel, DiagnosticCategory
+
+    # Mock Anki models on a fake mw
+    fake_mw = MagicMock()
+    mock_model1 = MagicMock(name="Basic")
+    mock_model1.id = 1001
+    mock_model1.name = "Basic"
+    mock_model2 = MagicMock(name="Cloze")
+    mock_model2.id = 1002
+    mock_model2.name = "Cloze"
+    mock_model3 = MagicMock(name="Medical Notes")
+    mock_model3.id = 2001
+    mock_model3.name = "Medical Notes"
+
+    fake_mw.col.models.all_names_and_ids.return_value = [mock_model1, mock_model2, mock_model3]
+    fake_mw.col.models.get.side_effect = lambda mid: {"id": mid, "name": f"Model-{mid}"}
+    import aqt
+    monkeypatch.setattr(aqt, "mw", fake_mw)
+    from src.ui import config_window
+    monkeypatch.setattr(config_window, "mw", fake_mw)
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+
+    dlg = ConfigWindow(manager, "DesignTestProfile")
+
+    # 1. Check window width is shorter
+    assert dlg.width() <= 680
+    assert dlg.minimumWidth() == 620
+
+    # 2. Check tab switching with "custom note type"
+    dlg.switch_to_tab("custom note type")
+    assert dlg.tabs.currentIndex() == ConfigWindow.TAB_CARD_TYPES
+
+    # 3. Check tables adhere to clean design: no alternating row colors, one uniform background
+    for tbl in [dlg.routing_table, dlg.alias_table, dlg.missing_table]:
+        assert tbl.alternatingRowColors() is False
+        assert "background-color: rgba(255, 255, 255, 0.02)" in tbl.styleSheet()
+
+    # 4. Check buttons have NO icons
+    all_btns = dlg.findChildren(QPushButton)
+    assert len(all_btns) > 0
+    for btn in all_btns:
+        assert btn.icon().isNull(), f"Button {btn.text()} has an icon!"
+
+    # 5. Check button hover styles include accent colour (#2196F3) or red (#e53935)
+    for btn in [dlg.view_orphans_btn, dlg.suspend_orphans_btn]:
+        assert "#2196F3" in btn.styleSheet()
+    assert "#e53935" in dlg.delete_orphans_btn.styleSheet() or "#ff6b6b" in dlg.delete_orphans_btn.styleSheet()
+
+    # 6. Check Image Occlusions 2x2 layout
+    assert dlg.suspend_new_occlusions_cb is not None
+    assert dlg.auto_unflag_occlusions_cb is not None
+    assert dlg.freeze_image_occlusions_cb is not None
+    assert dlg.re_stage_cb is not None
+
+    # 7. Check Custom Note Types combo population and selection
+    # Should contain Default + the 3 mock models
+    assert dlg.basic_model_combo.count() == 4
+    assert dlg.basic_model_combo.itemText(0) == "Default (M2A Basic)"
+    assert dlg.basic_model_combo.itemData(0) is None
+    assert dlg.basic_model_combo.itemText(1) == "Basic"
+    assert dlg.basic_model_combo.itemData(1) == 1001
+    assert dlg.basic_model_combo.itemText(2) == "Cloze"
+    assert dlg.basic_model_combo.itemData(2) == 1002
+    assert dlg.basic_model_combo.itemText(3) == "Medical Notes"
+    assert dlg.basic_model_combo.itemData(3) == 2001
+
+    assert dlg.cloze_model_combo.count() == 4
+    assert dlg.cloze_model_combo.itemText(0) == "Default (M2A Cloze)"
+    assert dlg.cloze_model_combo.itemData(0) is None
+
+    # Select "Medical Notes" for Basic and "Cloze" for Cloze
+    dlg.basic_model_combo.setCurrentIndex(3)
+    dlg.cloze_model_combo.setCurrentIndex(2)
+    dlg._on_save()
+    dlg.close()
+
+    loaded = manager.load("DesignTestProfile")
+    assert loaded.basic_model_id == 2001
+    assert loaded.cloze_model_id == 1002
+
+    # Check SyncReportDialog table and buttons
+    diag = Diagnostic(file=tmp_path / "note.md", line=10, level=DiagnosticLevel.WARNING, category=DiagnosticCategory.SYNTAX, message="Test warn")
+    rep_dlg = SyncIssuesDialog(report=SyncReport(diagnostics=[diag]))
+    assert rep_dlg.table_view.alternatingRowColors() is False
+    assert "background-color: rgba(255, 255, 255, 0.02)" in rep_dlg.table_view.styleSheet()
+    for btn in rep_dlg.findChildren(QPushButton):
+        assert btn.icon().isNull(), f"Report button {btn.text()} has an icon!"
+        assert "#2196F3" in btn.styleSheet()
+    rep_dlg.close()
+
+    # Check DiffDialog buttons have no icons and hover accent
+    from src.ui.diff_dialog import DiffDialog
+    diff_dlg = DiffDialog(SyncPlan(vault_path=tmp_path, default_deck="Default", file_plans=[]))
+    for btn in diff_dlg.findChildren(QPushButton):
+        assert btn.icon().isNull(), f"Diff button {btn.text()} has an icon!"
+        assert "#2196F3" in btn.styleSheet() or "#1976D2" in btn.styleSheet()
+    diff_dlg.close()

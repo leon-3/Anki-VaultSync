@@ -9,6 +9,7 @@ from aqt.qt import (
     QHBoxLayout,
     QKeySequence,
     QKeySequenceEdit,
+    QIcon,
     QLabel,
     QPushButton,
     QShortcut,
@@ -145,16 +146,22 @@ class ShortcutConfigWidget(QWidget):
         """
         btn_style = """
             QPushButton {
-                border: 1px solid palette(mid);
+                border: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 6px;
                 padding: 4px 10px;
-                background-color: palette(button);
-                color: palette(button-text);
+                background-color: rgba(255, 255, 255, 0.04);
+                color: palette(window-text);
                 font-size: 11px;
             }
-            QPushButton:hover {
-                background-color: palette(highlight);
-                color: palette(highlighted-text);
+            QPushButton:hover:enabled {
+                background-color: #2196F3;
+                border: 1px solid #1E88E5;
+                color: #ffffff;
+            }
+            QPushButton:pressed {
+                background-color: #1976D2;
+                border: 1px solid #1565C0;
+                color: #ffffff;
             }
         """
 
@@ -183,11 +190,25 @@ class ShortcutConfigWidget(QWidget):
                     font-size: 11px;
                     padding: 2px 8px;
                     border-radius: 4px;
+                    border: 1px solid rgba(255, 255, 255, 0.15);
+                    background-color: rgba(255, 255, 255, 0.04);
+                    color: palette(window-text);
                     min-height: 18px;
                     max-width: 48px;
                 }
+                QPushButton:hover:enabled {
+                    background-color: #2196F3;
+                    border: 1px solid #1E88E5;
+                    color: #ffffff;
+                }
+                QPushButton:pressed {
+                    background-color: #1976D2;
+                    border: 1px solid #1565C0;
+                    color: #ffffff;
+                }
             """
             btn_clear = QPushButton("Clear")
+            btn_clear.setIcon(QIcon())
             btn_clear.setStyleSheet(btn_clear_style)
             btn_clear.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_clear.setAutoDefault(False)
@@ -209,6 +230,7 @@ class ShortcutConfigWidget(QWidget):
         layout.addSpacing(4)
         row_reset = QHBoxLayout()
         btn_reset = QPushButton("Reset Shortcuts to Defaults")
+        btn_reset.setIcon(QIcon())
         btn_reset.setStyleSheet(btn_style)
         btn_reset.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_reset.setAutoDefault(False)
