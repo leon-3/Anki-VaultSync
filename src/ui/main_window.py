@@ -7,20 +7,25 @@ from typing import TYPE_CHECKING, Any
 from aqt import dialogs, mw
 from aqt.operations import QueryOp
 from aqt.qt import (
+    QComboBox,
     QDialog,
     QEvent,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QSizePolicy,
+    QStackedWidget,
     Qt,
     QVBoxLayout,
     QWidget,
     sip,
 )
+from aqt.utils import openLink
 from typing import Callable
 
 
@@ -36,6 +41,7 @@ from aqt.utils import tooltip
 from .. import logger
 from ..contracts import SyncPlan, SyncReport
 from ..profile_config import ProfileConfigManager
+from ..vault_detector import DetectedVault, detect_obsidian_vaults
 from ..worker import build_sync_plan, execute_sync_plan
 from .config_window import ConfigWindow
 from .diff_dialog import DiffDialog
@@ -138,7 +144,7 @@ class MainWindow(QDialog):
     def __init__(self, profile_manager: ProfileConfigManager, profile_name: str, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Dashboard")
-        self.resize(760, 330)
+        self.resize(760, 350)
 
         self._manager = profile_manager
         self._profile_name = profile_name
@@ -150,14 +156,7 @@ class MainWindow(QDialog):
         self._config_dlg: ConfigWindow | None = None
 
         self._init_ui()
-        self._refresh_header()
-
-        # Trigger automatic initial scan if vault path is configured
-        if self._settings.vault_path and self._settings.vault_path.is_dir():
-            self._start_scan()
-        else:
-            self._set_status("Vault not configured. Click 'Settings' to select your vault.", state="warning")
-            self._log("Welcome to VaultSync! Click 'Settings' above to select your Obsidian vault.")
+        self._refresh_view()
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -189,10 +188,6 @@ class MainWindow(QDialog):
         header_top.addWidget(self.settings_btn)
         layout.addLayout(header_top)
 
-        # 2. Two-column section: Status / Card counts on the left, Actions on the right
-        middle_layout = QHBoxLayout()
-        middle_layout.setSpacing(14)
-
         box_style = """
             QFrame {
                 border: 1px solid rgba(130, 130, 130, 0.25);
@@ -200,6 +195,193 @@ class MainWindow(QDialog):
                 background-color: rgba(130, 130, 130, 0.04);
             }
         """
+
+        # 2. Stacked container: Empty-State Setup View (Index 0) vs Active Dashboard (Index 1)
+        self.main_stack = QStackedWidget(self)
+
+        # -----------------------------
+        # View 0: Setup Empty-State View
+        # -----------------------------
+        self.setup_widget = QFrame()
+        self.setup_widget.setStyleSheet(box_style)
+        setup_layout = QVBoxLayout(self.setup_widget)
+        setup_layout.setContentsMargins(18, 14, 18, 14)
+        setup_layout.setSpacing(10)
+
+        title_setup = QLabel("Connect Your Obsidian Vault")
+        title_setup.setStyleSheet("font-size: 15px; font-weight: bold; border: none; background: transparent;")
+        setup_layout.addWidget(title_setup)
+
+        desc_setup = QLabel("Select your local vault directory and a target deck to begin.")
+        desc_setup.setStyleSheet("font-size: 12px; color: palette(window-text); opacity: 0.8; border: none; background: transparent;")
+        setup_layout.addWidget(desc_setup)
+
+        # Dynamic Quick Connect Card
+        self.quick_connect_box = QFrame()
+        self.quick_connect_box.setStyleSheet("""
+            QFrame {
+                border: 1px solid rgba(33, 150, 243, 0.35);
+                border-radius: 6px;
+                background-color: rgba(33, 150, 243, 0.08);
+            }
+        """)
+        qc_layout = QHBoxLayout(self.quick_connect_box)
+        qc_layout.setContentsMargins(12, 8, 12, 8)
+        qc_layout.setSpacing(10)
+
+        self.lbl_qc_info = QLabel()
+        self.lbl_qc_info.setStyleSheet("font-size: 12px; border: none; background: transparent;")
+        self.lbl_qc_info.setWordWrap(True)
+        qc_layout.addWidget(self.lbl_qc_info, stretch=1)
+
+        self.btn_quick_connect = QPushButton("Quick Connect & Scan")
+        self.btn_quick_connect.setFixedHeight(32)
+        self.btn_quick_connect.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_quick_connect.setStyleSheet("""
+            QPushButton {
+                font-size: 12px;
+                font-weight: 600;
+                border-radius: 5px;
+                padding: 4px 14px;
+                background-color: palette(highlight);
+                color: palette(highlighted-text);
+            }
+        """)
+        self.btn_quick_connect.clicked.connect(self._on_quick_connect_clicked)
+        qc_layout.addWidget(self.btn_quick_connect)
+        setup_layout.addWidget(self.quick_connect_box)
+
+        # Manual configuration form
+        manual_grid = QGridLayout()
+        manual_grid.setContentsMargins(0, 4, 0, 0)
+        manual_grid.setVerticalSpacing(8)
+        manual_grid.setHorizontalSpacing(10)
+
+        lbl_vpath = QLabel("Vault Folder:")
+        lbl_vpath.setStyleSheet("font-size: 12px; font-weight: 600; border: none; background: transparent;")
+        manual_grid.addWidget(lbl_vpath, 0, 0)
+
+        v_row = QHBoxLayout()
+        v_row.setSpacing(6)
+        self.setup_vault_edit = QLineEdit()
+        self.setup_vault_edit.setFixedHeight(30)
+        self.setup_vault_edit.setPlaceholderText("/path/to/your/obsidian/vault")
+        self.setup_vault_edit.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid rgba(130, 130, 130, 0.35);
+                border-radius: 5px;
+                padding: 4px 8px;
+                font-size: 12px;
+            }
+        """)
+        self.setup_browse_btn = QPushButton("Browse...")
+        self.setup_browse_btn.setFixedHeight(30)
+        self.setup_browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setup_browse_btn.clicked.connect(self._on_setup_browse)
+        v_row.addWidget(self.setup_vault_edit)
+        v_row.addWidget(self.setup_browse_btn)
+        manual_grid.addLayout(v_row, 0, 1)
+
+        lbl_tdeck = QLabel("Default Deck:")
+        lbl_tdeck.setStyleSheet("font-size: 12px; font-weight: 600; border: none; background: transparent;")
+        manual_grid.addWidget(lbl_tdeck, 1, 0)
+
+        self.setup_deck_combo = QComboBox()
+        self.setup_deck_combo.setEditable(True)
+        self.setup_deck_combo.setFixedHeight(30)
+        self.setup_deck_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.setup_deck_combo.setStyleSheet("""
+            QComboBox {
+                border: 1px solid rgba(130, 130, 130, 0.35);
+                border-radius: 5px;
+                padding: 4px 8px;
+                font-size: 12px;
+            }
+        """)
+        manual_grid.addWidget(self.setup_deck_combo, 1, 1)
+
+        setup_layout.addLayout(manual_grid)
+
+        # Action button row: Save and Scan
+        act_row = QHBoxLayout()
+        self.btn_save_and_scan = QPushButton("Save and Scan Vault")
+        self.btn_save_and_scan.setFixedHeight(34)
+        self.btn_save_and_scan.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_save_and_scan.setStyleSheet("""
+            QPushButton {
+                font-size: 12px;
+                font-weight: 600;
+                border-radius: 6px;
+                padding: 6px 16px;
+                background-color: palette(highlight);
+                color: palette(highlighted-text);
+            }
+        """)
+        self.btn_save_and_scan.clicked.connect(self._on_save_and_scan_clicked)
+        act_row.addWidget(self.btn_save_and_scan)
+        act_row.addStretch()
+        setup_layout.addLayout(act_row)
+
+        # Subtle divider & Guide buttons
+        div_line = QFrame()
+        div_line.setStyleSheet("border: none; background-color: rgba(130, 130, 130, 0.2); max-height: 1px;")
+        setup_layout.addWidget(div_line)
+
+        guides_layout = QHBoxLayout()
+        guides_layout.setSpacing(10)
+
+        btn_first_guide = QPushButton("First User Guide ↗")
+        btn_first_guide.setFixedHeight(28)
+        btn_first_guide.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_first_guide.setStyleSheet("""
+            QPushButton {
+                font-size: 11px;
+                border: 1px solid rgba(130, 130, 130, 0.3);
+                border-radius: 4px;
+                padding: 3px 10px;
+                background: transparent;
+            }
+            QPushButton:hover {
+                background: rgba(130, 130, 130, 0.1);
+            }
+        """)
+        btn_first_guide.clicked.connect(
+            lambda: openLink("https://github.com/leon-3/Anki-VaultSync#dashboard-overview")
+        )
+
+        btn_doc_guide = QPushButton("Documentation / Card Syntax ↗")
+        btn_doc_guide.setFixedHeight(28)
+        btn_doc_guide.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_doc_guide.setStyleSheet("""
+            QPushButton {
+                font-size: 11px;
+                border: 1px solid rgba(130, 130, 130, 0.3);
+                border-radius: 4px;
+                padding: 3px 10px;
+                background: transparent;
+            }
+            QPushButton:hover {
+                background: rgba(130, 130, 130, 0.1);
+            }
+        """)
+        btn_doc_guide.clicked.connect(
+            lambda: openLink("https://github.com/leon-3/Anki-VaultSync#note-syntax--conventions")
+        )
+
+        guides_layout.addWidget(btn_first_guide)
+        guides_layout.addWidget(btn_doc_guide)
+        guides_layout.addStretch()
+        setup_layout.addLayout(guides_layout)
+
+        self.main_stack.addWidget(self.setup_widget)
+
+        # -----------------------------
+        # View 1: Active Dashboard View
+        # -----------------------------
+        self.dashboard_widget = QWidget()
+        middle_layout = QHBoxLayout(self.dashboard_widget)
+        middle_layout.setContentsMargins(0, 0, 0, 0)
+        middle_layout.setSpacing(14)
 
         # Left Column: Card Counts
         status_box = QFrame()
@@ -320,7 +502,8 @@ class MainWindow(QDialog):
         actions_layout.addStretch()
 
         middle_layout.addWidget(actions_box, stretch=1)
-        layout.addLayout(middle_layout)
+        self.main_stack.addWidget(self.dashboard_widget)
+        layout.addWidget(self.main_stack)
 
         # Error Banner
         self.error_banner = ErrorBannerWidget(self, on_open_logs=lambda: self._open_settings(tab_index="Logs"))
@@ -374,6 +557,103 @@ class MainWindow(QDialog):
         self._undo_shortcut.activated.connect(self._on_undo_triggered)
         self._redo_shortcut = QShortcut(QKeySequence.StandardKey.Redo, self)
         self._redo_shortcut.activated.connect(self._on_redo_triggered)
+
+    def _refresh_view(self) -> None:
+        self._settings = self._manager.load(self._profile_name)
+        has_valid_vault = bool(self._settings.vault_path and self._settings.vault_path.is_dir())
+
+        self._populate_setup_fields()
+
+        if has_valid_vault:
+            self.main_stack.setCurrentWidget(self.dashboard_widget)
+            self._refresh_header()
+            self._start_scan()
+        else:
+            self.main_stack.setCurrentWidget(self.setup_widget)
+            self.vault_label.setText("<b>Vault:</b> (Not Connected)")
+            self._set_status("No vault connected. Configure your vault to begin.", state="warning")
+
+    def _populate_setup_fields(self) -> None:
+        self.setup_deck_combo.clear()
+        deck_names: list[str] = []
+        if mw is not None and getattr(mw, "col", None) is not None and hasattr(mw.col, "decks"):
+            try:
+                deck_names = sorted(mw.col.decks.all_names())
+            except Exception:
+                pass
+        if not deck_names:
+            deck_names = ["Default"]
+        for d in deck_names:
+            self.setup_deck_combo.addItem(d)
+
+        default_idx = self.setup_deck_combo.findText("Default")
+        if default_idx >= 0:
+            self.setup_deck_combo.setCurrentIndex(default_idx)
+
+        detected = detect_obsidian_vaults()
+        self._detected_vaults = list(detected)
+        if self._detected_vaults:
+            best = self._detected_vaults[0]
+            self._primary_detected = best
+            open_str = " (Active)" if best.is_open else ""
+            self.lbl_qc_info.setText(
+                f"<b>Detected Vault:</b> {best.name}{open_str}<br>"
+                f"<span style='color: palette(window-text); opacity: 0.75;'>{best.path}</span>"
+            )
+            self.quick_connect_box.setVisible(True)
+            self.setup_vault_edit.setText(str(best.path))
+        else:
+            self._primary_detected = None
+            self.quick_connect_box.setVisible(False)
+            if self._settings.vault_path:
+                self.setup_vault_edit.setText(str(self._settings.vault_path))
+
+    def _on_quick_connect_clicked(self) -> None:
+        if not getattr(self, "_primary_detected", None):
+            return
+        target_deck = self.setup_deck_combo.currentText().strip() or "Default"
+        self._save_vault_and_start(self._primary_detected.path, target_deck)
+
+    def _on_setup_browse(self) -> None:
+        curr = self.setup_vault_edit.text().strip() or str(Path.home())
+        selected = QFileDialog.getExistingDirectory(self, "Select Obsidian Vault Folder", curr)
+        if selected:
+            self.setup_vault_edit.setText(selected)
+
+    def _on_save_and_scan_clicked(self) -> None:
+        raw = self.setup_vault_edit.text().strip()
+        if not raw:
+            QMessageBox.warning(self, "Invalid Vault", "Please specify an Obsidian vault directory.")
+            return
+        p = Path(raw).expanduser().resolve()
+        if not p.is_dir():
+            QMessageBox.warning(self, "Invalid Directory", f"The folder '{p}' does not exist.")
+            return
+        target_deck = self.setup_deck_combo.currentText().strip() or "Default"
+        self._save_vault_and_start(p, target_deck)
+
+    def _save_vault_and_start(self, vault_path: Path, target_deck: str) -> None:
+        self._settings = self._manager.load(self._profile_name)
+        self._settings.vault_path = vault_path
+        self._settings.onboarding_completed = True
+        self._manager.save(self._settings)
+
+        try:
+            cfg = self._manager.load_vault(vault_path)
+            if not cfg.deck or cfg.deck == "Default":
+                cfg.deck = target_deck
+            self._manager.save_vault(vault_path, cfg)
+        except Exception:
+            pass
+
+        self._refresh_view()
+
+    def _refresh_header(self) -> None:
+        self._settings = self._manager.load(self._profile_name)
+        if self._settings.vault_path:
+            self.vault_label.setText(f"<b>Vault:</b> {self._settings.vault_path}")
+        else:
+            self.vault_label.setText("<b>Vault:</b> (Not Connected)")
 
     def _on_undo_triggered(self) -> None:
         if self._is_busy:
@@ -758,10 +1038,7 @@ class MainWindow(QDialog):
         def _on_accepted() -> None:
             if _is_deleted(self):
                 return
-            self._settings = self._manager.load(self._profile_name)
-            self._refresh_header()
-            if self._settings.vault_path and self._settings.vault_path.is_dir():
-                self._start_scan()
+            self._refresh_view()
 
         from .menu import open_settings
         self._config_dlg = open_settings(

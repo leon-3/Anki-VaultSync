@@ -253,7 +253,7 @@ def test_main_window_dashboard_layout(tmp_path: Path):
 
     win = MainWindow(manager, "TestDashboard")
     assert win.vault_label is not None
-    assert "(Not Configured)" in win.vault_label.text()
+    assert "(Not Connected)" in win.vault_label.text() or "(Not Configured)" in win.vault_label.text()
     assert win.settings_btn.text() == "Settings"
     assert win.change_vault_btn.text() == "Settings"
     assert not hasattr(win, "orphans_btn")
@@ -1116,3 +1116,35 @@ def test_delete_orphans_warning_suspended_and_active(tmp_path: Path, monkeypatch
     assert "Are you sure you want to permanently delete 2 orphaned note(s) from Anki?" in recorded_warnings[1][1]
 
     dlg.close()
+
+
+def test_main_window_setup_view_quick_connect_and_manual(tmp_path: Path, monkeypatch):
+    from src.vault_detector import DetectedVault
+    import src.ui.main_window as mw_mod
+
+    v1 = tmp_path / "DetectedNotes"
+    v1.mkdir()
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+
+    detected = [DetectedVault(name="DetectedNotes", path=v1, is_open=True, ts=500)]
+    monkeypatch.setattr(mw_mod, "detect_obsidian_vaults", lambda: detected)
+
+    win = MainWindow(manager, "TestSetup")
+    # Must start in setup view (index 0)
+    assert win.main_stack.currentIndex() == 0
+    assert not win.quick_connect_box.isHidden()
+    assert "DetectedNotes" in win.lbl_qc_info.text()
+    assert win.setup_vault_edit.text() == str(v1)
+
+    # Click quick connect & scan
+    win._on_quick_connect_clicked()
+
+    # Settings must now have vault_path and onboarding_completed = True
+    saved = manager.load("TestSetup")
+    assert saved.vault_path == v1
+    assert saved.onboarding_completed is True
+    # Stack must switch to dashboard view (index 1)
+    assert win.main_stack.currentIndex() == 1
+    assert str(v1) in win.vault_label.text()
+    win.close()
