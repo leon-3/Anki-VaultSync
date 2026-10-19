@@ -136,6 +136,13 @@ def _create_section_card(title: str | None = None, subtitle: str | None = None) 
     return card, layout
 
 
+
+def _create_setting_hint(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setStyleSheet("font-size: 11px; color: rgba(180, 180, 180, 0.7); margin-left: 24px; border: none; background: transparent;")
+    lbl.setWordWrap(True)
+    return lbl
+
 class ConfigWindow(QDialog):
     """Modern, tabbed settings configurator for Anki-VaultSync."""
 
@@ -163,8 +170,39 @@ class ConfigWindow(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Settings")
-        self.resize(760, 540)
+        self.resize(760, 560)
         self.setWindowModality(Qt.WindowModality.NonModal)
+        self.setStyleSheet("""
+            QCheckBox {
+                font-size: 12px;
+                spacing: 8px;
+                color: palette(window-text);
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1.5px solid rgba(150, 150, 150, 0.75);
+                border-radius: 4px;
+                background-color: rgba(130, 130, 130, 0.12);
+            }
+            QCheckBox::indicator:hover {
+                border: 1.5px solid #2196F3;
+                background-color: rgba(33, 150, 243, 0.15);
+            }
+            QCheckBox::indicator:checked {
+                background-color: #2196F3;
+                border: 1.5px solid #1E88E5;
+                image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'></polyline></svg>");
+            }
+            QCheckBox::indicator:checked:hover {
+                background-color: #1976D2;
+                border: 1.5px solid #1565C0;
+            }
+            QCheckBox::indicator:disabled {
+                border: 1.5px solid rgba(130, 130, 130, 0.3);
+                background-color: rgba(130, 130, 130, 0.05);
+            }
+        """)
 
         self._manager = profile_manager
         self._profile_name = profile_name
@@ -227,9 +265,10 @@ class ConfigWindow(QDialog):
         super().showEvent(event)
         self.setFocus()
 
-    def _help_button(self, key: str) -> HelpBadge:
-        tip_text = TOOLTIPS.get(key, "No help available.")
-        return HelpBadge(tip_text)
+    def _help_button(self, key: str) -> QWidget:
+        w = QWidget()
+        w.setVisible(False)
+        return w
 
     def _wrap_tab_in_scroll(self, tab_widget: QWidget, content_widget: QWidget) -> None:
         outer_layout = QVBoxLayout(tab_widget)
@@ -381,6 +420,7 @@ class ConfigWindow(QDialog):
 
         lbl_vault = QLabel("Obsidian Vault Folder:")
         lbl_vault.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        lbl_vault.setToolTip(TOOLTIPS.get("vault_path", ""))
         card_dirs_l.addWidget(lbl_vault)
 
         vault_row = QHBoxLayout()
@@ -388,6 +428,7 @@ class ConfigWindow(QDialog):
         self.vault_edit = QLineEdit()
         self.vault_edit.setStyleSheet(input_style)
         self.vault_edit.setPlaceholderText("Select Obsidian vault folder...")
+        self.vault_edit.setToolTip(TOOLTIPS.get("vault_path", ""))
         _dim_placeholder(self.vault_edit)
         vault_browse = QPushButton("Browse...")
         vault_browse.setStyleSheet(btn_style)
@@ -395,13 +436,13 @@ class ConfigWindow(QDialog):
         vault_browse.clicked.connect(self._browse_vault)
         vault_row.addWidget(self.vault_edit, 1)
         vault_row.addWidget(vault_browse)
-        vault_row.addWidget(self._help_button("vault_path"))
         card_dirs_l.addLayout(vault_row)
 
         card_dirs_l.addSpacing(4)
 
         lbl_deck = QLabel("Default Target Deck:")
         lbl_deck.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        lbl_deck.setToolTip(TOOLTIPS.get("default_deck", ""))
         card_dirs_l.addWidget(lbl_deck)
 
         deck_row = QHBoxLayout()
@@ -409,6 +450,7 @@ class ConfigWindow(QDialog):
         self.deck_combo = QComboBox()
         self.deck_combo.setStyleSheet(input_style + " QComboBox { min-width: 220px; }")
         self.deck_combo.setEditable(True)
+        self.deck_combo.setToolTip(TOOLTIPS.get("default_deck", ""))
         if mw is not None and hasattr(mw, "col") and mw.col is not None:
             for d in mw.col.decks.all_names_and_ids():
                 try:
@@ -421,7 +463,6 @@ class ConfigWindow(QDialog):
                     pass
                 self.deck_combo.addItem(d.name)
         deck_row.addWidget(self.deck_combo, 1)
-        deck_row.addWidget(self._help_button("default_deck"))
         card_dirs_l.addLayout(deck_row)
         top_row.addWidget(card_dirs, stretch=2)
 
@@ -432,6 +473,7 @@ class ConfigWindow(QDialog):
         )
         self.ignore_edit = QPlainTextEdit()
         self.ignore_edit.setPlaceholderText("e.g. .obsidian\ntemplates/*\narchive")
+        self.ignore_edit.setToolTip(TOOLTIPS.get("ignore", ""))
         _dim_placeholder(self.ignore_edit)
         self.ignore_edit.setMinimumHeight(65)
         self.ignore_edit.setStyleSheet("""
@@ -458,47 +500,35 @@ class ConfigWindow(QDialog):
         grid_sync = QGridLayout()
         grid_sync.setContentsMargins(0, 2, 0, 2)
         grid_sync.setHorizontalSpacing(24)
-        grid_sync.setVerticalSpacing(8)
+        grid_sync.setVerticalSpacing(10)
 
-        # Top-Left (Row 0, Col 0): Safety Backup (Most important safety feature)
+        # Top-Left (Row 0, Col 0): Safety Backup (Most important)
         self.backup_before_sync_cb = QCheckBox("Create Collection Backup Before Sync")
-        self.backup_before_sync_cb.setStyleSheet("font-size: 12px;")
-        r_back = QHBoxLayout()
-        r_back.setSpacing(6)
-        r_back.addWidget(self.backup_before_sync_cb)
-        r_back.addWidget(self._help_button("backup_before_sync"))
-        r_back.addStretch()
-        grid_sync.addLayout(r_back, 0, 0)
+        self.backup_before_sync_cb.setToolTip(TOOLTIPS.get("backup_before_sync", ""))
+        b_box = QVBoxLayout()
+        b_box.setSpacing(2)
+        b_box.addWidget(self.backup_before_sync_cb)
+        b_box.addWidget(_create_setting_hint("Creates an automatic snapshot in Anki's native backup system before sync."))
+        grid_sync.addLayout(b_box, 0, 0)
 
         # Top-Right (Row 0, Col 1): Auto-sync on startup
         self.sync_on_startup_cb = QCheckBox("Auto-sync on Anki Startup (Background)")
-        self.sync_on_startup_cb.setStyleSheet("font-size: 12px;")
-        r_start = QHBoxLayout()
-        r_start.setSpacing(6)
-        r_start.addWidget(self.sync_on_startup_cb)
-        r_start.addWidget(self._help_button("sync_on_startup"))
-        r_start.addStretch()
-        grid_sync.addLayout(r_start, 0, 1)
+        self.sync_on_startup_cb.setToolTip(TOOLTIPS.get("sync_on_startup", ""))
+        grid_sync.addWidget(self.sync_on_startup_cb, 0, 1)
 
         # Bottom-Left (Row 1, Col 0): Close Dashboard on successful sync
         self.auto_close_cb = QCheckBox("Close Dashboard on Successful Sync")
-        self.auto_close_cb.setStyleSheet("font-size: 12px;")
-        r_close = QHBoxLayout()
-        r_close.setSpacing(6)
-        r_close.addWidget(self.auto_close_cb)
-        r_close.addWidget(self._help_button("auto_close_on_success"))
-        r_close.addStretch()
-        grid_sync.addLayout(r_close, 1, 0)
+        self.auto_close_cb.setToolTip(TOOLTIPS.get("auto_close_on_success", ""))
+        grid_sync.addWidget(self.auto_close_cb, 1, 0)
 
-        # Bottom-Right (Row 1, Col 1): Show Diff Preview Before Updating (Explicitly requested!)
+        # Bottom-Right (Row 1, Col 1): Show Diff Preview Before Updating (Requested bottom-right)
         self.show_diff_cb = QCheckBox("Show Diff Preview Before Updating")
-        self.show_diff_cb.setStyleSheet("font-size: 12px;")
-        r_diff = QHBoxLayout()
-        r_diff.setSpacing(6)
-        r_diff.addWidget(self.show_diff_cb)
-        r_diff.addWidget(self._help_button("show_diff_before_update"))
-        r_diff.addStretch()
-        grid_sync.addLayout(r_diff, 1, 1)
+        self.show_diff_cb.setToolTip(TOOLTIPS.get("show_diff_before_update", ""))
+        d_box = QVBoxLayout()
+        d_box.setSpacing(2)
+        d_box.addWidget(self.show_diff_cb)
+        d_box.addWidget(_create_setting_hint("Visual side-by-side comparison to inspect and selectively approve edits."))
+        grid_sync.addLayout(d_box, 1, 1)
 
         card_sync_l.addLayout(grid_sync)
         layout.addWidget(card_sync)
@@ -552,6 +582,7 @@ class ConfigWindow(QDialog):
         self.routing_table.setMinimumHeight(125)
         self.routing_table.setMaximumHeight(145)
         self.routing_table.setStyleSheet(table_style)
+        self.routing_table.setToolTip(TOOLTIPS.get("deck_routing", ""))
         card_rules_l.addWidget(self.routing_table)
         card_rules_l.addSpacing(6)
 
@@ -575,7 +606,6 @@ class ConfigWindow(QDialog):
         btn_row.addWidget(add_btn)
         btn_row.addWidget(browse_btn)
         btn_row.addWidget(remove_btn)
-        btn_row.addWidget(self._help_button("deck_routing"))
         btn_row.addStretch()
         card_rules_l.addLayout(btn_row)
         layout.addWidget(card_rules)
@@ -591,19 +621,19 @@ class ConfigWindow(QDialog):
 
         lbl_tag = QLabel("Base Tag Prefix:")
         lbl_tag.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        lbl_tag.setToolTip(TOOLTIPS.get("base_tag", ""))
         row_tsettings.addWidget(lbl_tag)
 
         self.tag_edit = QLineEdit()
         self.tag_edit.setPlaceholderText("Optional: e.g. vaultsync")
         self.tag_edit.setMaximumWidth(200)
+        self.tag_edit.setToolTip(TOOLTIPS.get("base_tag", ""))
         _dim_placeholder(self.tag_edit)
         row_tsettings.addWidget(self.tag_edit)
-        row_tsettings.addWidget(self._help_button("base_tag"))
 
         self.pad_single_digits_cb = QCheckBox("Pad Folder Numbers (01, 02...)")
-        self.pad_single_digits_cb.setStyleSheet("font-size: 12px;")
+        self.pad_single_digits_cb.setToolTip(TOOLTIPS.get("pad_single_digit_tags", ""))
         row_tsettings.addWidget(self.pad_single_digits_cb)
-        row_tsettings.addWidget(self._help_button("pad_single_digit_tags"))
         row_tsettings.addStretch()
         card_tag_l.addLayout(row_tsettings)
 
@@ -615,6 +645,7 @@ class ConfigWindow(QDialog):
         self.alias_table.setMinimumHeight(125)
         self.alias_table.setMaximumHeight(145)
         self.alias_table.setStyleSheet(table_style)
+        self.alias_table.setToolTip(TOOLTIPS.get("tag_aliases", ""))
         card_tag_l.addWidget(self.alias_table)
         card_tag_l.addSpacing(6)
 
@@ -638,7 +669,6 @@ class ConfigWindow(QDialog):
         alias_btn_row.addWidget(add_alias_btn)
         alias_btn_row.addWidget(browse_alias_btn)
         alias_btn_row.addWidget(remove_alias_btn)
-        alias_btn_row.addWidget(self._help_button("tag_aliases"))
         alias_btn_row.addStretch()
         card_tag_l.addLayout(alias_btn_row)
 
@@ -674,16 +704,14 @@ class ConfigWindow(QDialog):
             "Configure parsing and scheduling of {{c1::...}} cloze deletion notes.",
         )
         row_c = QHBoxLayout()
-        row_c.setSpacing(16)
+        row_c.setSpacing(24)
         self.cloze_cb = QCheckBox("Enable Cloze Syntax Processing")
-        self.cloze_cb.setStyleSheet("font-size: 12px;")
+        self.cloze_cb.setToolTip(TOOLTIPS.get("cloze_notes", ""))
         row_c.addWidget(self.cloze_cb)
-        row_c.addWidget(self._help_button("cloze_notes"))
 
         self.suspend_new_clozes_cb = QCheckBox("Suspend Newly Created Cloze Cards")
-        self.suspend_new_clozes_cb.setStyleSheet("font-size: 12px;")
+        self.suspend_new_clozes_cb.setToolTip(TOOLTIPS.get("suspend_new_clozes", ""))
         row_c.addWidget(self.suspend_new_clozes_cb)
-        row_c.addWidget(self._help_button("suspend_new_clozes"))
         row_c.addStretch()
         card_cloze_l.addLayout(row_c)
         layout.addWidget(card_cloze)
@@ -704,11 +732,15 @@ class ConfigWindow(QDialog):
         self.image_occlusion_mode_combo.setStyleSheet(input_style + " QComboBox { min-width: 280px; }")
         self.image_occlusion_mode_combo.addItem("Direct Native Image Occlusions (Recommended)", userData="native")
         self.image_occlusion_mode_combo.addItem("Folder Staging (Legacy / Manual)", userData="stage")
+        self.image_occlusion_mode_combo.setToolTip(TOOLTIPS.get("image_occlusion_mode", ""))
         self.image_occlusion_mode_combo.currentIndexChanged.connect(self._on_io_mode_changed)
         row_mode.addWidget(self.image_occlusion_mode_combo)
-        row_mode.addWidget(self._help_button("image_occlusion_mode"))
         row_mode.addStretch()
         card_io_l.addLayout(row_mode)
+
+        lbl_iom_hint = QLabel("Native mode embeds masks directly into collection.media. Staging mode exports images to an external occlusions/ folder.")
+        lbl_iom_hint.setStyleSheet("font-size: 11px; color: rgba(180, 180, 180, 0.7); margin-left: 48px;")
+        card_io_l.addWidget(lbl_iom_hint)
 
         # Dynamic staging folder row (hidden in native mode)
         self.staging_folder_row = QWidget()
@@ -723,6 +755,7 @@ class ConfigWindow(QDialog):
         self.occlusion_edit = QLineEdit()
         self.occlusion_edit.setStyleSheet(input_style)
         self.occlusion_edit.setPlaceholderText("Output folder for staged occlusions...")
+        self.occlusion_edit.setToolTip(TOOLTIPS.get("occlusion_dir", ""))
         _dim_placeholder(self.occlusion_edit)
         occ_browse = QPushButton("Browse...")
         occ_browse.setStyleSheet(btn_style)
@@ -730,25 +763,25 @@ class ConfigWindow(QDialog):
         occ_browse.clicked.connect(self._browse_occlusion)
         sf_layout.addWidget(self.occlusion_edit, 1)
         sf_layout.addWidget(occ_browse)
-        sf_layout.addWidget(self._help_button("occlusion_dir"))
         card_io_l.addWidget(self.staging_folder_row)
 
         row_io_opts = QHBoxLayout()
         row_io_opts.setSpacing(16)
         self.suspend_new_occlusions_cb = QCheckBox("Suspend New Occlusions Until Masked")
-        self.suspend_new_occlusions_cb.setStyleSheet("font-size: 12px;")
-        row_io_opts.addWidget(self.suspend_new_occlusions_cb)
-        row_io_opts.addWidget(self._help_button("suspend_new_occlusions"))
+        self.suspend_new_occlusions_cb.setToolTip(TOOLTIPS.get("suspend_new_occlusions", ""))
+        box_occ_susp = QVBoxLayout()
+        box_occ_susp.setSpacing(2)
+        box_occ_susp.addWidget(self.suspend_new_occlusions_cb)
+        box_occ_susp.addWidget(_create_setting_hint("Prevents empty-card review errors until masks are drawn in Anki."))
+        row_io_opts.addLayout(box_occ_susp)
 
         self.re_stage_cb = QCheckBox("Re-export Existing Occlusion Images")
-        self.re_stage_cb.setStyleSheet("font-size: 12px;")
+        self.re_stage_cb.setToolTip(TOOLTIPS.get("re_stage_occlusions", ""))
         row_io_opts.addWidget(self.re_stage_cb)
-        row_io_opts.addWidget(self._help_button("re_stage_occlusions"))
 
         self.freeze_image_occlusions_cb = QCheckBox("Freeze Occlusion Notes (Skip Updates)")
-        self.freeze_image_occlusions_cb.setStyleSheet("font-size: 12px;")
+        self.freeze_image_occlusions_cb.setToolTip(TOOLTIPS.get("freeze_image_occlusions", ""))
         row_io_opts.addWidget(self.freeze_image_occlusions_cb)
-        row_io_opts.addWidget(self._help_button("freeze_image_occlusions"))
         row_io_opts.addStretch()
         card_io_l.addLayout(row_io_opts)
         layout.addWidget(card_io)
@@ -759,50 +792,41 @@ class ConfigWindow(QDialog):
             "Manage deterministic image hashing and optional custom Anki note type bindings.",
         )
 
-        row_media = QHBoxLayout()
+        box_media = QVBoxLayout()
+        box_media.setSpacing(2)
         self.hash_media_cb = QCheckBox("Hash Media (Rename images with deterministic 8-character hex hash)")
-        self.hash_media_cb.setStyleSheet("font-size: 12px;")
-        row_media.addWidget(self.hash_media_cb)
-        row_media.addWidget(self._help_button("hash_media"))
-        row_media.addStretch()
-        card_bind_l.addLayout(row_media)
+        self.hash_media_cb.setToolTip(TOOLTIPS.get("hash_media", ""))
+        box_media.addWidget(self.hash_media_cb)
+        box_media.addWidget(_create_setting_hint("Prevents filename collisions and case-sensitivity issues across devices."))
+        card_bind_l.addLayout(box_media)
 
         grid_models = QGridLayout()
         grid_models.setContentsMargins(0, 4, 0, 0)
         grid_models.setHorizontalSpacing(16)
-        grid_models.setVerticalSpacing(6)
+        grid_models.setVerticalSpacing(8)
 
-        lbl_b = QLabel("Basic Note Type:")
-        lbl_b.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
-        grid_models.addWidget(lbl_b, 0, 0)
+        lbl_bm = QLabel("Basic Note Type:")
+        lbl_bm.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        lbl_bm.setToolTip(TOOLTIPS.get("basic_model_id", ""))
+        grid_models.addWidget(lbl_bm, 0, 0)
 
         self.basic_model_combo = QComboBox()
-        self.basic_model_combo.setStyleSheet(input_style + " QComboBox { min-width: 240px; }")
-        self.basic_model_combo.addItem("Default (M2A Basic)", userData=None)
-        if mw is not None and hasattr(mw, "col") and mw.col is not None:
-            for m in mw.col.models.all():
-                if m.get("type", 0) == 0:
-                    self.basic_model_combo.addItem(m["name"], userData=int(m["id"]))
+        self.basic_model_combo.setStyleSheet(input_style + " QComboBox { min-width: 220px; }")
+        self.basic_model_combo.setToolTip(TOOLTIPS.get("basic_model_id", ""))
         grid_models.addWidget(self.basic_model_combo, 0, 1)
-        grid_models.addWidget(self._help_button("basic_model_id"), 0, 2)
 
-        lbl_c = QLabel("Cloze Note Type:")
-        lbl_c.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
-        grid_models.addWidget(lbl_c, 1, 0)
+        lbl_cm = QLabel("Cloze Note Type:")
+        lbl_cm.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        lbl_cm.setToolTip(TOOLTIPS.get("cloze_model_id", ""))
+        grid_models.addWidget(lbl_cm, 1, 0)
 
         self.cloze_model_combo = QComboBox()
-        self.cloze_model_combo.setStyleSheet(input_style + " QComboBox { min-width: 240px; }")
-        self.cloze_model_combo.addItem("Default (M2A Cloze)", userData=None)
-        if mw is not None and hasattr(mw, "col") and mw.col is not None:
-            for m in mw.col.models.all():
-                if m.get("type", 1) == 1:
-                    self.cloze_model_combo.addItem(m["name"], userData=int(m["id"]))
+        self.cloze_model_combo.setStyleSheet(input_style + " QComboBox { min-width: 220px; }")
+        self.cloze_model_combo.setToolTip(TOOLTIPS.get("cloze_model_id", ""))
         grid_models.addWidget(self.cloze_model_combo, 1, 1)
-        grid_models.addWidget(self._help_button("cloze_model_id"), 1, 2)
+        grid_models.setColumnStretch(2, 1)
 
-        grid_models.setColumnStretch(3, 1)
         card_bind_l.addLayout(grid_models)
-
         layout.addWidget(card_bind)
         layout.addStretch()
 
@@ -898,7 +922,6 @@ class ConfigWindow(QDialog):
         orph_btns.addWidget(self.view_orphans_btn)
         orph_btns.addWidget(self.suspend_orphans_btn)
         orph_btns.addWidget(self.delete_orphans_btn)
-        orph_btns.addWidget(self._help_button("orphaned_cards"))
         orph_btns.addStretch()
         card_orph_l.addLayout(orph_btns)
 
@@ -966,7 +989,6 @@ class ConfigWindow(QDialog):
         action_row.addWidget(self.mark_deleted_btn)
         action_row.addWidget(self.resync_missing_btn)
         action_row.addWidget(refresh_maint_btn)
-        action_row.addWidget(self._help_button("missing_in_anki"))
         action_row.addStretch()
         card_del_l.addLayout(action_row)
         layout.addWidget(card_del)
@@ -1388,13 +1410,13 @@ class ConfigWindow(QDialog):
         self.sc_dash_edit = QKeySequenceEdit()
         self.sc_dash_edit.setStyleSheet(input_style)
         self.sc_dash_edit.setMaximumWidth(170)
+        self.sc_dash_edit.setToolTip(TOOLTIPS.get("shortcuts_open_dashboard", ""))
         btn_c_dash = QPushButton("Clear")
         btn_c_dash.setStyleSheet(btn_clear_style)
         btn_c_dash.clicked.connect(lambda: self.sc_dash_edit.setKeySequence(QKeySequence()))
         r_dash = QHBoxLayout()
         r_dash.addWidget(self.sc_dash_edit)
         r_dash.addWidget(btn_c_dash)
-        r_dash.addWidget(self._help_button("shortcuts_open_dashboard"))
         grid_sc.addLayout(r_dash, 0, 1)
 
         self.sc_dash_warn = QLabel()
@@ -1409,13 +1431,13 @@ class ConfigWindow(QDialog):
         self.sc_quick_edit = QKeySequenceEdit()
         self.sc_quick_edit.setStyleSheet(input_style)
         self.sc_quick_edit.setMaximumWidth(170)
+        self.sc_quick_edit.setToolTip(TOOLTIPS.get("shortcuts_quick_sync", ""))
         btn_c_quick = QPushButton("Clear")
         btn_c_quick.setStyleSheet(btn_clear_style)
         btn_c_quick.clicked.connect(lambda: self.sc_quick_edit.setKeySequence(QKeySequence()))
         r_quick = QHBoxLayout()
         r_quick.addWidget(self.sc_quick_edit)
         r_quick.addWidget(btn_c_quick)
-        r_quick.addWidget(self._help_button("shortcuts_quick_sync"))
         grid_sc.addLayout(r_quick, 2, 1)
 
         self.sc_quick_warn = QLabel()
@@ -1430,13 +1452,13 @@ class ConfigWindow(QDialog):
         self.sc_full_edit = QKeySequenceEdit()
         self.sc_full_edit.setStyleSheet(input_style)
         self.sc_full_edit.setMaximumWidth(170)
+        self.sc_full_edit.setToolTip(TOOLTIPS.get("shortcuts_full_sync", ""))
         btn_c_full = QPushButton("Clear")
         btn_c_full.setStyleSheet(btn_clear_style)
         btn_c_full.clicked.connect(lambda: self.sc_full_edit.setKeySequence(QKeySequence()))
         r_full = QHBoxLayout()
         r_full.addWidget(self.sc_full_edit)
         r_full.addWidget(btn_c_full)
-        r_full.addWidget(self._help_button("shortcuts_full_sync"))
         grid_sc.addLayout(r_full, 4, 1)
 
         self.sc_full_warn = QLabel()
