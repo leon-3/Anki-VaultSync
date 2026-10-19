@@ -250,7 +250,7 @@ class SyncIssuesDialog(QDialog):
         # External modification banner if applicable
         if self._report is not None and self._report.externally_modified_files:
             banner = QLabel(
-                f"<b>⚠️ External Edits Detected:</b> {len(self._report.externally_modified_files)} note(s) were modified in "
+                f"<b>Warning: External Edits Detected:</b> {len(self._report.externally_modified_files)} note(s) were modified in "
                 "Obsidian while VaultSync was open. They were skipped to protect your edits from being overwritten.<br>"
                 "Click <b>'Re-scan Vault Now'</b> below to incorporate the latest changes."
             )

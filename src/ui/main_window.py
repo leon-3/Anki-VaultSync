@@ -62,7 +62,7 @@ class ErrorBannerWidget(QFrame):
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(10)
 
-        self.icon_lbl = QLabel("⚠️")
+        self.icon_lbl = QLabel("!")
         self.icon_lbl.setStyleSheet("font-size: 14px;")
         layout.addWidget(self.icon_lbl)
 
@@ -850,7 +850,7 @@ class MainWindow(QDialog):
         skipped_cards = plan.skipped_cards_count
 
         if issues_count > 0:
-            status_text = f"Ready · ⚠️ {issues_count} issue(s) detected"
+            status_text = f"Ready · {issues_count} issue(s) detected"
             if skipped_cards > 0:
                 status_text += f" ({skipped_cards} card(s) will be skipped)"
             self._set_status(status_text, state="warning", show_issues=True)

@@ -122,14 +122,12 @@ def test_config_window_instantiation(tmp_path: Path):
     manager = ProfileConfigManager(config_path=cfg_file)
 
     dlg = ConfigWindow(manager, "TestProfile")
-    assert dlg.tabs.count() == 7
-    assert dlg.tabs.tabText(0) == "General"
-    assert dlg.tabs.tabText(1) == "Deck Routing"
-    assert dlg.tabs.tabText(2) == "Tag Aliasing"
-    assert dlg.tabs.tabText(3) == "Card Rules and Media"
-    assert dlg.tabs.tabText(4) == "Advanced"
-    assert dlg.tabs.tabText(5) == "Maintenance"
-    assert dlg.tabs.tabText(6) == "Logs"
+    assert dlg.tabs.count() == 5
+    assert dlg.tabs.tabText(0) == "General & Sync"
+    assert dlg.tabs.tabText(1) == "Decks & Tags"
+    assert dlg.tabs.tabText(2) == "Card Types & Media"
+    assert dlg.tabs.tabText(3) == "Maintenance & Excludes"
+    assert dlg.tabs.tabText(4) == "Shortcuts & Logs"
     assert dlg.vault_edit is not None
     assert dlg.deck_combo is not None
     assert dlg.basic_model_combo is not None
@@ -279,7 +277,7 @@ def test_config_window_orphans_button_exists(tmp_path: Path):
     manager = ProfileConfigManager(config_path=cfg_file)
     dlg = ConfigWindow(manager, "TestProfile")
     assert hasattr(dlg, "orphans_btn")
-    assert dlg.orphans_btn.text() == "Find & View Orphaned Cards in Browser"
+    assert dlg.orphans_btn.text() == "View in Anki Browser"
     dlg.close()
 
 
@@ -461,10 +459,12 @@ def test_config_window_image_occlusion_and_suspension_settings_roundtrip(tmp_pat
     assert dlg.image_occlusion_mode_combo.currentData() == "native"
     assert dlg.suspend_new_occlusions_cb.isChecked() is True
     assert dlg.freeze_image_occlusions_cb.isChecked() is False
+    assert dlg.staging_folder_row.isHidden() is True
 
     # Modify settings in UI
     dlg.suspend_new_clozes_cb.setChecked(True)
     dlg.image_occlusion_mode_combo.setCurrentIndex(1)  # "stage"
+    assert dlg.staging_folder_row.isHidden() is False
     dlg.suspend_new_occlusions_cb.setChecked(False)
     dlg.freeze_image_occlusions_cb.setChecked(True)
 

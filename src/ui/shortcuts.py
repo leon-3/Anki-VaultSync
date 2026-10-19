@@ -257,7 +257,7 @@ class ShortcutConfigWidget(QWidget):
                         break
 
             if mutual_conflict:
-                warn_lbl.setText(f"⚠️ Conflicts with '{mutual_conflict}'. Shortcut will be disabled if saved.")
+                warn_lbl.setText(f"Conflicts with '{mutual_conflict}'. Shortcut will be disabled if saved.")
                 warn_lbl.setVisible(True)
                 has_conflicts = True
                 continue
@@ -265,7 +265,7 @@ class ShortcutConfigWidget(QWidget):
             # 2. Check collision with external Anki actions
             conflict = find_shortcut_conflict(seq_str, allowed_actions=allowed)
             if conflict:
-                warn_lbl.setText(f"⚠️ Already taken by '{conflict}'. Shortcut will be disabled if saved.")
+                warn_lbl.setText(f"Already taken by '{conflict}'. Shortcut will be disabled if saved.")
                 warn_lbl.setVisible(True)
                 has_conflicts = True
             else:

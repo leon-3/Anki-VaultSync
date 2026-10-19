@@ -250,7 +250,7 @@ class DiffDialog(QDialog):
             banner = (
                 "<div style='background-color:#fff3cd; color:#856404; border:1px solid #ffeeba; "
                 "border-radius:6px; padding:10px; margin-bottom:12px; font-size:12px; font-family:sans-serif;'>"
-                "<b>⚠️ Note modified in Obsidian since scan.</b><br>"
+                "<b>Warning: Note modified in Obsidian since scan.</b><br>"
                 "This file was edited externally. If you sync now, this note will be skipped for safety. "
                 "Click <b>Rescan Vault</b> below to refresh the preview with your latest edits."
                 "</div>"
