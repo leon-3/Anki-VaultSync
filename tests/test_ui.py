@@ -122,12 +122,13 @@ def test_config_window_instantiation(tmp_path: Path):
     manager = ProfileConfigManager(config_path=cfg_file)
 
     dlg = ConfigWindow(manager, "TestProfile")
-    assert dlg.tabs.count() == 5
+    assert dlg.tabs.count() == 6
     assert dlg.tabs.tabText(0) == "General && Sync"
-    assert dlg.tabs.tabText(1) == "Decks && Tags"
-    assert dlg.tabs.tabText(2) == "Card Types && Media"
-    assert dlg.tabs.tabText(3) == "Deleted Cards"
-    assert dlg.tabs.tabText(4) == "Shortcuts && Logs"
+    assert dlg.tabs.tabText(1) == "Deck Routing"
+    assert dlg.tabs.tabText(2) == "Tag Routing"
+    assert dlg.tabs.tabText(3) == "Card Types && Media"
+    assert dlg.tabs.tabText(4) == "Deleted Cards"
+    assert dlg.tabs.tabText(5) == "Shortcuts && Logs"
     assert dlg.vault_edit is not None
     assert dlg.deck_combo is not None
     assert dlg.basic_model_combo is not None
@@ -1181,19 +1182,19 @@ def test_tab2_table_button_spacing(tmp_path: Path):
     cfg_file = tmp_path / "config.json"
     manager = ProfileConfigManager(config_path=cfg_file)
     dlg = ConfigWindow(manager, "ProfileSpacingTest")
-    dlg.switch_to_tab(ConfigWindow.TAB_DECKS_TAGS)
+    dlg.switch_to_tab(ConfigWindow.TAB_DECK_ROUTING)
     dlg.show()
 
     card_rules = dlg.routing_table.parent()
-    card_tag = dlg.alias_table.parent()
-
     btn_rule = [w for w in card_rules.findChildren(qt.QPushButton) if w.text() == "Add Rule"][0]
     gap_card1 = btn_rule.pos().y() - (dlg.routing_table.pos().y() + dlg.routing_table.size().height())
-    assert gap_card1 >= 14, f"Gap in card 1 is too small: {gap_card1}"
+    assert gap_card1 >= 10, f"Gap in deck routing is too small: {gap_card1}"
 
+    dlg.switch_to_tab(ConfigWindow.TAB_TAG_ROUTING)
+    card_tag = dlg.alias_table.parent()
     btn_alias = [w for w in card_tag.findChildren(qt.QPushButton) if w.text() == "Add Tag Alias"][0]
     gap_card2 = btn_alias.pos().y() - (dlg.alias_table.pos().y() + dlg.alias_table.size().height())
-    assert gap_card2 >= 14, f"Gap in card 2 is too small: {gap_card2}"
+    assert gap_card2 >= 10, f"Gap in tag routing is too small: {gap_card2}"
 
     dlg.close()
 

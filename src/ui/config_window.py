@@ -186,18 +186,23 @@ class ConfigWindow(QDialog):
     """Modern, tabbed settings configurator for Anki-VaultSync."""
 
     TAB_GENERAL = 0
-    TAB_DECKS_TAGS = 1
-    TAB_CARD_TYPES = 2
-    TAB_DELETED_CARDS = 3
-    TAB_SHORTCUTS_LOGS = 4
+    TAB_DECK_ROUTING = 1
+    TAB_TAG_ROUTING = 2
+    TAB_CARD_TYPES = 3
+    TAB_DELETED_CARDS = 4
+    TAB_SHORTCUTS_LOGS = 5
 
     # Backwards-compatibility aliases
-    TAB_MAINTENANCE = 3
-    TAB_LOGS = 4
-    TAB_DECK_ROUTING = 1
-    TAB_TAG_ALIASING = 1
-    TAB_RULES = 2
-    TAB_ADVANCED = 2
+    TAB_DECKS = 1
+    TAB_DECKS_TAGS = 1
+    TAB_ROUTING = 1
+    TAB_TAGS = 2
+    TAB_TAG_ALIASING = 2
+    TAB_RULES = 3
+    TAB_ADVANCED = 3
+    TAB_MAINTENANCE = 4
+    TAB_DELETED = 4
+    TAB_LOGS = 5
 
     def __init__(
         self,
@@ -292,7 +297,11 @@ class ConfigWindow(QDialog):
                 if (
                     target in clean_text
                     or any(w == target for w in clean_text.replace("&", " ").split())
-                    or (target in ("maintenance", "orphans", "deleted") and idx == self.TAB_DELETED_CARDS)
+                    or (target in ("deck", "decks", "deck routing", "decks & tags", "routing") and idx == self.TAB_DECK_ROUTING)
+                    or (target in ("tag", "tags", "tag routing", "aliases", "tag aliases") and idx == self.TAB_TAG_ROUTING)
+                    or (target in ("maintenance", "orphans", "deleted", "deleted cards") and idx == self.TAB_DELETED_CARDS)
+                    or (target in ("card types", "card types & media", "rules", "media") and idx == self.TAB_CARD_TYPES)
+                    or (target in ("shortcuts", "logs", "shortcuts & logs") and idx == self.TAB_SHORTCUTS_LOGS)
                 ):
                     self.tabs.setCurrentIndex(idx)
                     return
@@ -382,12 +391,17 @@ class ConfigWindow(QDialog):
         self._init_tab_general()
         self.tabs.addTab(self.tab_general, "General && Sync")
 
-        # Tab 2: Decks && Tags
+        # Tab 2: Deck Routing
         self.tab_deck_routing = QWidget()
         self.tab_routing = self.tab_deck_routing
-        self.tab_tag_aliasing = self.tab_deck_routing
-        self._init_tab_decks_and_tags()
-        self.tabs.addTab(self.tab_deck_routing, "Decks && Tags")
+        self._init_tab_deck_routing()
+        self.tabs.addTab(self.tab_deck_routing, "Deck Routing")
+
+        # Tab 3: Tag Routing
+        self.tab_tag_routing = QWidget()
+        self.tab_tag_aliasing = self.tab_tag_routing
+        self._init_tab_tag_routing()
+        self.tabs.addTab(self.tab_tag_routing, "Tag Routing")
 
         # Tab 3: Card Types && Media
         self.tab_rules = QWidget()
@@ -599,7 +613,7 @@ class ConfigWindow(QDialog):
         layout.addWidget(card_sync)
         layout.addStretch()
 
-    def _init_tab_decks_and_tags(self) -> None:
+    def _init_tab_deck_routing(self) -> None:
         layout = QVBoxLayout(self.tab_deck_routing)
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(10)
@@ -609,7 +623,7 @@ class ConfigWindow(QDialog):
                 font-size: 12px;
                 padding: 4px 10px;
                 border-radius: 4px;
-                min-height: 20px;
+                min-height: 22px;
             }
         """
         table_style = """
@@ -619,7 +633,6 @@ class ConfigWindow(QDialog):
                 border-radius: 6px;
                 font-size: 12px;
                 gridline-color: rgba(255, 255, 255, 0.05);
-                margin-bottom: 2px;
             }
             QTableWidget::item {
                 background-color: transparent;
@@ -634,19 +647,48 @@ class ConfigWindow(QDialog):
             }
         """
 
-        # Section 1: Deck Routing Rules
         card_rules, card_rules_l = _create_section_card(
             "Folder Deck Routing",
-            "Map vault folders directly to specific Anki decks using longest prefix matching.",
+            "Assign specific vault directories to designated target Anki decks.",
         )
+
+        # Intuitive abstract explanation callout
+        info_panel = QFrame()
+        info_panel.setStyleSheet("""
+            QFrame {
+                background-color: rgba(33, 150, 243, 0.06);
+                border-left: 3px solid #2196F3;
+                border-radius: 4px;
+                padding: 8px 12px;
+            }
+            QLabel {
+                font-size: 12px;
+                line-height: 140%;
+                color: rgba(220, 220, 220, 0.95);
+                border: none;
+                background: transparent;
+            }
+        """)
+        info_l = QVBoxLayout(info_panel)
+        info_l.setContentsMargins(0, 0, 0, 0)
+        info_l.setSpacing(4)
+        info_text = QLabel(
+            "<b>How Folder Deck Routing works:</b><br>"
+            "• <b>Folder Mapping:</b> Flashcards located inside a mapped folder are placed into that folder's target Anki deck.<br>"
+            "• <b>Inheritance & Specificity:</b> Subfolders automatically inherit their parent folder's deck rule unless a more specific rule is added for that subfolder.<br>"
+            "• <b>Default Deck Fallback:</b> Flashcards in folders without an explicit or inherited rule are routed to your Default Target Deck."
+        )
+        info_text.setWordWrap(True)
+        info_l.addWidget(info_text)
+        card_rules_l.addWidget(info_panel)
+        card_rules_l.addSpacing(6)
 
         self.routing_table = QTableWidget(0, 2)
         self.routing_table.setHorizontalHeaderLabels(["Vault Folder / Path", "Target Anki Deck"])
         self.routing_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.routing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.routing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.routing_table.setMinimumHeight(70)
-        self.routing_table.setMaximumHeight(85)
+        self.routing_table.setMinimumHeight(180)
         self.routing_table.setStyleSheet(table_style)
         self.routing_table.setToolTip(format_tooltip_box("deck_routing"))
         card_rules_l.addWidget(self.routing_table)
@@ -674,13 +716,79 @@ class ConfigWindow(QDialog):
         btn_row.addWidget(remove_btn)
         btn_row.addStretch()
         card_rules_l.addLayout(btn_row)
-        layout.addWidget(card_rules)
 
-        # Section 2: Tag Formatting & Path Aliases
+        layout.addWidget(card_rules)
+        layout.addStretch()
+
+    def _init_tab_tag_routing(self) -> None:
+        layout = QVBoxLayout(self.tab_tag_routing)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(10)
+
+        btn_style = """
+            QPushButton {
+                font-size: 12px;
+                padding: 4px 10px;
+                border-radius: 4px;
+                min-height: 22px;
+            }
+        """
+        table_style = """
+            QTableWidget {
+                background-color: transparent;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
+                font-size: 12px;
+                gridline-color: rgba(255, 255, 255, 0.05);
+            }
+            QTableWidget::item {
+                background-color: transparent;
+            }
+            QHeaderView::section {
+                background-color: rgba(255, 255, 255, 0.04);
+                font-size: 12px;
+                font-weight: bold;
+                padding: 5px;
+                border: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+            }
+        """
+
         card_tag, card_tag_l = _create_section_card(
-            "Tag Formatting & Folder Aliases",
-            "Set hierarchical tag rules and rename or suppress specific folder levels.",
+            "Tag Routing & Folder Aliases",
+            "Control how directory hierarchy converts into hierarchical Anki tags.",
         )
+
+        # Intuitive abstract explanation callout
+        info_panel = QFrame()
+        info_panel.setStyleSheet("""
+            QFrame {
+                background-color: rgba(33, 150, 243, 0.06);
+                border-left: 3px solid #2196F3;
+                border-radius: 4px;
+                padding: 8px 12px;
+            }
+            QLabel {
+                font-size: 12px;
+                line-height: 140%;
+                color: rgba(220, 220, 220, 0.95);
+                border: none;
+                background: transparent;
+            }
+        """)
+        info_l = QVBoxLayout(info_panel)
+        info_l.setContentsMargins(0, 0, 0, 0)
+        info_l.setSpacing(4)
+        info_text = QLabel(
+            "<b>How Tag Routing works:</b><br>"
+            "• <b>Hierarchical Tagging:</b> Vault directories automatically convert into nested Anki tags (Folder::Subfolder).<br>"
+            "• <b>Folder Aliases:</b> Rename any directory level in the tag path, or leave the replacement empty to exclude that folder from tags.<br>"
+            "• <b>Base Prefix:</b> Optional root tag prepended before all generated tags across the vault."
+        )
+        info_text.setWordWrap(True)
+        info_l.addWidget(info_text)
+        card_tag_l.addWidget(info_panel)
+        card_tag_l.addSpacing(6)
 
         row_tsettings = QHBoxLayout()
         row_tsettings.setSpacing(12)
@@ -703,14 +811,14 @@ class ConfigWindow(QDialog):
         row_tsettings.addLayout(_wrap_with_info(self.pad_single_digits_cb, "pad_single_digit_tags", add_stretch=False))
         row_tsettings.addStretch()
         card_tag_l.addLayout(row_tsettings)
+        card_tag_l.addSpacing(6)
 
         self.alias_table = QTableWidget(0, 2)
         self.alias_table.setHorizontalHeaderLabels(["Vault Folder / Path", "Tag Alias / Replacement"])
         self.alias_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.alias_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.alias_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.alias_table.setMinimumHeight(70)
-        self.alias_table.setMaximumHeight(85)
+        self.alias_table.setMinimumHeight(160)
         self.alias_table.setStyleSheet(table_style)
         self.alias_table.setToolTip(format_tooltip_box("tag_aliases"))
         card_tag_l.addWidget(self.alias_table)
