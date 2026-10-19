@@ -1450,3 +1450,61 @@ def test_folder_dropdown_level_sorted_and_custom_entry(tmp_path: Path):
     assert saved_cfg.deck_routing == {"Alpha/Beta": "MyDeck::AlphaBeta"}
     assert saved_cfg.tag_aliases == {"Custom/Nested/Folder": "custom_tag"}
     dlg.close()
+
+
+def test_folder_dropdown_ignores_patterns_reactively(tmp_path: Path):
+    from src.ui.config_window import ConfigWindow
+    from src.profile_config import ProfileConfigManager, AddonProfileSettings
+    import aqt.qt as qt
+
+    vault = tmp_path / "ignore_vault"
+    vault.mkdir()
+    (vault / "Notes").mkdir()
+    (vault / "Archive").mkdir()
+    (vault / "Archive" / "2023").mkdir(parents=True)
+    (vault / "templates").mkdir()
+    (vault / "templates" / "daily").mkdir(parents=True)
+    (vault / "Private").mkdir()
+    (vault / "Private" / "Secret").mkdir(parents=True)
+    (vault / "draft_tmp").mkdir()
+    (vault / ".obsidian").mkdir()
+    (vault / ".git").mkdir()
+
+    # m2a.toml defines ignore patterns
+    (vault / "m2a.toml").write_text(
+        'vault = "."\ndeck = "DefaultDeck"\nignore = ["Archive", "templates/*", "Private/Secret", "draft_*"]\n',
+        encoding="utf-8",
+    )
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    manager.save(AddonProfileSettings(profile_name="IgnoreTestProfile", vault_path=vault))
+
+    dlg = ConfigWindow(manager, "IgnoreTestProfile")
+
+    # 1. Available folders exclude ignored folders, wildcards, subpaths, and dot folders
+    folders = dlg._get_available_vault_folders()
+    assert sorted(folders) == ["Notes", "Private"]
+    assert "Archive" not in folders
+    assert "Archive/2023" not in folders
+    assert "templates" not in folders
+    assert "templates/daily" not in folders
+    assert "Private/Secret" not in folders
+    assert "draft_tmp" not in folders
+    assert ".obsidian" not in folders
+    assert ".git" not in folders
+
+    # 2. Dropdown widgets reflect this filtered list
+    dlg._add_routing_row()
+    combo = dlg.routing_table.cellWidget(0, 0)
+    assert isinstance(combo, qt.QComboBox)
+    items = [combo.itemText(i) for i in range(combo.count())]
+    assert items == ["Notes", "Private"]
+
+    # 3. Reactive update: user adds "Private" to ignored directories & files box
+    dlg.ignore_edit.setPlainText("Archive\ntemplates/*\nPrivate/Secret\ndraft_*\nPrivate")
+    items_after = [combo.itemText(i) for i in range(combo.count())]
+    assert items_after == ["Notes"]
+    assert "Private" not in items_after
+
+    dlg.close()

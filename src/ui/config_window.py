@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import html
 import os
 import re
@@ -181,6 +182,46 @@ def _wrap_with_info(cb: QCheckBox, key: str, add_stretch: bool = True) -> QHBoxL
     return row
 
 _CHECKMARK_SVG_PATH = Path(__file__).parent / "assets" / "checkmark.svg"
+
+def _is_path_ignored(rel_parts: tuple[str, ...], name: str, ignore_patterns: list[str]) -> bool:
+    """Check if a folder or file should be ignored during vault traversal."""
+    if name.startswith("."):
+        return True
+    rel_str = "/".join(rel_parts)
+    name_lower = name.lower()
+    rel_str_lower = rel_str.lower()
+
+    for pat in ignore_patterns:
+        pat_clean = pat.strip().replace("\\", "/").strip()
+        if not pat_clean:
+            continue
+        pat_norm = pat_clean.strip("/")
+        pat_lower = pat_norm.lower()
+
+        # Exact match on directory name or full relative path
+        if name_lower == pat_lower or rel_str_lower == pat_lower:
+            return True
+
+        # Wildcard glob match on name or relative path
+        if fnmatch.fnmatch(name_lower, pat_lower) or fnmatch.fnmatch(rel_str_lower, pat_lower):
+            return True
+
+        # Wildcard prefix, e.g. "templates/*" or "archive/*"
+        if pat_clean.endswith("/*"):
+            base = pat_clean[:-2].strip("/").lower()
+            if base in (name_lower, rel_str_lower) or fnmatch.fnmatch(name_lower, base) or fnmatch.fnmatch(rel_str_lower, base):
+                return True
+
+        # If pattern is a directory, any path inside it is ignored
+        if rel_str_lower.startswith(pat_lower + "/"):
+            return True
+
+        # If pattern has no slashes, any matching segment in the path ignores the path
+        if "/" not in pat_norm:
+            if any(part.lower() == pat_lower or fnmatch.fnmatch(part.lower(), pat_lower) for part in rel_parts):
+                return True
+
+    return False
 
 
 class ConfigWindow(QDialog):
@@ -536,6 +577,7 @@ class ConfigWindow(QDialog):
                 background-color: transparent;
             }
         """)
+        self.ignore_edit.textChanged.connect(self._refresh_folder_combos)
         card_ign_l.addWidget(self.ignore_edit)
         top_row.addWidget(card_ign, stretch=1)
 
@@ -604,23 +646,35 @@ class ConfigWindow(QDialog):
         if not vault_path.is_dir():
             return folders
 
-        ignore_lines = []
+        ignore_lines: list[str] = []
         if hasattr(self, "ignore_edit") and self.ignore_edit is not None:
-            ignore_lines = [line.strip() for line in self.ignore_edit.toPlainText().splitlines() if line.strip()]
+            text = self.ignore_edit.toPlainText().strip()
+            if text:
+                ignore_lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not ignore_lines and self._vault_cfg is not None and self._vault_cfg.ignore:
+            ignore_lines = [pat.strip() for pat in self._vault_cfg.ignore if pat.strip()]
+        if not ignore_lines:
+            try:
+                from markdown2anki.config import DEFAULT_IGNORE
+                ignore_lines = list(DEFAULT_IGNORE)
+            except Exception:
+                ignore_lines = [".git", ".obsidian", "Archive", "templates"]
 
         try:
-            for root, dirs, _ in os.walk(vault_path):
+            for root, dirs, _ in os.walk(vault_path, topdown=True):
+                rel_root = Path(root).relative_to(vault_path).as_posix()
+                root_parts = tuple(rel_root.split("/")) if rel_root != "." else ()
+
+                # Prune ignored directories in-place so os.walk does not descend into them
                 dirs[:] = [
                     d for d in dirs
-                    if not d.startswith(".")
-                    and not any(d == ign.rstrip("/") for ign in ignore_lines if "/" not in ign)
+                    if not _is_path_ignored(root_parts + (d,), d, ignore_lines)
                 ]
+
                 for d in dirs:
                     p = Path(root) / d
                     try:
                         rel = p.relative_to(vault_path).as_posix()
-                        if any(rel == ign.rstrip("/") or rel.startswith(ign.rstrip("/") + "/") for ign in ignore_lines):
-                            continue
                         folders.append(rel)
                     except ValueError:
                         pass
@@ -683,7 +737,7 @@ class ConfigWindow(QDialog):
 
     def _refresh_folder_combos(self) -> None:
         folders = self._get_available_vault_folders()
-        for tbl, is_deck in ((getattr(self, "routing_table", None), True), (getattr(self, "alias_table", None), False)):
+        for tbl in (getattr(self, "routing_table", None), getattr(self, "alias_table", None)):
             if tbl is None:
                 continue
             for r in range(tbl.rowCount()):
@@ -700,6 +754,9 @@ class ConfigWindow(QDialog):
                     else:
                         w.setCurrentText(curr)
                     w.blockSignals(False)
+                    item = tbl.item(r, 0)
+                    if item and item.text() != w.currentText():
+                        item.setText(w.currentText())
 
     def _get_available_deck_names(self) -> list[str]:
         names: list[str] = []
@@ -2099,6 +2156,8 @@ class ConfigWindow(QDialog):
                     except Exception:
                         pass
                 self._load_vault_from_path(p)
+            elif p.is_dir():
+                self._refresh_folder_combos()
         except Exception:
             pass
 
@@ -2452,7 +2511,10 @@ class ConfigWindow(QDialog):
             self.routing_table.setRowCount(0)
             self.alias_table.setRowCount(0)
             from markdown2anki.config import DEFAULT_IGNORE
+            self.ignore_edit.blockSignals(True)
             self.ignore_edit.setPlainText("\n".join(DEFAULT_IGNORE))
+            self.ignore_edit.blockSignals(False)
+            self._refresh_folder_combos()
             return
 
         self.deck_combo.setCurrentText(self._vault_cfg.deck)
@@ -2470,6 +2532,12 @@ class ConfigWindow(QDialog):
         self.re_stage_occlusions = self._vault_cfg.re_stage_occlusions
         self.re_stage_cb.setChecked(self._vault_cfg.re_stage_occlusions)
 
+        # Ignore globs (set first so folder dropdowns have ignore rules immediately)
+        ignore_lines = "\n".join(self._vault_cfg.ignore or [])
+        self.ignore_edit.blockSignals(True)
+        self.ignore_edit.setPlainText(ignore_lines)
+        self.ignore_edit.blockSignals(False)
+
         # Deck rules
         routing = self._vault_cfg.deck_routing or {}
         self.routing_table.setRowCount(len(routing))
@@ -2482,9 +2550,7 @@ class ConfigWindow(QDialog):
         for r, (folder, alias) in enumerate(aliases.items()):
             self._set_alias_row(r, folder, alias)
 
-        # Ignore globs
-        ignore_lines = "\n".join(self._vault_cfg.ignore or [])
-        self.ignore_edit.setPlainText(ignore_lines)
+        self._refresh_folder_combos()
 
     def _get_routing_table_data(self) -> list[tuple[str, str]]:
         rules: list[tuple[str, str]] = []
