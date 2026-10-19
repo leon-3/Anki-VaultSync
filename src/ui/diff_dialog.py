@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import difflib
+import hashlib
 import html
 from pathlib import Path
 import re
 from typing import TYPE_CHECKING
 
-import hashlib
 from aqt.qt import (
     QCheckBox,
     QDialog,
@@ -41,7 +41,7 @@ def _format_diff_token(tok: str) -> str:
     if lower in ("</p>", "</div>"):
         return "<br>"
     if tok.startswith("<") and tok.endswith(">"):
-        return ""  # Strip structural wrapper tags from visual text diff
+        return ""
     return html.escape(tok)
 
 
@@ -62,24 +62,24 @@ def _generate_word_diff_html(old_text: str, new_text: str) -> str:
             deleted = "".join(_format_diff_token(t) for t in words_old[i1:i2] if _format_diff_token(t))
             if deleted:
                 result.append(
-                    f"<del style='background-color:rgba(244, 67, 54, 0.22); color:#ef9a9a; text-decoration:line-through; padding:1px 4px; border-radius:3px;'>{deleted}</del>"
+                    f"<del style='background-color:rgba(244, 67, 54, 0.25); color:#ef9a9a; text-decoration:line-through; padding:1px 3px; border-radius:3px;'>{deleted}</del>"
                 )
         elif tag == "insert":
             inserted = "".join(_format_diff_token(t) for t in words_new[j1:j2] if _format_diff_token(t))
             if inserted:
                 result.append(
-                    f"<ins style='background-color:rgba(76, 175, 80, 0.22); color:#a5d6a7; text-decoration:none; padding:1px 4px; border-radius:3px;'>{inserted}</ins>"
+                    f"<ins style='background-color:rgba(76, 175, 80, 0.25); color:#a5d6a7; text-decoration:none; padding:1px 3px; border-radius:3px;'>{inserted}</ins>"
                 )
         elif tag == "replace":
             deleted = "".join(_format_diff_token(t) for t in words_old[i1:i2] if _format_diff_token(t))
             inserted = "".join(_format_diff_token(t) for t in words_new[j1:j2] if _format_diff_token(t))
             if deleted:
                 result.append(
-                    f"<del style='background-color:rgba(244, 67, 54, 0.22); color:#ef9a9a; text-decoration:line-through; padding:1px 4px; border-radius:3px;'>{deleted}</del>"
+                    f"<del style='background-color:rgba(244, 67, 54, 0.25); color:#ef9a9a; text-decoration:line-through; padding:1px 3px; border-radius:3px;'>{deleted}</del>"
                 )
             if inserted:
                 result.append(
-                    f"<ins style='background-color:rgba(76, 175, 80, 0.22); color:#a5d6a7; text-decoration:none; padding:1px 4px; border-radius:3px;'>{inserted}</ins>"
+                    f"<ins style='background-color:rgba(76, 175, 80, 0.25); color:#a5d6a7; text-decoration:none; padding:1px 3px; border-radius:3px;'>{inserted}</ins>"
                 )
 
     return "".join(result)
@@ -87,23 +87,26 @@ def _generate_word_diff_html(old_text: str, new_text: str) -> str:
 
 def _generate_diff_html(op: NoteUpdateOp) -> str:
     lines: list[str] = [
-        "<div style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif; color: #e0e0e0; padding: 2px;'>"
+        "<div style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif; color: #e0e0e0; font-size: 12px;'>"
     ]
+    # Header metadata table: ID on left, file:line on right
     lines.append(
-        f"<div style='margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);'>"
-        f"<span style='background: rgba(33, 150, 243, 0.15); color: #64B5F6; font-family: monospace; font-size: 12px; font-weight: 600; padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(33, 150, 243, 0.3); margin-right: 8px;'>ID: {html.escape(op.card_id)}</span>"
-        f"<span style='color: rgba(220, 220, 220, 0.55); font-size: 12px;'>{html.escape(str(op.source_file))}:{op.source_line}</span>"
-        f"</div>"
+        "<table style='width:100%; border-bottom:1px solid rgba(255,255,255,0.12); padding-bottom:5px; margin-bottom:8px;'>"
+        "<tr>"
+        f"<td style='font-size:12px; font-weight:bold; color:#64B5F6; font-family:monospace;'>ID: {html.escape(op.card_id)}</td>"
+        f"<td style='text-align:right; font-size:11px; color:rgba(220,220,220,0.6);'>{html.escape(str(op.source_file))}:{op.source_line}</td>"
+        "</tr>"
+        "</table>"
     )
 
     if op.deck_changed:
         old_d = ", ".join(op.old_deck_names) if op.old_deck_names else "(unknown)"
         lines.append(
-            f"<div style='margin-bottom: 8px; font-size: 12px;'>"
+            f"<div style='margin-bottom: 6px; font-size: 11.5px;'>"
             f"<b style='color: rgba(240, 240, 240, 0.9);'>Deck Changed:</b> "
-            f"<span style='background: rgba(244, 67, 54, 0.15); color: #ef9a9a; padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(244, 67, 54, 0.25);'>{html.escape(old_d)}</span> "
+            f"<span style='background: rgba(244, 67, 54, 0.15); color: #ef9a9a; padding: 1px 6px; border-radius: 3px;'>{html.escape(old_d)}</span> "
             f"<span style='color: rgba(255, 255, 255, 0.4); margin: 0 4px;'>&rarr;</span> "
-            f"<span style='background: rgba(76, 175, 80, 0.18); color: #a5d6a7; font-weight: 600; padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(76, 175, 80, 0.25);'><b>{html.escape(op.target_deck_name)}</b></span>"
+            f"<span style='background: rgba(76, 175, 80, 0.18); color: #a5d6a7; font-weight: 600; padding: 1px 6px; border-radius: 3px;'><b>{html.escape(op.target_deck_name)}</b></span>"
             f"</div>"
         )
 
@@ -115,29 +118,29 @@ def _generate_diff_html(op: NoteUpdateOp) -> str:
         tag_diff = []
         for r in removed:
             tag_diff.append(
-                f"<span style='background: rgba(244, 67, 54, 0.15); color: #ef9a9a; padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(244, 67, 54, 0.25); margin-right: 4px;'>-{html.escape(r)}</span>"
+                f"<span style='background: rgba(244, 67, 54, 0.15); color: #ef9a9a; padding: 1px 5px; border-radius: 3px; margin-right: 4px;'>-{html.escape(r)}</span>"
             )
         for a in added:
             tag_diff.append(
-                f"<span style='background: rgba(76, 175, 80, 0.18); color: #a5d6a7; padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(76, 175, 80, 0.25); margin-right: 4px;'>+{html.escape(a)}</span>"
+                f"<span style='background: rgba(76, 175, 80, 0.18); color: #a5d6a7; padding: 1px 5px; border-radius: 3px; margin-right: 4px;'>+{html.escape(a)}</span>"
             )
-        lines.append(f"<div style='margin-bottom: 12px; font-size: 12px;'><b style='color: rgba(240, 240, 240, 0.9);'>Tags:</b> {' '.join(tag_diff)}</div>")
+        lines.append(f"<div style='margin-bottom: 8px; font-size: 11.5px;'><b style='color: rgba(240, 240, 240, 0.9);'>Tags:</b> {' '.join(tag_diff)}</div>")
 
     for f_name in sorted(set(op.old_fields.keys()) | set(op.new_fields.keys())):
         old_val = op.old_fields.get(f_name, "")
         new_val = op.new_fields.get(f_name, "")
         if old_val == new_val:
             lines.append(
-                f"<div style='margin-top: 10px; margin-bottom: 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255, 255, 255, 0.45);'>Field [{html.escape(f_name)}]: <span style='font-style: italic; font-weight: normal; text-transform: none; font-size: 11px;'>— (unchanged)</span></div>"
+                f"<div style='margin-top: 8px; margin-bottom: 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255, 255, 255, 0.45);'>Field [{html.escape(f_name)}]: <span style='font-style: italic; font-weight: normal; text-transform: none;'>— (unchanged)</span></div>"
             )
             continue
 
         lines.append(
-            f"<div style='margin-top: 14px; margin-bottom: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255, 255, 255, 0.75);'>Field [{html.escape(f_name)}]:</div>"
+            f"<div style='margin-top: 10px; margin-bottom: 3px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #90CAF9;'>Field [{html.escape(f_name)}]:</div>"
         )
         formatted_diff = _generate_word_diff_html(old_val, new_val)
         lines.append(
-            f"<div style='font-family: monospace, sans-serif; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 10px 12px; line-height: 1.6; color: #f0f0f0;'>{formatted_diff}</div>"
+            f"<div style='background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 5px; padding: 8px 10px; line-height: 1.5; color: #f0f0f0;'>{formatted_diff}</div>"
         )
 
     lines.append("</div>")
@@ -150,7 +153,7 @@ class DiffDialog(QDialog):
     def __init__(self, plan: SyncPlan, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Review Modified Cards (Diff Inspector)")
-        self.resize(920, 580)
+        self.resize(920, 560)
 
         self._plan = plan
         self._all_updates: list[NoteUpdateOp] = []
@@ -185,18 +188,18 @@ class DiffDialog(QDialog):
                 spacing: 8px;
                 color: rgba(230, 230, 230, 0.95);
             }}
-            QCheckBox::indicator {{
-                width: 16px;
-                height: 16px;
-                border: 1.5px solid rgba(150, 150, 150, 0.75);
-                border-radius: 4px;
+            QCheckBox::indicator, QListWidget::indicator {{
+                width: 15px;
+                height: 15px;
+                border: 1.5px solid rgba(150, 150, 150, 0.7);
+                border-radius: 3px;
                 background-color: rgba(130, 130, 130, 0.12);
             }}
-            QCheckBox::indicator:hover {{
+            QCheckBox::indicator:hover, QListWidget::indicator:hover {{
                 border: 1.5px solid #2196F3;
                 background-color: rgba(33, 150, 243, 0.15);
             }}
-            QCheckBox::indicator:checked {{
+            QCheckBox::indicator:checked, QListWidget::indicator:checked {{
                 background-color: #2196F3;
                 border: 1.5px solid #1E88E5;
                 image: url("{chk_svg}");
@@ -204,15 +207,15 @@ class DiffDialog(QDialog):
             QListWidget {{
                 background-color: rgba(255, 255, 255, 0.03);
                 border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 8px;
+                border-radius: 6px;
                 color: #e0e0e0;
                 font-size: 12px;
                 padding: 4px;
                 outline: none;
             }}
             QListWidget::item {{
-                padding: 8px 10px;
-                border-radius: 6px;
+                padding: 6px 8px;
+                border-radius: 4px;
                 margin-bottom: 2px;
                 border: 1px solid transparent;
             }}
@@ -227,42 +230,32 @@ class DiffDialog(QDialog):
             QTextBrowser {{
                 background-color: rgba(255, 255, 255, 0.03);
                 border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 8px;
+                border-radius: 6px;
                 color: #e0e0e0;
-                padding: 14px;
+                padding: 10px 12px;
                 selection-background-color: #2196F3;
             }}
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(12)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
 
-        # Header Bar
-        header_layout = QHBoxLayout()
-        header_text = QVBoxLayout()
-        header_text.setSpacing(2)
+        # Compact, sleek single-line header
+        header_bar = QHBoxLayout()
+        header_bar.setContentsMargins(0, 0, 0, 0)
+        header_bar.setSpacing(8)
+
         title = QLabel("Card Updates Preview")
-        title.setStyleSheet("font-size: 15px; font-weight: 700; color: #ffffff;")
-        subtitle = QLabel("Review modified cards and field diffs before synchronizing changes to Anki.")
-        subtitle.setStyleSheet("font-size: 11.5px; color: rgba(200, 200, 200, 0.7);")
-        header_text.addWidget(title)
-        header_text.addWidget(subtitle)
-        header_layout.addLayout(header_text)
-        header_layout.addStretch()
+        title.setStyleSheet("font-size: 13px; font-weight: 700; color: #ffffff;")
+        header_bar.addWidget(title)
 
-        count_badge = QLabel(f"{len(self._all_updates)} modified card(s)")
-        count_badge.setStyleSheet("""
-            background-color: rgba(33, 150, 243, 0.15);
-            color: #64B5F6;
-            font-size: 11px;
-            font-weight: 600;
-            padding: 4px 10px;
-            border-radius: 12px;
-            border: 1px solid rgba(33, 150, 243, 0.3);
-        """)
-        header_layout.addWidget(count_badge)
-        layout.addLayout(header_layout)
+        count_badge = QLabel(f"• &nbsp;{len(self._all_updates)} modified card(s)")
+        count_badge.setStyleSheet("font-size: 12px; color: rgba(220, 220, 220, 0.65);")
+        header_bar.addWidget(count_badge)
+
+        header_bar.addStretch()
+        layout.addLayout(header_bar)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
@@ -293,7 +286,7 @@ class DiffDialog(QDialog):
         left_layout_container = QWidget()
         left_layout = QVBoxLayout(left_layout_container)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(8)
+        left_layout.setSpacing(6)
         left_layout.addWidget(self.select_all_cb)
         left_layout.addWidget(self.list_widget)
 
@@ -305,9 +298,9 @@ class DiffDialog(QDialog):
         splitter.addWidget(self.diff_browser)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 2)
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, stretch=1)
 
-        # Dialog Buttons
+        # Bottom Action Bar
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -322,7 +315,7 @@ class DiffDialog(QDialog):
                 font-size: 12px;
                 border: none;
                 border-radius: 5px;
-                padding: 6px 18px;
+                padding: 6px 16px;
                 min-height: 22px;
             }
             QPushButton:hover {
@@ -384,7 +377,6 @@ class DiffDialog(QDialog):
             self.list_widget.setCurrentRow(0)
 
     def reject(self) -> None:
-        # Transactional rollback: revert approved flags if user cancelled
         for idx, op in enumerate(self._all_updates):
             if idx in self._original_approvals:
                 op.approved = self._original_approvals[idx]
@@ -420,10 +412,10 @@ class DiffDialog(QDialog):
         if self._is_file_externally_modified(op):
             banner = (
                 "<div style='background-color: rgba(255, 179, 0, 0.12); color: #ffca28; "
-                "border: 1px solid rgba(255, 179, 0, 0.35); border-radius: 6px; padding: 10px 12px; "
-                "margin-bottom: 12px; font-size: 12px; font-family: sans-serif; line-height: 1.4;'>"
+                "border: 1px solid rgba(255, 179, 0, 0.35); border-radius: 5px; padding: 6px 10px; "
+                "margin-bottom: 8px; font-size: 11px; font-family: sans-serif; line-height: 1.35;'>"
                 "<b>Notice: Note modified in Obsidian since scan.</b><br>"
-                "<span style='color: rgba(240, 240, 240, 0.85); font-size: 11.5px;'>"
+                "<span style='color: rgba(240, 240, 240, 0.85); font-size: 11px;'>"
                 "This file was edited externally. Click <b>Rescan Vault</b> below to refresh preview with latest edits."
                 "</span>"
                 "</div>"
