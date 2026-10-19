@@ -1378,3 +1378,75 @@ def test_deck_rules_and_tag_rules_customization(tmp_path: Path):
     assert saved_cfg.deck_routing == {"Biology/Notes": "BioDeck::Notes"}
     assert saved_cfg.tag_aliases == {"Biology/Notes": "custom_tag::notes"}
     dlg.close()
+
+
+def test_folder_dropdown_level_sorted_and_custom_entry(tmp_path: Path):
+    from src.ui.config_window import ConfigWindow
+    from src.profile_config import ProfileConfigManager, AddonProfileSettings
+    import aqt.qt as qt
+
+    vault = tmp_path / "sorted_vault"
+    vault.mkdir()
+    (vault / "Zebra").mkdir()
+    (vault / "Alpha").mkdir()
+    (vault / "Alpha" / "Beta").mkdir(parents=True)
+    (vault / "Alpha" / "Beta" / "Gamma").mkdir(parents=True)
+    (vault / "Alpha" / "Zeta").mkdir(parents=True)
+    (vault / ".obsidian").mkdir()
+    (vault / ".git").mkdir()
+    (vault / "IgnoredDir").mkdir()
+
+    (vault / "m2a.toml").write_text(
+        'vault = "."\ndeck = "DefaultDeck"\nignore = ["IgnoredDir"]\n',
+        encoding="utf-8",
+    )
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    manager.save(AddonProfileSettings(profile_name="FolderSortProfile", vault_path=vault))
+
+    dlg = ConfigWindow(manager, "FolderSortProfile")
+
+    # 1. Verify folder scanning and level sorting (0 slashes, 1 slash, 2 slashes; then alphabetical)
+    folders = dlg._get_available_vault_folders()
+    expected_order = ["Alpha", "Zebra", "Alpha/Beta", "Alpha/Zeta", "Alpha/Beta/Gamma"]
+    assert folders == expected_order
+    assert ".obsidian" not in folders
+    assert ".git" not in folders
+    assert "IgnoredDir" not in folders
+
+    # 2. In Deck Rules, row 0 cell (r, 0) has editable QComboBox with these folders
+    dlg._add_routing_row()
+    deck_folder_combo = dlg.routing_table.cellWidget(0, 0)
+    assert isinstance(deck_folder_combo, qt.QComboBox)
+    assert deck_folder_combo.isEditable()
+    assert [deck_folder_combo.itemText(i) for i in range(deck_folder_combo.count())] == expected_order
+
+    # Select an item from the list
+    deck_folder_combo.setCurrentText("Alpha/Beta")
+    deck_target_combo = dlg.routing_table.cellWidget(0, 1)
+    deck_target_combo.setCurrentText("MyDeck::AlphaBeta")
+
+    # Check extracted data
+    assert dlg._get_routing_table_data() == [("Alpha/Beta", "MyDeck::AlphaBeta")]
+
+    # 3. In Tag Rules, row 0 cell (r, 0) has editable QComboBox and supports arbitrary custom text
+    dlg._add_alias_row()
+    tag_folder_combo = dlg.alias_table.cellWidget(0, 0)
+    assert isinstance(tag_folder_combo, qt.QComboBox)
+    assert tag_folder_combo.isEditable()
+    assert [tag_folder_combo.itemText(i) for i in range(tag_folder_combo.count())] == expected_order
+
+    # Custom text that is not in the dropdown list
+    tag_folder_combo.setCurrentText("Custom/Nested/Folder")
+    tag_alias_combo = dlg.alias_table.cellWidget(0, 1)
+    tag_alias_combo.setCurrentText("custom_tag")
+
+    assert dlg._get_alias_table_data() == [("Custom/Nested/Folder", "custom_tag")]
+
+    # 4. Save and verify persistence to m2a.toml
+    dlg._on_save()
+    saved_cfg = manager.load_vault(vault)
+    assert saved_cfg.deck_routing == {"Alpha/Beta": "MyDeck::AlphaBeta"}
+    assert saved_cfg.tag_aliases == {"Custom/Nested/Folder": "custom_tag"}
+    dlg.close()

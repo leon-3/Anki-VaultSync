@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -594,6 +595,112 @@ class ConfigWindow(QDialog):
         layout.addWidget(card_sync)
         layout.addStretch()
 
+    def _get_available_vault_folders(self) -> list[str]:
+        folders: list[str] = []
+        vault_str = self.vault_edit.text().strip() if hasattr(self, "vault_edit") else ""
+        if not vault_str:
+            return folders
+        vault_path = Path(vault_str).expanduser().resolve()
+        if not vault_path.is_dir():
+            return folders
+
+        ignore_lines = []
+        if hasattr(self, "ignore_edit") and self.ignore_edit is not None:
+            ignore_lines = [line.strip() for line in self.ignore_edit.toPlainText().splitlines() if line.strip()]
+
+        try:
+            for root, dirs, _ in os.walk(vault_path):
+                dirs[:] = [
+                    d for d in dirs
+                    if not d.startswith(".")
+                    and not any(d == ign.rstrip("/") for ign in ignore_lines if "/" not in ign)
+                ]
+                for d in dirs:
+                    p = Path(root) / d
+                    try:
+                        rel = p.relative_to(vault_path).as_posix()
+                        if any(rel == ign.rstrip("/") or rel.startswith(ign.rstrip("/") + "/") for ign in ignore_lines):
+                            continue
+                        folders.append(rel)
+                    except ValueError:
+                        pass
+        except Exception:
+            pass
+
+        # Sort: primary by level (nesting depth count of "/"), secondary alphabetical case-insensitive
+        folders.sort(key=lambda f: (f.count("/"), f.lower()))
+        return folders
+
+    def _create_folder_combo_for_table(self, selected: str = "", is_deck_table: bool = True) -> QComboBox:
+        combo_style = """
+            QComboBox {
+                font-size: 12px;
+                padding: 2px 6px;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 4px;
+                background-color: rgba(30, 30, 30, 0.95);
+                color: #ffffff;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 18px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1e1e1e;
+                color: #ffffff;
+                selection-background-color: #2196F3;
+            }
+        """
+        combo = QComboBox()
+        combo.setStyleSheet(combo_style)
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        if combo.completer():
+            combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+        if combo.lineEdit():
+            combo.lineEdit().setPlaceholderText("Select folder or type path...")
+
+        folders = self._get_available_vault_folders()
+        for f in folders:
+            combo.addItem(f)
+
+        if selected:
+            idx = combo.findText(selected)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+            else:
+                combo.setCurrentText(selected)
+        elif combo.count() > 0:
+            combo.setCurrentIndex(0)
+        else:
+            combo.setCurrentText("folder_path")
+
+        if is_deck_table:
+            combo.currentTextChanged.connect(lambda text, c=combo: self._on_routing_folder_combo_changed(c, text))
+        else:
+            combo.currentTextChanged.connect(lambda text, c=combo: self._on_alias_folder_combo_changed(c, text))
+        return combo
+
+    def _refresh_folder_combos(self) -> None:
+        folders = self._get_available_vault_folders()
+        for tbl, is_deck in ((getattr(self, "routing_table", None), True), (getattr(self, "alias_table", None), False)):
+            if tbl is None:
+                continue
+            for r in range(tbl.rowCount()):
+                w = tbl.cellWidget(r, 0)
+                if isinstance(w, QComboBox):
+                    curr = w.currentText()
+                    w.blockSignals(True)
+                    w.clear()
+                    for f in folders:
+                        w.addItem(f)
+                    idx = w.findText(curr)
+                    if idx >= 0:
+                        w.setCurrentIndex(idx)
+                    else:
+                        w.setCurrentText(curr)
+                    w.blockSignals(False)
+
     def _get_available_deck_names(self) -> list[str]:
         names: list[str] = []
         if mw is not None and hasattr(mw, "col") and mw.col is not None:
@@ -719,8 +826,10 @@ class ConfigWindow(QDialog):
         try:
             self.routing_table.setItem(row, 0, QTableWidgetItem(folder))
             self.routing_table.setItem(row, 1, QTableWidgetItem(deck))
-            combo = self._create_deck_combo_for_table(deck)
-            self.routing_table.setCellWidget(row, 1, combo)
+            folder_combo = self._create_folder_combo_for_table(folder, is_deck_table=True)
+            self.routing_table.setCellWidget(row, 0, folder_combo)
+            deck_combo = self._create_deck_combo_for_table(deck)
+            self.routing_table.setCellWidget(row, 1, deck_combo)
         finally:
             self._updating_routing_table = False
 
@@ -729,8 +838,10 @@ class ConfigWindow(QDialog):
         try:
             self.alias_table.setItem(row, 0, QTableWidgetItem(folder))
             self.alias_table.setItem(row, 1, QTableWidgetItem(alias))
-            combo = self._create_tag_combo_for_table(alias)
-            self.alias_table.setCellWidget(row, 1, combo)
+            folder_combo = self._create_folder_combo_for_table(folder, is_deck_table=False)
+            self.alias_table.setCellWidget(row, 0, folder_combo)
+            tag_combo = self._create_tag_combo_for_table(alias)
+            self.alias_table.setCellWidget(row, 1, tag_combo)
         finally:
             self._updating_alias_table = False
 
@@ -2087,12 +2198,28 @@ class ConfigWindow(QDialog):
         if not fallback_deck:
             avail = self._get_available_deck_names()
             fallback_deck = avail[0] if avail else "Default"
-        self._set_routing_row(row, "folder_path", fallback_deck)
+        folders = self._get_available_vault_folders()
+        fallback_folder = folders[0] if folders else "folder_path"
+        self._set_routing_row(row, fallback_folder, fallback_deck)
 
     def _remove_routing_row(self) -> None:
         curr = self.routing_table.currentRow()
         if curr >= 0:
             self.routing_table.removeRow(curr)
+
+    def _on_routing_folder_combo_changed(self, combo: QComboBox, text: str) -> None:
+        if getattr(self, "_updating_routing_table", False):
+            return
+        for r in range(self.routing_table.rowCount()):
+            if self.routing_table.cellWidget(r, 0) is combo:
+                self._updating_routing_table = True
+                try:
+                    item = self.routing_table.item(r, 0)
+                    if item:
+                        item.setText(text)
+                finally:
+                    self._updating_routing_table = False
+                break
 
     def _on_routing_combo_changed(self, combo: QComboBox, text: str) -> None:
         if getattr(self, "_updating_routing_table", False):
@@ -2111,8 +2238,9 @@ class ConfigWindow(QDialog):
     def _on_routing_item_changed(self, item: QTableWidgetItem) -> None:
         if getattr(self, "_updating_routing_table", False):
             return
-        if item.column() == 1:
-            widget = self.routing_table.cellWidget(item.row(), 1)
+        col = item.column()
+        if col in (0, 1):
+            widget = self.routing_table.cellWidget(item.row(), col)
             if isinstance(widget, QComboBox) and widget.currentText() != item.text():
                 self._updating_routing_table = True
                 try:
@@ -2123,12 +2251,28 @@ class ConfigWindow(QDialog):
     def _add_alias_row(self) -> None:
         row = self.alias_table.rowCount()
         self.alias_table.insertRow(row)
-        self._set_alias_row(row, "folder_path", "tag_alias")
+        folders = self._get_available_vault_folders()
+        fallback_folder = folders[0] if folders else "folder_path"
+        self._set_alias_row(row, fallback_folder, "tag_alias")
 
     def _remove_alias_row(self) -> None:
         curr = self.alias_table.currentRow()
         if curr >= 0:
             self.alias_table.removeRow(curr)
+
+    def _on_alias_folder_combo_changed(self, combo: QComboBox, text: str) -> None:
+        if getattr(self, "_updating_alias_table", False):
+            return
+        for r in range(self.alias_table.rowCount()):
+            if self.alias_table.cellWidget(r, 0) is combo:
+                self._updating_alias_table = True
+                try:
+                    item = self.alias_table.item(r, 0)
+                    if item:
+                        item.setText(text)
+                finally:
+                    self._updating_alias_table = False
+                break
 
     def _on_alias_combo_changed(self, combo: QComboBox, text: str) -> None:
         if getattr(self, "_updating_alias_table", False):
@@ -2147,8 +2291,9 @@ class ConfigWindow(QDialog):
     def _on_alias_item_changed(self, item: QTableWidgetItem) -> None:
         if getattr(self, "_updating_alias_table", False):
             return
-        if item.column() == 1:
-            widget = self.alias_table.cellWidget(item.row(), 1)
+        col = item.column()
+        if col in (0, 1):
+            widget = self.alias_table.cellWidget(item.row(), col)
             if isinstance(widget, QComboBox) and widget.currentText() != item.text():
                 self._updating_alias_table = True
                 try:
@@ -2334,28 +2479,40 @@ class ConfigWindow(QDialog):
     def _get_routing_table_data(self) -> list[tuple[str, str]]:
         rules: list[tuple[str, str]] = []
         for r in range(self.routing_table.rowCount()):
-            f_item = self.routing_table.item(r, 0)
-            widget = self.routing_table.cellWidget(r, 1)
-            if isinstance(widget, QComboBox):
-                d_text = widget.currentText().strip()
+            f_widget = self.routing_table.cellWidget(r, 0)
+            if isinstance(f_widget, QComboBox):
+                f_text = f_widget.currentText().strip()
+            else:
+                f_item = self.routing_table.item(r, 0)
+                f_text = f_item.text().strip() if f_item else ""
+
+            d_widget = self.routing_table.cellWidget(r, 1)
+            if isinstance(d_widget, QComboBox):
+                d_text = d_widget.currentText().strip()
             else:
                 d_item = self.routing_table.item(r, 1)
                 d_text = d_item.text().strip() if d_item else ""
-            f_text = f_item.text().strip() if f_item else ""
+
             rules.append((f_text, d_text))
         return rules
 
     def _get_alias_table_data(self) -> list[tuple[str, str]]:
         rules: list[tuple[str, str]] = []
         for r in range(self.alias_table.rowCount()):
-            f_item = self.alias_table.item(r, 0)
-            widget = self.alias_table.cellWidget(r, 1)
-            if isinstance(widget, QComboBox):
-                a_text = widget.currentText().strip()
+            f_widget = self.alias_table.cellWidget(r, 0)
+            if isinstance(f_widget, QComboBox):
+                f_text = f_widget.currentText().strip()
+            else:
+                f_item = self.alias_table.item(r, 0)
+                f_text = f_item.text().strip() if f_item else ""
+
+            a_widget = self.alias_table.cellWidget(r, 1)
+            if isinstance(a_widget, QComboBox):
+                a_text = a_widget.currentText().strip()
             else:
                 a_item = self.alias_table.item(r, 1)
                 a_text = a_item.text().strip() if a_item else ""
-            f_text = f_item.text().strip() if f_item else ""
+
             rules.append((f_text, a_text))
         return rules
 
@@ -2432,14 +2589,20 @@ class ConfigWindow(QDialog):
 
         deck_routing: dict[str, str] = {}
         for r in range(self.routing_table.rowCount()):
-            f_item = self.routing_table.item(r, 0)
-            widget = self.routing_table.cellWidget(r, 1)
-            if isinstance(widget, QComboBox):
-                target_deck = widget.currentText().strip()
+            f_widget = self.routing_table.cellWidget(r, 0)
+            if isinstance(f_widget, QComboBox):
+                raw_folder = f_widget.currentText().strip()
+            else:
+                f_item = self.routing_table.item(r, 0)
+                raw_folder = f_item.text().strip() if f_item else ""
+
+            d_widget = self.routing_table.cellWidget(r, 1)
+            if isinstance(d_widget, QComboBox):
+                target_deck = d_widget.currentText().strip()
             else:
                 d_item = self.routing_table.item(r, 1)
                 target_deck = d_item.text().strip() if d_item else ""
-            raw_folder = f_item.text().strip() if f_item else ""
+
             if not raw_folder:
                 continue
             norm_key = _norm_path_key(raw_folder)
@@ -2455,14 +2618,20 @@ class ConfigWindow(QDialog):
 
         tag_aliases: dict[str, str] = {}
         for r in range(self.alias_table.rowCount()):
-            f_item = self.alias_table.item(r, 0)
-            widget = self.alias_table.cellWidget(r, 1)
-            if isinstance(widget, QComboBox):
-                alias_val = widget.currentText().strip()
+            f_widget = self.alias_table.cellWidget(r, 0)
+            if isinstance(f_widget, QComboBox):
+                raw_folder = f_widget.currentText().strip()
+            else:
+                f_item = self.alias_table.item(r, 0)
+                raw_folder = f_item.text().strip() if f_item else ""
+
+            a_widget = self.alias_table.cellWidget(r, 1)
+            if isinstance(a_widget, QComboBox):
+                alias_val = a_widget.currentText().strip()
             else:
                 a_item = self.alias_table.item(r, 1)
                 alias_val = a_item.text().strip() if a_item else ""
-            raw_folder = f_item.text().strip() if f_item else ""
+
             if not raw_folder:
                 continue
             norm_key = _norm_path_key(raw_folder)
