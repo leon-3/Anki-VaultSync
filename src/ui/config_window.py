@@ -209,7 +209,7 @@ class ConfigWindow(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Settings")
-        self.resize(760, 560)
+        self.resize(780, 620)
         self.setWindowModality(Qt.WindowModality.NonModal)
         self.setStyleSheet("""
             QCheckBox {
@@ -464,7 +464,7 @@ class ConfigWindow(QDialog):
             "Specify the local folder of your Obsidian vault and fallback deck.",
         )
 
-        lbl_vault = QLabel("Obsidian Vault Folder: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        lbl_vault = QLabel("Obsidian Vault Folder: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_vault.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_vault.setToolTip(format_tooltip_box("vault_path"))
         lbl_vault.setCursor(Qt.CursorShape.WhatsThisCursor)
@@ -487,7 +487,7 @@ class ConfigWindow(QDialog):
 
         card_dirs_l.addSpacing(4)
 
-        lbl_deck = QLabel("Default Target Deck: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        lbl_deck = QLabel("Default Target Deck: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_deck.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_deck.setToolTip(format_tooltip_box("default_deck"))
         lbl_deck.setCursor(Qt.CursorShape.WhatsThisCursor)
@@ -539,38 +539,57 @@ class ConfigWindow(QDialog):
 
         layout.addLayout(top_row)
 
-        # Section 2: Sync Automation & Safety (2-Column Grid, ordered by importance)
+        # Section 2: Sync Automation & Safety (2-Column Grid with aligned info icons)
         card_sync, card_sync_l = _create_section_card(
             "Sync Behavior & Safety",
             "Configure prompts, safety backups, and automated background sync.",
         )
 
-        grid_sync = QGridLayout()
-        grid_sync.setContentsMargins(0, 2, 0, 2)
-        grid_sync.setHorizontalSpacing(24)
-        grid_sync.setVerticalSpacing(10)
+        sync_cols = QHBoxLayout()
+        sync_cols.setContentsMargins(0, 2, 0, 2)
 
-        # Row 0, Col 0: Safety Backup (Most important)
+        left_grid = QGridLayout()
+        left_grid.setHorizontalSpacing(8)
+        left_grid.setVerticalSpacing(10)
+
+        # Row 0, Left: Safety Backup
         self.backup_before_sync_cb = QCheckBox("Create Collection Backup Before Sync")
         self.backup_before_sync_cb.setToolTip(format_tooltip_box("backup_before_sync"))
-        grid_sync.addLayout(_wrap_with_info(self.backup_before_sync_cb, "backup_before_sync"), 0, 0)
+        h_backup = InfoHintLabel("backup_before_sync")
+        left_grid.addWidget(self.backup_before_sync_cb, 0, 0)
+        left_grid.addWidget(h_backup, 0, 1)
 
-        # Row 0, Col 1: Show Diff Preview Before Updating (Swapped to row 0 alongside backup)
-        self.show_diff_cb = QCheckBox("Show Diff Preview Before Updating")
-        self.show_diff_cb.setToolTip(format_tooltip_box("show_diff_before_update"))
-        grid_sync.addLayout(_wrap_with_info(self.show_diff_cb, "show_diff_before_update"), 0, 1)
-
-        # Row 1, Col 0: Close Dashboard on successful sync
+        # Row 1, Left: Close Dashboard on successful sync
         self.auto_close_cb = QCheckBox("Close Dashboard on Successful Sync")
         self.auto_close_cb.setToolTip(format_tooltip_box("auto_close_on_success"))
-        grid_sync.addLayout(_wrap_with_info(self.auto_close_cb, "auto_close_on_success"), 1, 0)
+        h_close = InfoHintLabel("auto_close_on_success")
+        left_grid.addWidget(self.auto_close_cb, 1, 0)
+        left_grid.addWidget(h_close, 1, 1)
 
-        # Row 1, Col 1: Auto-sync on Anki Startup (Background)
+        right_grid = QGridLayout()
+        right_grid.setHorizontalSpacing(8)
+        right_grid.setVerticalSpacing(10)
+
+        # Row 0, Right: Show Diff Preview Before Updating (Swapped to row 0 alongside backup)
+        self.show_diff_cb = QCheckBox("Show Diff Preview Before Updating")
+        self.show_diff_cb.setToolTip(format_tooltip_box("show_diff_before_update"))
+        h_diff = InfoHintLabel("show_diff_before_update")
+        right_grid.addWidget(self.show_diff_cb, 0, 0)
+        right_grid.addWidget(h_diff, 0, 1)
+
+        # Row 1, Right: Auto-sync on Anki Startup (Background)
         self.sync_on_startup_cb = QCheckBox("Auto-sync on Anki Startup (Background)")
         self.sync_on_startup_cb.setToolTip(format_tooltip_box("sync_on_startup"))
-        grid_sync.addLayout(_wrap_with_info(self.sync_on_startup_cb, "sync_on_startup"), 1, 1)
+        h_startup = InfoHintLabel("sync_on_startup")
+        right_grid.addWidget(self.sync_on_startup_cb, 1, 0)
+        right_grid.addWidget(h_startup, 1, 1)
 
-        card_sync_l.addLayout(grid_sync)
+        sync_cols.addLayout(left_grid)
+        sync_cols.addSpacing(32)
+        sync_cols.addLayout(right_grid)
+        sync_cols.addStretch()
+
+        card_sync_l.addLayout(sync_cols)
         layout.addWidget(card_sync)
         layout.addStretch()
 
@@ -594,6 +613,7 @@ class ConfigWindow(QDialog):
                 border-radius: 6px;
                 font-size: 12px;
                 gridline-color: rgba(255, 255, 255, 0.05);
+                margin-bottom: 2px;
             }
             QTableWidget::item {
                 background-color: transparent;
@@ -619,12 +639,12 @@ class ConfigWindow(QDialog):
         self.routing_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.routing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.routing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.routing_table.setMinimumHeight(125)
-        self.routing_table.setMaximumHeight(145)
+        self.routing_table.setMinimumHeight(100)
+        self.routing_table.setMaximumHeight(120)
         self.routing_table.setStyleSheet(table_style)
         self.routing_table.setToolTip(format_tooltip_box("deck_routing"))
         card_rules_l.addWidget(self.routing_table)
-        card_rules_l.addSpacing(6)
+        card_rules_l.addSpacing(10)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
@@ -659,7 +679,7 @@ class ConfigWindow(QDialog):
         row_tsettings = QHBoxLayout()
         row_tsettings.setSpacing(12)
 
-        lbl_tag = QLabel("Base Tag Prefix: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        lbl_tag = QLabel("Base Tag Prefix: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_tag.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_tag.setToolTip(format_tooltip_box("base_tag"))
         lbl_tag.setCursor(Qt.CursorShape.WhatsThisCursor)
@@ -683,12 +703,12 @@ class ConfigWindow(QDialog):
         self.alias_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.alias_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.alias_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.alias_table.setMinimumHeight(125)
-        self.alias_table.setMaximumHeight(145)
+        self.alias_table.setMinimumHeight(100)
+        self.alias_table.setMaximumHeight(120)
         self.alias_table.setStyleSheet(table_style)
         self.alias_table.setToolTip(format_tooltip_box("tag_aliases"))
         card_tag_l.addWidget(self.alias_table)
-        card_tag_l.addSpacing(6)
+        card_tag_l.addSpacing(10)
 
         alias_btn_row = QHBoxLayout()
         alias_btn_row.setSpacing(6)
@@ -765,7 +785,7 @@ class ConfigWindow(QDialog):
 
         row_mode = QHBoxLayout()
         row_mode.setSpacing(8)
-        lbl_iom = QLabel("Mode: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        lbl_iom = QLabel("Mode: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_iom.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_iom.setToolTip(format_tooltip_box("image_occlusion_mode"))
         lbl_iom.setCursor(Qt.CursorShape.WhatsThisCursor)
@@ -838,7 +858,7 @@ class ConfigWindow(QDialog):
         grid_models.setHorizontalSpacing(16)
         grid_models.setVerticalSpacing(8)
 
-        lbl_bm = QLabel("Basic Note Type: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        lbl_bm = QLabel("Basic Note Type: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_bm.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_bm.setToolTip(format_tooltip_box("basic_model_id"))
         lbl_bm.setCursor(Qt.CursorShape.WhatsThisCursor)
@@ -849,7 +869,7 @@ class ConfigWindow(QDialog):
         self.basic_model_combo.setToolTip(format_tooltip_box("basic_model_id"))
         grid_models.addWidget(self.basic_model_combo, 0, 1)
 
-        lbl_cm = QLabel("Cloze Note Type: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        lbl_cm = QLabel("Cloze Note Type: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_cm.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_cm.setToolTip(format_tooltip_box("cloze_model_id"))
         lbl_cm.setCursor(Qt.CursorShape.WhatsThisCursor)
@@ -1439,7 +1459,7 @@ class ConfigWindow(QDialog):
         """
 
         # 1. Dash
-        lbl_dash = QLabel("Open Dashboard: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        lbl_dash = QLabel("Open Dashboard: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_dash.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_dash.setToolTip(format_tooltip_box("shortcuts_open_dashboard"))
         lbl_dash.setCursor(Qt.CursorShape.WhatsThisCursor)
@@ -1462,7 +1482,7 @@ class ConfigWindow(QDialog):
         grid_sc.addWidget(self.sc_dash_warn, 1, 1)
 
         # 2. Quick
-        lbl_quick = QLabel("Quick Sync (New): <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        lbl_quick = QLabel("Quick Sync (New): &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_quick.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_quick.setToolTip(format_tooltip_box("shortcuts_quick_sync"))
         lbl_quick.setCursor(Qt.CursorShape.WhatsThisCursor)
@@ -1485,7 +1505,7 @@ class ConfigWindow(QDialog):
         grid_sc.addWidget(self.sc_quick_warn, 3, 1)
 
         # 3. Full
-        lbl_full = QLabel("Sync and Update: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        lbl_full = QLabel("Sync and Update: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_full.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_full.setToolTip(format_tooltip_box("shortcuts_full_sync"))
         lbl_full.setCursor(Qt.CursorShape.WhatsThisCursor)
