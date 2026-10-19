@@ -139,6 +139,46 @@ def _create_section_card(title: str | None = None, subtitle: str | None = None) 
 
 
 
+class InfoHintLabel(QLabel):
+    """Subtle, muted typographic hint indicator 'ⓘ' with tooltip and hover effect."""
+
+    def __init__(self, tooltip_key: str, parent: QWidget | None = None) -> None:
+        super().__init__("ⓘ", parent)
+        self.setToolTip(format_tooltip_box(tooltip_key))
+        self.setCursor(Qt.CursorShape.WhatsThisCursor)
+        self.setStyleSheet("""
+            QLabel {
+                font-size: 11px;
+                color: rgba(180, 180, 180, 0.45);
+                font-weight: normal;
+                padding: 0 1px;
+                border: none;
+                background: transparent;
+            }
+            QLabel:hover {
+                color: #2196F3;
+            }
+        """)
+
+    def enterEvent(self, event) -> None:
+        super().enterEvent(event)
+        tip = self.toolTip()
+        if tip:
+            QToolTip.showText(QCursor.pos(), tip, self)
+
+
+def _wrap_with_info(cb: QCheckBox, key: str, add_stretch: bool = True) -> QHBoxLayout:
+    """Wraps a checkbox with an attached subtle inline 'ⓘ' typographic hint."""
+    row = QHBoxLayout()
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(4)
+    row.addWidget(cb)
+    hint = InfoHintLabel(key)
+    row.addWidget(hint)
+    if add_stretch:
+        row.addStretch()
+    return row
+
 _CHECKMARK_SVG_PATH = Path(__file__).parent / "assets" / "checkmark.svg"
 
 
@@ -424,9 +464,10 @@ class ConfigWindow(QDialog):
             "Specify the local folder of your Obsidian vault and fallback deck.",
         )
 
-        lbl_vault = QLabel("Obsidian Vault Folder:")
+        lbl_vault = QLabel("Obsidian Vault Folder: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_vault.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_vault.setToolTip(format_tooltip_box("vault_path"))
+        lbl_vault.setCursor(Qt.CursorShape.WhatsThisCursor)
         card_dirs_l.addWidget(lbl_vault)
 
         vault_row = QHBoxLayout()
@@ -446,9 +487,10 @@ class ConfigWindow(QDialog):
 
         card_dirs_l.addSpacing(4)
 
-        lbl_deck = QLabel("Default Target Deck:")
+        lbl_deck = QLabel("Default Target Deck: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_deck.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_deck.setToolTip(format_tooltip_box("default_deck"))
+        lbl_deck.setCursor(Qt.CursorShape.WhatsThisCursor)
         card_dirs_l.addWidget(lbl_deck)
 
         deck_row = QHBoxLayout()
@@ -511,22 +553,22 @@ class ConfigWindow(QDialog):
         # Row 0, Col 0: Safety Backup (Most important)
         self.backup_before_sync_cb = QCheckBox("Create Collection Backup Before Sync")
         self.backup_before_sync_cb.setToolTip(format_tooltip_box("backup_before_sync"))
-        grid_sync.addWidget(self.backup_before_sync_cb, 0, 0)
+        grid_sync.addLayout(_wrap_with_info(self.backup_before_sync_cb, "backup_before_sync"), 0, 0)
 
         # Row 0, Col 1: Show Diff Preview Before Updating (Swapped to row 0 alongside backup)
         self.show_diff_cb = QCheckBox("Show Diff Preview Before Updating")
         self.show_diff_cb.setToolTip(format_tooltip_box("show_diff_before_update"))
-        grid_sync.addWidget(self.show_diff_cb, 0, 1)
+        grid_sync.addLayout(_wrap_with_info(self.show_diff_cb, "show_diff_before_update"), 0, 1)
 
         # Row 1, Col 0: Close Dashboard on successful sync
         self.auto_close_cb = QCheckBox("Close Dashboard on Successful Sync")
         self.auto_close_cb.setToolTip(format_tooltip_box("auto_close_on_success"))
-        grid_sync.addWidget(self.auto_close_cb, 1, 0)
+        grid_sync.addLayout(_wrap_with_info(self.auto_close_cb, "auto_close_on_success"), 1, 0)
 
         # Row 1, Col 1: Auto-sync on Anki Startup (Background)
         self.sync_on_startup_cb = QCheckBox("Auto-sync on Anki Startup (Background)")
         self.sync_on_startup_cb.setToolTip(format_tooltip_box("sync_on_startup"))
-        grid_sync.addWidget(self.sync_on_startup_cb, 1, 1)
+        grid_sync.addLayout(_wrap_with_info(self.sync_on_startup_cb, "sync_on_startup"), 1, 1)
 
         card_sync_l.addLayout(grid_sync)
         layout.addWidget(card_sync)
@@ -617,9 +659,10 @@ class ConfigWindow(QDialog):
         row_tsettings = QHBoxLayout()
         row_tsettings.setSpacing(12)
 
-        lbl_tag = QLabel("Base Tag Prefix:")
+        lbl_tag = QLabel("Base Tag Prefix: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_tag.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_tag.setToolTip(format_tooltip_box("base_tag"))
+        lbl_tag.setCursor(Qt.CursorShape.WhatsThisCursor)
         row_tsettings.addWidget(lbl_tag)
 
         self.tag_edit = QLineEdit()
@@ -631,7 +674,7 @@ class ConfigWindow(QDialog):
 
         self.pad_single_digits_cb = QCheckBox("Pad Folder Numbers (01, 02...)")
         self.pad_single_digits_cb.setToolTip(format_tooltip_box("pad_single_digit_tags"))
-        row_tsettings.addWidget(self.pad_single_digits_cb)
+        row_tsettings.addLayout(_wrap_with_info(self.pad_single_digits_cb, "pad_single_digit_tags", add_stretch=False))
         row_tsettings.addStretch()
         card_tag_l.addLayout(row_tsettings)
 
@@ -705,11 +748,11 @@ class ConfigWindow(QDialog):
         row_c.setSpacing(24)
         self.cloze_cb = QCheckBox("Enable Cloze Syntax Processing")
         self.cloze_cb.setToolTip(format_tooltip_box("cloze_notes"))
-        row_c.addWidget(self.cloze_cb)
+        row_c.addLayout(_wrap_with_info(self.cloze_cb, "cloze_notes", add_stretch=False))
 
         self.suspend_new_clozes_cb = QCheckBox("Suspend Newly Created Cloze Cards")
         self.suspend_new_clozes_cb.setToolTip(format_tooltip_box("suspend_new_clozes"))
-        row_c.addWidget(self.suspend_new_clozes_cb)
+        row_c.addLayout(_wrap_with_info(self.suspend_new_clozes_cb, "suspend_new_clozes", add_stretch=False))
         row_c.addStretch()
         card_cloze_l.addLayout(row_c)
         layout.addWidget(card_cloze)
@@ -722,8 +765,10 @@ class ConfigWindow(QDialog):
 
         row_mode = QHBoxLayout()
         row_mode.setSpacing(8)
-        lbl_iom = QLabel("Mode:")
+        lbl_iom = QLabel("Mode: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_iom.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        lbl_iom.setToolTip(format_tooltip_box("image_occlusion_mode"))
+        lbl_iom.setCursor(Qt.CursorShape.WhatsThisCursor)
         row_mode.addWidget(lbl_iom)
 
         self.image_occlusion_mode_combo = QComboBox()
@@ -765,15 +810,15 @@ class ConfigWindow(QDialog):
         row_io_opts.setSpacing(16)
         self.suspend_new_occlusions_cb = QCheckBox("Suspend New Occlusions Until Masked")
         self.suspend_new_occlusions_cb.setToolTip(format_tooltip_box("suspend_new_occlusions"))
-        row_io_opts.addWidget(self.suspend_new_occlusions_cb)
+        row_io_opts.addLayout(_wrap_with_info(self.suspend_new_occlusions_cb, "suspend_new_occlusions", add_stretch=False))
 
         self.re_stage_cb = QCheckBox("Re-export Existing Occlusion Images")
         self.re_stage_cb.setToolTip(format_tooltip_box("re_stage_occlusions"))
-        row_io_opts.addWidget(self.re_stage_cb)
+        row_io_opts.addLayout(_wrap_with_info(self.re_stage_cb, "re_stage_occlusions", add_stretch=False))
 
         self.freeze_image_occlusions_cb = QCheckBox("Freeze Occlusion Notes (Skip Updates)")
         self.freeze_image_occlusions_cb.setToolTip(format_tooltip_box("freeze_image_occlusions"))
-        row_io_opts.addWidget(self.freeze_image_occlusions_cb)
+        row_io_opts.addLayout(_wrap_with_info(self.freeze_image_occlusions_cb, "freeze_image_occlusions", add_stretch=False))
         row_io_opts.addStretch()
         card_io_l.addLayout(row_io_opts)
         layout.addWidget(card_io)
@@ -786,16 +831,17 @@ class ConfigWindow(QDialog):
 
         self.hash_media_cb = QCheckBox("Hash Media (Rename images with deterministic 8-character hex hash)")
         self.hash_media_cb.setToolTip(format_tooltip_box("hash_media"))
-        card_bind_l.addWidget(self.hash_media_cb)
+        card_bind_l.addLayout(_wrap_with_info(self.hash_media_cb, "hash_media"))
 
         grid_models = QGridLayout()
         grid_models.setContentsMargins(0, 4, 0, 0)
         grid_models.setHorizontalSpacing(16)
         grid_models.setVerticalSpacing(8)
 
-        lbl_bm = QLabel("Basic Note Type:")
+        lbl_bm = QLabel("Basic Note Type: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_bm.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_bm.setToolTip(format_tooltip_box("basic_model_id"))
+        lbl_bm.setCursor(Qt.CursorShape.WhatsThisCursor)
         grid_models.addWidget(lbl_bm, 0, 0)
 
         self.basic_model_combo = QComboBox()
@@ -803,9 +849,10 @@ class ConfigWindow(QDialog):
         self.basic_model_combo.setToolTip(format_tooltip_box("basic_model_id"))
         grid_models.addWidget(self.basic_model_combo, 0, 1)
 
-        lbl_cm = QLabel("Cloze Note Type:")
+        lbl_cm = QLabel("Cloze Note Type: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_cm.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_cm.setToolTip(format_tooltip_box("cloze_model_id"))
+        lbl_cm.setCursor(Qt.CursorShape.WhatsThisCursor)
         grid_models.addWidget(lbl_cm, 1, 0)
 
         self.cloze_model_combo = QComboBox()
@@ -1392,8 +1439,10 @@ class ConfigWindow(QDialog):
         """
 
         # 1. Dash
-        lbl_dash = QLabel("Open Dashboard:")
+        lbl_dash = QLabel("Open Dashboard: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_dash.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        lbl_dash.setToolTip(format_tooltip_box("shortcuts_open_dashboard"))
+        lbl_dash.setCursor(Qt.CursorShape.WhatsThisCursor)
         grid_sc.addWidget(lbl_dash, 0, 0)
         self.sc_dash_edit = QKeySequenceEdit()
         self.sc_dash_edit.setStyleSheet(input_style)
@@ -1413,8 +1462,10 @@ class ConfigWindow(QDialog):
         grid_sc.addWidget(self.sc_dash_warn, 1, 1)
 
         # 2. Quick
-        lbl_quick = QLabel("Quick Sync (New):")
+        lbl_quick = QLabel("Quick Sync (New): <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_quick.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        lbl_quick.setToolTip(format_tooltip_box("shortcuts_quick_sync"))
+        lbl_quick.setCursor(Qt.CursorShape.WhatsThisCursor)
         grid_sc.addWidget(lbl_quick, 2, 0)
         self.sc_quick_edit = QKeySequenceEdit()
         self.sc_quick_edit.setStyleSheet(input_style)
@@ -1434,8 +1485,10 @@ class ConfigWindow(QDialog):
         grid_sc.addWidget(self.sc_quick_warn, 3, 1)
 
         # 3. Full
-        lbl_full = QLabel("Sync and Update:")
+        lbl_full = QLabel("Sync and Update: <span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_full.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        lbl_full.setToolTip(format_tooltip_box("shortcuts_full_sync"))
+        lbl_full.setCursor(Qt.CursorShape.WhatsThisCursor)
         grid_sc.addWidget(lbl_full, 4, 0)
         self.sc_full_edit = QKeySequenceEdit()
         self.sc_full_edit.setStyleSheet(input_style)
