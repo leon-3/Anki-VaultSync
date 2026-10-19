@@ -81,14 +81,14 @@ TOOLTIPS: dict[str, str] = {
         "instead of generating a new note type."
     ),
     "deck_routing": (
-        "Folder routing rules that map relative vault folder paths to specific target Anki decks using "
+        "Folder deck rules that map relative vault folder paths to specific target Anki decks using "
         "longest prefix matching (e.g. 'TopicA' -> 'Domain::TopicA', 'TopicA/SubtopicB' -> 'Domain::SubtopicB')."
     ),
     "decks": (
-        "Folder routing rules that map relative vault folder paths to specific target Anki decks."
+        "Folder deck rules that map relative vault folder paths to specific target Anki decks."
     ),
     "tag_aliases": (
-        "Path-based tag aliases that rename or suppress specific vault folders when generating hierarchical Anki tags. "
+        "Folder tag rules that rename, alias, or suppress specific vault folders when generating hierarchical Anki tags. "
         "For example, 'TopicA/SubtopicB' -> 'CustomTag', or 'Notes' -> '' to suppress."
     ),
     "subdirectories": (
@@ -136,9 +136,9 @@ TOOLTIP_TITLES: dict[str, str] = {
     "auto_close_on_success": "Close Dashboard on Success",
     "basic_model_id": "Basic Note Type",
     "cloze_model_id": "Cloze Note Type",
-    "deck_routing": "Folder Deck Routing",
-    "decks": "Folder Deck Routing",
-    "tag_aliases": "Tag Hierarchy & Aliases",
+    "deck_routing": "Folder Deck Rules",
+    "decks": "Folder Deck Rules",
+    "tag_aliases": "Folder Tag Rules",
     "subdirectories": "Subdirectory Mapping",
     "ignore": "Ignored Directories & Files",
     "missing_in_anki": "Cards Deleted in Anki",

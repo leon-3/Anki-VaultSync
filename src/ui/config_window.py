@@ -186,13 +186,15 @@ class ConfigWindow(QDialog):
     """Modern, tabbed settings configurator for Anki-VaultSync."""
 
     TAB_GENERAL = 0
-    TAB_DECK_ROUTING = 1
-    TAB_TAG_ROUTING = 2
+    TAB_DECK_RULES = 1
+    TAB_TAG_RULES = 2
     TAB_CARD_TYPES = 3
     TAB_DELETED_CARDS = 4
     TAB_SHORTCUTS_LOGS = 5
 
     # Backwards-compatibility aliases
+    TAB_DECK_ROUTING = 1
+    TAB_TAG_ROUTING = 2
     TAB_DECKS = 1
     TAB_DECKS_TAGS = 1
     TAB_ROUTING = 1
@@ -257,6 +259,7 @@ class ConfigWindow(QDialog):
 
         self._manager = profile_manager
         self._profile_name = profile_name
+        self._updating_routing_table: bool = False
         self._profile_settings = self._manager.load(profile_name)
 
         self._vault_cfg = None
@@ -297,8 +300,8 @@ class ConfigWindow(QDialog):
                 if (
                     target in clean_text
                     or any(w == target for w in clean_text.replace("&", " ").split())
-                    or (target in ("deck", "decks", "deck routing", "decks & tags", "routing") and idx == self.TAB_DECK_ROUTING)
-                    or (target in ("tag", "tags", "tag routing", "aliases", "tag aliases") and idx == self.TAB_TAG_ROUTING)
+                    or (target in ("deck", "decks", "deck rules", "deck routing", "decks & tags", "routing") and idx == self.TAB_DECK_RULES)
+                    or (target in ("tag", "tags", "tag rules", "tag routing", "aliases", "tag aliases") and idx == self.TAB_TAG_RULES)
                     or (target in ("maintenance", "orphans", "deleted", "deleted cards") and idx == self.TAB_DELETED_CARDS)
                     or (target in ("card types", "card types & media", "rules", "media") and idx == self.TAB_CARD_TYPES)
                     or (target in ("shortcuts", "logs", "shortcuts & logs") and idx == self.TAB_SHORTCUTS_LOGS)
@@ -391,17 +394,19 @@ class ConfigWindow(QDialog):
         self._init_tab_general()
         self.tabs.addTab(self.tab_general, "General && Sync")
 
-        # Tab 2: Deck Routing
-        self.tab_deck_routing = QWidget()
-        self.tab_routing = self.tab_deck_routing
-        self._init_tab_deck_routing()
-        self.tabs.addTab(self.tab_deck_routing, "Deck Routing")
+        # Tab 2: Deck Rules
+        self.tab_deck_rules = QWidget()
+        self.tab_deck_routing = self.tab_deck_rules
+        self.tab_routing = self.tab_deck_rules
+        self._init_tab_deck_rules()
+        self.tabs.addTab(self.tab_deck_rules, "Deck Rules")
 
-        # Tab 3: Tag Routing
-        self.tab_tag_routing = QWidget()
-        self.tab_tag_aliasing = self.tab_tag_routing
-        self._init_tab_tag_routing()
-        self.tabs.addTab(self.tab_tag_routing, "Tag Routing")
+        # Tab 3: Tag Rules
+        self.tab_tag_rules = QWidget()
+        self.tab_tag_routing = self.tab_tag_rules
+        self.tab_tag_aliasing = self.tab_tag_rules
+        self._init_tab_tag_rules()
+        self.tabs.addTab(self.tab_tag_rules, "Tag Rules")
 
         # Tab 3: Card Types && Media
         self.tab_rules = QWidget()
@@ -472,14 +477,14 @@ class ConfigWindow(QDialog):
             }
         """
 
-        # Top Row: 2-Column Split (2/3 Vault & Deck | 1/3 Ignored Files)
+        # Top Row: 2-Column Split (2/3 Vault Location | 1/3 Ignored Files)
         top_row = QHBoxLayout()
         top_row.setSpacing(10)
 
-        # Left (2/3 width): Vault Location & Default Deck
+        # Left (2/3 width): Vault Location
         card_dirs, card_dirs_l = _create_section_card(
-            "Vault Location & Default Deck",
-            "Specify the local folder of your Obsidian vault and fallback deck.",
+            "Vault Location",
+            "Specify the local root folder of your Obsidian vault.",
         )
 
         lbl_vault = QLabel("Obsidian Vault Folder: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
@@ -504,34 +509,6 @@ class ConfigWindow(QDialog):
         vault_row.addWidget(self.vault_edit, 1)
         vault_row.addWidget(vault_browse)
         card_dirs_l.addLayout(vault_row)
-
-        card_dirs_l.addSpacing(4)
-
-        lbl_deck = QLabel("Default Target Deck: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
-        lbl_deck.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
-        lbl_deck.setToolTip(format_tooltip_box("default_deck"))
-        lbl_deck.setCursor(Qt.CursorShape.WhatsThisCursor)
-        card_dirs_l.addWidget(lbl_deck)
-
-        deck_row = QHBoxLayout()
-        deck_row.setSpacing(8)
-        self.deck_combo = QComboBox()
-        self.deck_combo.setStyleSheet(input_style + " QComboBox { min-width: 220px; }")
-        self.deck_combo.setEditable(True)
-        self.deck_combo.setToolTip(format_tooltip_box("default_deck"))
-        if mw is not None and hasattr(mw, "col") and mw.col is not None:
-            for d in mw.col.decks.all_names_and_ids():
-                try:
-                    if hasattr(mw.col.decks, "is_filtered") and mw.col.decks.is_filtered(d.id):
-                        continue
-                    deck = mw.col.decks.get(d.id)
-                    if deck and deck.get("dyn", False):
-                        continue
-                except Exception:
-                    pass
-                self.deck_combo.addItem(d.name)
-        deck_row.addWidget(self.deck_combo, 1)
-        card_dirs_l.addLayout(deck_row)
         top_row.addWidget(card_dirs, stretch=2)
 
         # Right (1/3 width): Ignored Directories & Files
@@ -543,7 +520,7 @@ class ConfigWindow(QDialog):
         self.ignore_edit.setPlaceholderText("e.g. .obsidian\ntemplates/*\narchive")
         self.ignore_edit.setToolTip(format_tooltip_box("ignore"))
         _dim_placeholder(self.ignore_edit)
-        self.ignore_edit.setMinimumHeight(65)
+        self.ignore_edit.setFixedHeight(54)
         self.ignore_edit.setStyleSheet("""
             QPlainTextEdit {
                 font-family: monospace;
@@ -613,11 +590,90 @@ class ConfigWindow(QDialog):
         layout.addWidget(card_sync)
         layout.addStretch()
 
+    def _get_available_deck_names(self) -> list[str]:
+        names: list[str] = []
+        if mw is not None and hasattr(mw, "col") and mw.col is not None:
+            try:
+                for d in mw.col.decks.all_names_and_ids():
+                    try:
+                        if hasattr(mw.col.decks, "is_filtered") and mw.col.decks.is_filtered(d.id):
+                            continue
+                        deck = mw.col.decks.get(d.id)
+                        if deck and deck.get("dyn", False):
+                            continue
+                    except Exception:
+                        pass
+                    names.append(d.name)
+            except Exception:
+                pass
+        return names
+
+    def _create_deck_combo_for_table(self, selected: str = "") -> QComboBox:
+        combo_style = """
+            QComboBox {
+                font-size: 12px;
+                padding: 2px 6px;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 4px;
+                background-color: rgba(30, 30, 30, 0.95);
+                color: #ffffff;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 18px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1e1e1e;
+                color: #ffffff;
+                selection-background-color: #2196F3;
+            }
+        """
+        combo = QComboBox()
+        combo.setStyleSheet(combo_style)
+        combo.setEditable(True)
+        for name in self._get_available_deck_names():
+            combo.addItem(name)
+        if selected:
+            idx = combo.findText(selected)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+            else:
+                combo.setCurrentText(selected)
+        elif combo.count() > 0:
+            combo.setCurrentIndex(0)
+        else:
+            combo.setCurrentText("Default")
+
+        combo.currentTextChanged.connect(lambda text, c=combo: self._on_routing_combo_changed(c, text))
+        return combo
+
+    def _set_routing_row(self, row: int, folder: str, deck: str) -> None:
+        self._updating_routing_table = True
+        try:
+            self.routing_table.setItem(row, 0, QTableWidgetItem(folder))
+            self.routing_table.setItem(row, 1, QTableWidgetItem(deck))
+            combo = self._create_deck_combo_for_table(deck)
+            self.routing_table.setCellWidget(row, 1, combo)
+        finally:
+            self._updating_routing_table = False
+
     def _init_tab_deck_routing(self) -> None:
-        layout = QVBoxLayout(self.tab_deck_routing)
+        self._init_tab_deck_rules()
+
+    def _init_tab_deck_rules(self) -> None:
+        layout = QVBoxLayout(self.tab_deck_rules)
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(10)
 
+        input_style = """
+            QLineEdit, QComboBox {
+                font-size: 12px;
+                padding: 5px 8px;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 4px;
+                background-color: transparent;
+            }
+        """
         btn_style = """
             QPushButton {
                 font-size: 12px;
@@ -647,8 +703,32 @@ class ConfigWindow(QDialog):
             }
         """
 
+        # Section 1: Default Target Deck (compact first point)
+        card_default, card_default_l = _create_section_card(
+            "Default Target Deck",
+            "Fallback Anki deck for flashcards that do not match any folder rule below.",
+        )
+        deck_row = QHBoxLayout()
+        deck_row.setSpacing(8)
+        lbl_deck = QLabel("Default Target Deck: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        lbl_deck.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
+        lbl_deck.setToolTip(format_tooltip_box("default_deck"))
+        lbl_deck.setCursor(Qt.CursorShape.WhatsThisCursor)
+        deck_row.addWidget(lbl_deck)
+
+        self.deck_combo = QComboBox()
+        self.deck_combo.setStyleSheet(input_style + " QComboBox { min-width: 220px; }")
+        self.deck_combo.setEditable(True)
+        self.deck_combo.setToolTip(format_tooltip_box("default_deck"))
+        for d in self._get_available_deck_names():
+            self.deck_combo.addItem(d)
+        deck_row.addWidget(self.deck_combo, 1)
+        card_default_l.addLayout(deck_row)
+        layout.addWidget(card_default)
+
+        # Section 2: Folder Deck Rules
         card_rules, card_rules_l = _create_section_card(
-            "Folder Deck Routing",
+            "Deck Rules & Folder Mapping",
             "Assign specific vault directories to designated target Anki decks.",
         )
 
@@ -673,10 +753,10 @@ class ConfigWindow(QDialog):
         info_l.setContentsMargins(0, 0, 0, 0)
         info_l.setSpacing(4)
         info_text = QLabel(
-            "<b>How Folder Deck Routing works:</b><br>"
+            "<b>How Deck Rules work:</b><br>"
             "• <b>Folder Mapping:</b> Flashcards located inside a mapped folder are placed into that folder's target Anki deck.<br>"
             "• <b>Inheritance & Specificity:</b> Subfolders automatically inherit their parent folder's deck rule unless a more specific rule is added for that subfolder.<br>"
-            "• <b>Default Deck Fallback:</b> Flashcards in folders without an explicit or inherited rule are routed to your Default Target Deck."
+            "• <b>Default Deck Fallback:</b> Flashcards in folders without an explicit or inherited rule are routed to your Default Target Deck above."
         )
         info_text.setWordWrap(True)
         info_l.addWidget(info_text)
@@ -688,9 +768,10 @@ class ConfigWindow(QDialog):
         self.routing_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.routing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.routing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.routing_table.setMinimumHeight(180)
+        self.routing_table.setMinimumHeight(160)
         self.routing_table.setStyleSheet(table_style)
         self.routing_table.setToolTip(format_tooltip_box("deck_routing"))
+        self.routing_table.itemChanged.connect(self._on_routing_item_changed)
         card_rules_l.addWidget(self.routing_table)
         card_rules_l.addSpacing(10)
 
@@ -701,18 +782,12 @@ class ConfigWindow(QDialog):
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_btn.clicked.connect(self._add_routing_row)
 
-        browse_btn = QPushButton("Browse Folder...")
-        browse_btn.setStyleSheet(btn_style)
-        browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        browse_btn.clicked.connect(self._browse_routing_folder)
-
         remove_btn = QPushButton("Remove Selected")
         remove_btn.setStyleSheet(btn_style)
         remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         remove_btn.clicked.connect(self._remove_routing_row)
 
         btn_row.addWidget(add_btn)
-        btn_row.addWidget(browse_btn)
         btn_row.addWidget(remove_btn)
         btn_row.addStretch()
         card_rules_l.addLayout(btn_row)
@@ -721,7 +796,10 @@ class ConfigWindow(QDialog):
         layout.addStretch()
 
     def _init_tab_tag_routing(self) -> None:
-        layout = QVBoxLayout(self.tab_tag_routing)
+        self._init_tab_tag_rules()
+
+    def _init_tab_tag_rules(self) -> None:
+        layout = QVBoxLayout(self.tab_tag_rules)
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(10)
 
@@ -755,7 +833,7 @@ class ConfigWindow(QDialog):
         """
 
         card_tag, card_tag_l = _create_section_card(
-            "Tag Routing & Folder Aliases",
+            "Tag Rules & Folder Aliases",
             "Control how directory hierarchy converts into hierarchical Anki tags.",
         )
 
@@ -780,7 +858,7 @@ class ConfigWindow(QDialog):
         info_l.setContentsMargins(0, 0, 0, 0)
         info_l.setSpacing(4)
         info_text = QLabel(
-            "<b>How Tag Routing works:</b><br>"
+            "<b>How Tag Rules work:</b><br>"
             "• <b>Hierarchical Tagging:</b> Vault directories automatically convert into nested Anki tags (Folder::Subfolder).<br>"
             "• <b>Folder Aliases:</b> Rename any directory level in the tag path, or leave the replacement empty to exclude that folder from tags.<br>"
             "• <b>Base Prefix:</b> Optional root tag prepended before all generated tags across the vault."
@@ -831,18 +909,12 @@ class ConfigWindow(QDialog):
         add_alias_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_alias_btn.clicked.connect(self._add_alias_row)
 
-        browse_alias_btn = QPushButton("Browse Folder...")
-        browse_alias_btn.setStyleSheet(btn_style)
-        browse_alias_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        browse_alias_btn.clicked.connect(self._browse_alias_folder)
-
         remove_alias_btn = QPushButton("Remove Selected")
         remove_alias_btn.setStyleSheet(btn_style)
         remove_alias_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         remove_alias_btn.clicked.connect(self._remove_alias_row)
 
         alias_btn_row.addWidget(add_alias_btn)
-        alias_btn_row.addWidget(browse_alias_btn)
         alias_btn_row.addWidget(remove_alias_btn)
         alias_btn_row.addStretch()
         card_tag_l.addLayout(alias_btn_row)
@@ -1898,13 +1970,44 @@ class ConfigWindow(QDialog):
     def _add_routing_row(self) -> None:
         row = self.routing_table.rowCount()
         self.routing_table.insertRow(row)
-        self.routing_table.setItem(row, 0, QTableWidgetItem("folder_path"))
-        self.routing_table.setItem(row, 1, QTableWidgetItem("Target Deck"))
+        fallback_deck = ""
+        if hasattr(self, "deck_combo") and self.deck_combo is not None:
+            fallback_deck = self.deck_combo.currentText().strip()
+        if not fallback_deck:
+            avail = self._get_available_deck_names()
+            fallback_deck = avail[0] if avail else "Default"
+        self._set_routing_row(row, "folder_path", fallback_deck)
 
     def _remove_routing_row(self) -> None:
         curr = self.routing_table.currentRow()
         if curr >= 0:
             self.routing_table.removeRow(curr)
+
+    def _on_routing_combo_changed(self, combo: QComboBox, text: str) -> None:
+        if getattr(self, "_updating_routing_table", False):
+            return
+        for r in range(self.routing_table.rowCount()):
+            if self.routing_table.cellWidget(r, 1) is combo:
+                self._updating_routing_table = True
+                try:
+                    item = self.routing_table.item(r, 1)
+                    if item:
+                        item.setText(text)
+                finally:
+                    self._updating_routing_table = False
+                break
+
+    def _on_routing_item_changed(self, item: QTableWidgetItem) -> None:
+        if getattr(self, "_updating_routing_table", False):
+            return
+        if item.column() == 1:
+            widget = self.routing_table.cellWidget(item.row(), 1)
+            if isinstance(widget, QComboBox) and widget.currentText() != item.text():
+                self._updating_routing_table = True
+                try:
+                    widget.setCurrentText(item.text())
+                finally:
+                    self._updating_routing_table = False
 
     def _add_alias_row(self) -> None:
         row = self.alias_table.rowCount()
@@ -2057,6 +2160,8 @@ class ConfigWindow(QDialog):
             self.image_occlusion_mode_combo.setCurrentIndex(0)
             self.suspend_new_occlusions_cb.setChecked(True)
             self.freeze_image_occlusions_cb.setChecked(False)
+            self.routing_table.setRowCount(0)
+            self.alias_table.setRowCount(0)
             return
 
         self.deck_combo.setCurrentText(self._vault_cfg.deck)
@@ -2074,12 +2179,11 @@ class ConfigWindow(QDialog):
         self.re_stage_occlusions = self._vault_cfg.re_stage_occlusions
         self.re_stage_cb.setChecked(self._vault_cfg.re_stage_occlusions)
 
-        # Deck routing
+        # Deck rules
         routing = self._vault_cfg.deck_routing or {}
         self.routing_table.setRowCount(len(routing))
         for r, (folder, target_deck) in enumerate(routing.items()):
-            self.routing_table.setItem(r, 0, QTableWidgetItem(folder))
-            self.routing_table.setItem(r, 1, QTableWidgetItem(target_deck))
+            self._set_routing_row(r, folder, target_deck)
 
         # Tag aliases
         aliases = self._vault_cfg.tag_aliases or {}
@@ -2096,9 +2200,13 @@ class ConfigWindow(QDialog):
         rules: list[tuple[str, str]] = []
         for r in range(self.routing_table.rowCount()):
             f_item = self.routing_table.item(r, 0)
-            d_item = self.routing_table.item(r, 1)
+            widget = self.routing_table.cellWidget(r, 1)
+            if isinstance(widget, QComboBox):
+                d_text = widget.currentText().strip()
+            else:
+                d_item = self.routing_table.item(r, 1)
+                d_text = d_item.text().strip() if d_item else ""
             f_text = f_item.text().strip() if f_item else ""
-            d_text = d_item.text().strip() if d_item else ""
             rules.append((f_text, d_text))
         return rules
 
@@ -2186,17 +2294,21 @@ class ConfigWindow(QDialog):
         deck_routing: dict[str, str] = {}
         for r in range(self.routing_table.rowCount()):
             f_item = self.routing_table.item(r, 0)
-            d_item = self.routing_table.item(r, 1)
+            widget = self.routing_table.cellWidget(r, 1)
+            if isinstance(widget, QComboBox):
+                target_deck = widget.currentText().strip()
+            else:
+                d_item = self.routing_table.item(r, 1)
+                target_deck = d_item.text().strip() if d_item else ""
             raw_folder = f_item.text().strip() if f_item else ""
-            target_deck = d_item.text().strip() if d_item else ""
             if not raw_folder:
                 continue
             norm_key = _norm_path_key(raw_folder)
             if norm_key in deck_routing:
                 QMessageBox.warning(
                     self,
-                    "Duplicate Deck Routing Rule",
-                    f"The folder path '{norm_key}' is configured more than once in Deck Routing.\n"
+                    "Duplicate Deck Rule",
+                    f"The folder path '{norm_key}' is configured more than once in Deck Rules.\n"
                     "Please remove or merge duplicate rules before saving.",
                 )
                 return

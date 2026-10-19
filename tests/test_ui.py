@@ -124,8 +124,8 @@ def test_config_window_instantiation(tmp_path: Path):
     dlg = ConfigWindow(manager, "TestProfile")
     assert dlg.tabs.count() == 6
     assert dlg.tabs.tabText(0) == "General && Sync"
-    assert dlg.tabs.tabText(1) == "Deck Routing"
-    assert dlg.tabs.tabText(2) == "Tag Routing"
+    assert dlg.tabs.tabText(1) == "Deck Rules"
+    assert dlg.tabs.tabText(2) == "Tag Rules"
     assert dlg.tabs.tabText(3) == "Card Types && Media"
     assert dlg.tabs.tabText(4) == "Deleted Cards"
     assert dlg.tabs.tabText(5) == "Shortcuts && Logs"
@@ -218,7 +218,7 @@ def test_config_window_duplicate_path_validation(tmp_path: Path, monkeypatch):
 
     # Save should detect duplicate, show warning, and reject without saving
     dlg._on_save()
-    assert warnings == ["Duplicate Deck Routing Rule"]
+    assert warnings == ["Duplicate Deck Rule"]
 
     # Check that m2a.toml was not updated with duplicate
     saved_cfg = manager.load_vault(vault_path)
@@ -1310,3 +1310,55 @@ def test_main_window_setup_vault_changed_preserves_existing_deck(tmp_path: Path)
     saved_cfg = manager.load_vault(vault)
     assert saved_cfg.deck == "Chemistry"
     win.close()
+
+
+def test_deck_rules_and_tag_rules_customization(tmp_path: Path):
+    from src.ui.config_window import ConfigWindow
+    from src.profile_config import ProfileConfigManager, AddonProfileSettings
+    import aqt.qt as qt
+
+    vault = tmp_path / "custom_vault"
+    vault.mkdir()
+    (vault / "m2a.toml").write_text('vault = "."\ndeck = "DefaultDeck"\n', encoding="utf-8")
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    manager.save(AddonProfileSettings(profile_name="RuleTest", vault_path=vault))
+
+    dlg = ConfigWindow(manager, "RuleTest")
+
+    # 1. Default deck combo lives in Deck Rules tab, not General tab
+    assert dlg.tab_deck_rules.isAncestorOf(dlg.deck_combo)
+    assert not dlg.tab_general.isAncestorOf(dlg.deck_combo)
+
+    # 2. Browse Folder buttons have been removed
+    deck_buttons = [b.text() for b in dlg.tab_deck_rules.findChildren(qt.QPushButton)]
+    assert "Browse Folder..." not in deck_buttons
+    assert "Add Rule" in deck_buttons
+    assert "Remove Selected" in deck_buttons
+
+    tag_buttons = [b.text() for b in dlg.tab_tag_rules.findChildren(qt.QPushButton)]
+    assert "Browse Folder..." not in tag_buttons
+    assert "Add Tag Alias" in tag_buttons
+    assert "Remove Selected" in tag_buttons
+
+    # 3. Adding a routing row provides a QComboBox in cell (row, 1)
+    dlg._add_routing_row()
+    assert dlg.routing_table.rowCount() == 1
+    combo_widget = dlg.routing_table.cellWidget(0, 1)
+    assert isinstance(combo_widget, qt.QComboBox)
+    assert combo_widget.isEditable()
+
+    # Change via combo box
+    dlg.routing_table.item(0, 0).setText("Biology/Notes")
+    combo_widget.setCurrentText("BioDeck::Notes")
+
+    # Data extraction reflects combo box
+    table_data = dlg._get_routing_table_data()
+    assert table_data == [("Biology/Notes", "BioDeck::Notes")]
+
+    # Save to vault
+    dlg._on_save()
+    saved_cfg = manager.load_vault(vault)
+    assert saved_cfg.deck_routing == {"Biology/Notes": "BioDeck::Notes"}
+    dlg.close()
