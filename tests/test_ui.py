@@ -143,6 +143,8 @@ def test_config_window_instantiation(tmp_path: Path):
     assert dlg.mark_deleted_btn is not None
     assert dlg.resync_missing_btn is not None
     assert dlg.tab_general.isAncestorOf(dlg.ignore_edit)
+    assert dlg.routing_table.maximumHeight() == dlg.alias_table.maximumHeight()
+    assert dlg.delete_orphans_btn.isEnabled() is False
     dlg.close()
 
 

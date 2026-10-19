@@ -369,10 +369,14 @@ class ConfigWindow(QDialog):
             }
         """
 
-        # Section 1: Vault Folder & Default Deck
+        # Top Row: 2-Column Split (2/3 Vault & Deck | 1/3 Ignored Files)
+        top_row = QHBoxLayout()
+        top_row.setSpacing(10)
+
+        # Left (2/3 width): Vault Location & Default Deck
         card_dirs, card_dirs_l = _create_section_card(
             "Vault Location & Default Deck",
-            "Specify the local folder of your Obsidian vault and the default target deck.",
+            "Specify the local folder of your Obsidian vault and fallback deck.",
         )
 
         lbl_vault = QLabel("Obsidian Vault Folder:")
@@ -403,7 +407,7 @@ class ConfigWindow(QDialog):
         deck_row = QHBoxLayout()
         deck_row.setSpacing(8)
         self.deck_combo = QComboBox()
-        self.deck_combo.setStyleSheet(input_style + " QComboBox { min-width: 260px; max-width: 380px; }")
+        self.deck_combo.setStyleSheet(input_style + " QComboBox { min-width: 220px; }")
         self.deck_combo.setEditable(True)
         if mw is not None and hasattr(mw, "col") and mw.col is not None:
             for d in mw.col.decks.all_names_and_ids():
@@ -416,75 +420,20 @@ class ConfigWindow(QDialog):
                 except Exception:
                     pass
                 self.deck_combo.addItem(d.name)
-        deck_row.addWidget(self.deck_combo)
+        deck_row.addWidget(self.deck_combo, 1)
         deck_row.addWidget(self._help_button("default_deck"))
-        deck_row.addStretch()
         card_dirs_l.addLayout(deck_row)
+        top_row.addWidget(card_dirs, stretch=2)
 
-        layout.addWidget(card_dirs)
-
-        # Section 2: Sync Automation & Safety (2-Column Grid)
-        card_sync, card_sync_l = _create_section_card(
-            "Sync Behavior & Safety",
-            "Configure prompts, backups, and automated background sync.",
-        )
-
-        grid_sync = QGridLayout()
-        grid_sync.setContentsMargins(0, 2, 0, 2)
-        grid_sync.setHorizontalSpacing(24)
-        grid_sync.setVerticalSpacing(8)
-
-        # Left Column: Review & Automation
-        self.show_diff_cb = QCheckBox("Show Diff Preview Before Updating")
-        self.show_diff_cb.setStyleSheet("font-size: 12px;")
-        r_diff = QHBoxLayout()
-        r_diff.setSpacing(6)
-        r_diff.addWidget(self.show_diff_cb)
-        r_diff.addWidget(self._help_button("show_diff_before_update"))
-        r_diff.addStretch()
-        grid_sync.addLayout(r_diff, 0, 0)
-
-        self.sync_on_startup_cb = QCheckBox("Auto-sync on Anki Startup (Background)")
-        self.sync_on_startup_cb.setStyleSheet("font-size: 12px;")
-        r_start = QHBoxLayout()
-        r_start.setSpacing(6)
-        r_start.addWidget(self.sync_on_startup_cb)
-        r_start.addWidget(self._help_button("sync_on_startup"))
-        r_start.addStretch()
-        grid_sync.addLayout(r_start, 1, 0)
-
-        # Right Column: Safety & Window Behavior
-        self.backup_before_sync_cb = QCheckBox("Create Collection Backup Before Sync")
-        self.backup_before_sync_cb.setStyleSheet("font-size: 12px;")
-        r_back = QHBoxLayout()
-        r_back.setSpacing(6)
-        r_back.addWidget(self.backup_before_sync_cb)
-        r_back.addWidget(self._help_button("backup_before_sync"))
-        r_back.addStretch()
-        grid_sync.addLayout(r_back, 0, 1)
-
-        self.auto_close_cb = QCheckBox("Close Dashboard on Successful Sync")
-        self.auto_close_cb.setStyleSheet("font-size: 12px;")
-        r_close = QHBoxLayout()
-        r_close.setSpacing(6)
-        r_close.addWidget(self.auto_close_cb)
-        r_close.addWidget(self._help_button("auto_close_on_success"))
-        r_close.addStretch()
-        grid_sync.addLayout(r_close, 1, 1)
-
-        card_sync_l.addLayout(grid_sync)
-        layout.addWidget(card_sync)
-
-        # Section 3: Ignored Directories & Files
+        # Right (1/3 width): Ignored Directories & Files
         card_ign, card_ign_l = _create_section_card(
             "Ignored Directories & Files",
-            "Folders or glob patterns to skip during vault scanning (one per line, e.g. .obsidian, templates/*, archive).",
+            "Skip during scanning (one per line):",
         )
         self.ignore_edit = QPlainTextEdit()
-        self.ignore_edit.setPlaceholderText("Optional: e.g. .obsidian, templates/*, archive")
+        self.ignore_edit.setPlaceholderText("e.g. .obsidian\ntemplates/*\narchive")
         _dim_placeholder(self.ignore_edit)
-        self.ignore_edit.setMinimumHeight(55)
-        self.ignore_edit.setMaximumHeight(75)
+        self.ignore_edit.setMinimumHeight(65)
         self.ignore_edit.setStyleSheet("""
             QPlainTextEdit {
                 font-family: monospace;
@@ -492,11 +441,67 @@ class ConfigWindow(QDialog):
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 6px;
                 padding: 6px;
+                background-color: transparent;
             }
         """)
         card_ign_l.addWidget(self.ignore_edit)
-        layout.addWidget(card_ign)
+        top_row.addWidget(card_ign, stretch=1)
 
+        layout.addLayout(top_row)
+
+        # Section 2: Sync Automation & Safety (2-Column Grid, ordered by importance)
+        card_sync, card_sync_l = _create_section_card(
+            "Sync Behavior & Safety",
+            "Configure prompts, safety backups, and automated background sync.",
+        )
+
+        grid_sync = QGridLayout()
+        grid_sync.setContentsMargins(0, 2, 0, 2)
+        grid_sync.setHorizontalSpacing(24)
+        grid_sync.setVerticalSpacing(8)
+
+        # Top-Left (Row 0, Col 0): Safety Backup (Most important safety feature)
+        self.backup_before_sync_cb = QCheckBox("Create Collection Backup Before Sync")
+        self.backup_before_sync_cb.setStyleSheet("font-size: 12px;")
+        r_back = QHBoxLayout()
+        r_back.setSpacing(6)
+        r_back.addWidget(self.backup_before_sync_cb)
+        r_back.addWidget(self._help_button("backup_before_sync"))
+        r_back.addStretch()
+        grid_sync.addLayout(r_back, 0, 0)
+
+        # Top-Right (Row 0, Col 1): Auto-sync on startup
+        self.sync_on_startup_cb = QCheckBox("Auto-sync on Anki Startup (Background)")
+        self.sync_on_startup_cb.setStyleSheet("font-size: 12px;")
+        r_start = QHBoxLayout()
+        r_start.setSpacing(6)
+        r_start.addWidget(self.sync_on_startup_cb)
+        r_start.addWidget(self._help_button("sync_on_startup"))
+        r_start.addStretch()
+        grid_sync.addLayout(r_start, 0, 1)
+
+        # Bottom-Left (Row 1, Col 0): Close Dashboard on successful sync
+        self.auto_close_cb = QCheckBox("Close Dashboard on Successful Sync")
+        self.auto_close_cb.setStyleSheet("font-size: 12px;")
+        r_close = QHBoxLayout()
+        r_close.setSpacing(6)
+        r_close.addWidget(self.auto_close_cb)
+        r_close.addWidget(self._help_button("auto_close_on_success"))
+        r_close.addStretch()
+        grid_sync.addLayout(r_close, 1, 0)
+
+        # Bottom-Right (Row 1, Col 1): Show Diff Preview Before Updating (Explicitly requested!)
+        self.show_diff_cb = QCheckBox("Show Diff Preview Before Updating")
+        self.show_diff_cb.setStyleSheet("font-size: 12px;")
+        r_diff = QHBoxLayout()
+        r_diff.setSpacing(6)
+        r_diff.addWidget(self.show_diff_cb)
+        r_diff.addWidget(self._help_button("show_diff_before_update"))
+        r_diff.addStretch()
+        grid_sync.addLayout(r_diff, 1, 1)
+
+        card_sync_l.addLayout(grid_sync)
+        layout.addWidget(card_sync)
         layout.addStretch()
 
     def _init_tab_decks_and_tags(self) -> None:
@@ -514,12 +519,17 @@ class ConfigWindow(QDialog):
         """
         table_style = """
             QTableWidget {
+                background-color: transparent;
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 6px;
                 font-size: 12px;
                 gridline-color: rgba(255, 255, 255, 0.05);
             }
+            QTableWidget::item {
+                background-color: transparent;
+            }
             QHeaderView::section {
+                background-color: rgba(255, 255, 255, 0.04);
                 font-size: 12px;
                 font-weight: bold;
                 padding: 5px;
@@ -539,10 +549,11 @@ class ConfigWindow(QDialog):
         self.routing_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.routing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.routing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.routing_table.setMinimumHeight(140)
-        self.routing_table.setMaximumHeight(180)
+        self.routing_table.setMinimumHeight(125)
+        self.routing_table.setMaximumHeight(145)
         self.routing_table.setStyleSheet(table_style)
         card_rules_l.addWidget(self.routing_table)
+        card_rules_l.addSpacing(6)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
@@ -601,10 +612,11 @@ class ConfigWindow(QDialog):
         self.alias_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.alias_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.alias_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.alias_table.setMinimumHeight(110)
-        self.alias_table.setMaximumHeight(140)
+        self.alias_table.setMinimumHeight(125)
+        self.alias_table.setMaximumHeight(145)
         self.alias_table.setStyleSheet(table_style)
         card_tag_l.addWidget(self.alias_table)
+        card_tag_l.addSpacing(6)
 
         alias_btn_row = QHBoxLayout()
         alias_btn_row.setSpacing(6)
@@ -816,15 +828,20 @@ class ConfigWindow(QDialog):
         """
         table_style = """
             QTableWidget {
+                background-color: transparent;
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 6px;
                 gridline-color: rgba(255, 255, 255, 0.06);
                 font-size: 12px;
             }
+            QTableWidget::item {
+                background-color: transparent;
+            }
             QHeaderView::section {
-                background: rgba(255, 255, 255, 0.05);
+                background-color: rgba(255, 255, 255, 0.04);
                 padding: 5px;
                 border: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.12);
                 font-size: 12px;
                 font-weight: 600;
             }
@@ -856,8 +873,24 @@ class ConfigWindow(QDialog):
         self.suspend_orphans_btn.setToolTip("Suspend cards of orphaned notes to preserve review history and intervals.")
         self.suspend_orphans_btn.clicked.connect(self._on_suspend_orphans)
 
+        self._btn_delete_orphans_style = """
+            QPushButton {
+                font-size: 12px;
+                padding: 5px 12px;
+                border-radius: 5px;
+                min-height: 22px;
+            }
+            QPushButton:enabled {
+                color: #ff6b6b;
+                font-weight: 600;
+            }
+            QPushButton:disabled {
+                color: rgba(180, 180, 180, 0.4);
+            }
+        """
         self.delete_orphans_btn = QPushButton("Delete Permanently...")
-        self.delete_orphans_btn.setStyleSheet(btn_style + " QPushButton { color: #ff6b6b; }")
+        self.delete_orphans_btn.setStyleSheet(self._btn_delete_orphans_style)
+        self.delete_orphans_btn.setEnabled(False)
         self.delete_orphans_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.delete_orphans_btn.setToolTip("Permanently delete orphaned notes from Anki. Review history will be lost.")
         self.delete_orphans_btn.clicked.connect(self._on_delete_orphans)
@@ -1411,7 +1444,10 @@ class ConfigWindow(QDialog):
         self.sc_full_warn.setVisible(False)
         grid_sc.addWidget(self.sc_full_warn, 5, 1)
 
-        card_sc_l.addLayout(grid_sc)
+        sc_container = QHBoxLayout()
+        sc_container.addLayout(grid_sc)
+        sc_container.addStretch()
+        card_sc_l.addLayout(sc_container)
 
         btn_reset_sc = QPushButton("Reset Shortcuts to Defaults")
         btn_reset_sc.setStyleSheet(btn_style)
