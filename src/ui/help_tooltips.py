@@ -116,3 +116,48 @@ TOOLTIPS: dict[str, str] = {
         "Keyboard shortcut to sync new cards and update modified cards from your Obsidian vault."
     ),
 }
+
+TOOLTIP_TITLES: dict[str, str] = {
+    "backup_before_sync": "Automatic Backup",
+    "suspend_new_clozes": "Suspend New Cloze Cards",
+    "image_occlusion_mode": "Image Occlusion Mode",
+    "suspend_new_occlusions": "Suspend New Occlusions",
+    "freeze_image_occlusions": "Freeze Occlusion Notes",
+    "vault_path": "Vault Directory",
+    "occlusion_dir": "Occlusion Directory",
+    "default_deck": "Default Target Deck",
+    "base_tag": "Base Tag Prefix",
+    "pad_single_digit_tags": "Pad Single-Digit Tags",
+    "hash_media": "Deterministic Media Hashing",
+    "cloze_notes": "Convert Cloze Questions",
+    "re_stage_occlusions": "Re-export Occlusions",
+    "show_diff_before_update": "Interactive Diff Preview",
+    "sync_on_startup": "Auto-sync on Startup",
+    "auto_close_on_success": "Close Dashboard on Success",
+    "basic_model_id": "Basic Note Type",
+    "cloze_model_id": "Cloze Note Type",
+    "deck_routing": "Folder Deck Routing",
+    "decks": "Folder Deck Routing",
+    "tag_aliases": "Tag Hierarchy & Aliases",
+    "subdirectories": "Subdirectory Mapping",
+    "ignore": "Ignored Directories & Files",
+    "missing_in_anki": "Cards Deleted in Anki",
+    "orphaned_cards": "Orphaned Notes in Anki",
+    "shortcuts_open_dashboard": "Open Dashboard Shortcut",
+    "shortcuts_quick_sync": "Quick Sync Shortcut",
+    "shortcuts_full_sync": "Full Sync Shortcut",
+}
+
+
+def format_tooltip_box(key: str, fallback_title: str | None = None) -> str:
+    """Format a clean, card-like hover box with a title and structured multi-line explanation."""
+    text = TOOLTIPS.get(key, "")
+    if not text:
+        return ""
+    title = TOOLTIP_TITLES.get(key, fallback_title or key.replace("_", " ").title())
+    return (
+        f"<div style='min-width: 220px; max-width: 320px; padding: 2px;'>"
+        f"<div style='font-size: 12px; font-weight: bold; color: #2196F3; margin-bottom: 4px;'>{title}</div>"
+        f"<div style='font-size: 11px; color: #e6e6e6; line-height: 140%;'>{text}</div>"
+        f"</div>"
+    )

@@ -56,7 +56,7 @@ from ..contracts import MissingInAnkiRecord, OrphanNoteRecord, SyncPlan, SyncRep
 from ..worker import build_sync_plan, execute_sync_plan
 from markdown2anki.flags import write_deleted_flags
 from ..profile_config import AddonProfileSettings, DEFAULT_SHORTCUTS, ProfileConfigManager
-from .help_tooltips import TOOLTIPS
+from .help_tooltips import TOOLTIPS, format_tooltip_box
 from .shortcuts import find_shortcut_conflict
 
 
@@ -137,11 +137,10 @@ def _create_section_card(title: str | None = None, subtitle: str | None = None) 
 
 
 
-def _create_setting_hint(text: str) -> QLabel:
-    lbl = QLabel(text)
-    lbl.setStyleSheet("font-size: 11px; color: rgba(180, 180, 180, 0.7); margin-left: 24px; border: none; background: transparent;")
-    lbl.setWordWrap(True)
-    return lbl
+
+
+_CHECKMARK_SVG_PATH = Path(__file__).parent / "assets" / "checkmark.svg"
+
 
 class ConfigWindow(QDialog):
     """Modern, tabbed settings configurator for Anki-VaultSync."""
@@ -192,7 +191,7 @@ class ConfigWindow(QDialog):
             QCheckBox::indicator:checked {
                 background-color: #2196F3;
                 border: 1.5px solid #1E88E5;
-                image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'></polyline></svg>");
+                image: url("__CHECKMARK_SVG__");
             }
             QCheckBox::indicator:checked:hover {
                 background-color: #1976D2;
@@ -202,7 +201,14 @@ class ConfigWindow(QDialog):
                 border: 1.5px solid rgba(130, 130, 130, 0.3);
                 background-color: rgba(130, 130, 130, 0.05);
             }
-        """)
+            QToolTip {
+                background-color: #202226;
+                color: #e6e6e6;
+                border: 1px solid #444950;
+                border-radius: 6px;
+                padding: 8px 12px;
+            }
+        """.replace("__CHECKMARK_SVG__", _CHECKMARK_SVG_PATH.resolve().as_posix()))
 
         self._manager = profile_manager
         self._profile_name = profile_name
@@ -420,7 +426,7 @@ class ConfigWindow(QDialog):
 
         lbl_vault = QLabel("Obsidian Vault Folder:")
         lbl_vault.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
-        lbl_vault.setToolTip(TOOLTIPS.get("vault_path", ""))
+        lbl_vault.setToolTip(format_tooltip_box("vault_path"))
         card_dirs_l.addWidget(lbl_vault)
 
         vault_row = QHBoxLayout()
@@ -428,7 +434,7 @@ class ConfigWindow(QDialog):
         self.vault_edit = QLineEdit()
         self.vault_edit.setStyleSheet(input_style)
         self.vault_edit.setPlaceholderText("Select Obsidian vault folder...")
-        self.vault_edit.setToolTip(TOOLTIPS.get("vault_path", ""))
+        self.vault_edit.setToolTip(format_tooltip_box("vault_path"))
         _dim_placeholder(self.vault_edit)
         vault_browse = QPushButton("Browse...")
         vault_browse.setStyleSheet(btn_style)
@@ -442,7 +448,7 @@ class ConfigWindow(QDialog):
 
         lbl_deck = QLabel("Default Target Deck:")
         lbl_deck.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
-        lbl_deck.setToolTip(TOOLTIPS.get("default_deck", ""))
+        lbl_deck.setToolTip(format_tooltip_box("default_deck"))
         card_dirs_l.addWidget(lbl_deck)
 
         deck_row = QHBoxLayout()
@@ -450,7 +456,7 @@ class ConfigWindow(QDialog):
         self.deck_combo = QComboBox()
         self.deck_combo.setStyleSheet(input_style + " QComboBox { min-width: 220px; }")
         self.deck_combo.setEditable(True)
-        self.deck_combo.setToolTip(TOOLTIPS.get("default_deck", ""))
+        self.deck_combo.setToolTip(format_tooltip_box("default_deck"))
         if mw is not None and hasattr(mw, "col") and mw.col is not None:
             for d in mw.col.decks.all_names_and_ids():
                 try:
@@ -473,7 +479,7 @@ class ConfigWindow(QDialog):
         )
         self.ignore_edit = QPlainTextEdit()
         self.ignore_edit.setPlaceholderText("e.g. .obsidian\ntemplates/*\narchive")
-        self.ignore_edit.setToolTip(TOOLTIPS.get("ignore", ""))
+        self.ignore_edit.setToolTip(format_tooltip_box("ignore"))
         _dim_placeholder(self.ignore_edit)
         self.ignore_edit.setMinimumHeight(65)
         self.ignore_edit.setStyleSheet("""
@@ -502,33 +508,25 @@ class ConfigWindow(QDialog):
         grid_sync.setHorizontalSpacing(24)
         grid_sync.setVerticalSpacing(10)
 
-        # Top-Left (Row 0, Col 0): Safety Backup (Most important)
+        # Row 0, Col 0: Safety Backup (Most important)
         self.backup_before_sync_cb = QCheckBox("Create Collection Backup Before Sync")
-        self.backup_before_sync_cb.setToolTip(TOOLTIPS.get("backup_before_sync", ""))
-        b_box = QVBoxLayout()
-        b_box.setSpacing(2)
-        b_box.addWidget(self.backup_before_sync_cb)
-        b_box.addWidget(_create_setting_hint("Creates an automatic snapshot in Anki's native backup system before sync."))
-        grid_sync.addLayout(b_box, 0, 0)
+        self.backup_before_sync_cb.setToolTip(format_tooltip_box("backup_before_sync"))
+        grid_sync.addWidget(self.backup_before_sync_cb, 0, 0)
 
-        # Top-Right (Row 0, Col 1): Auto-sync on startup
-        self.sync_on_startup_cb = QCheckBox("Auto-sync on Anki Startup (Background)")
-        self.sync_on_startup_cb.setToolTip(TOOLTIPS.get("sync_on_startup", ""))
-        grid_sync.addWidget(self.sync_on_startup_cb, 0, 1)
+        # Row 0, Col 1: Show Diff Preview Before Updating (Swapped to row 0 alongside backup)
+        self.show_diff_cb = QCheckBox("Show Diff Preview Before Updating")
+        self.show_diff_cb.setToolTip(format_tooltip_box("show_diff_before_update"))
+        grid_sync.addWidget(self.show_diff_cb, 0, 1)
 
-        # Bottom-Left (Row 1, Col 0): Close Dashboard on successful sync
+        # Row 1, Col 0: Close Dashboard on successful sync
         self.auto_close_cb = QCheckBox("Close Dashboard on Successful Sync")
-        self.auto_close_cb.setToolTip(TOOLTIPS.get("auto_close_on_success", ""))
+        self.auto_close_cb.setToolTip(format_tooltip_box("auto_close_on_success"))
         grid_sync.addWidget(self.auto_close_cb, 1, 0)
 
-        # Bottom-Right (Row 1, Col 1): Show Diff Preview Before Updating (Requested bottom-right)
-        self.show_diff_cb = QCheckBox("Show Diff Preview Before Updating")
-        self.show_diff_cb.setToolTip(TOOLTIPS.get("show_diff_before_update", ""))
-        d_box = QVBoxLayout()
-        d_box.setSpacing(2)
-        d_box.addWidget(self.show_diff_cb)
-        d_box.addWidget(_create_setting_hint("Visual side-by-side comparison to inspect and selectively approve edits."))
-        grid_sync.addLayout(d_box, 1, 1)
+        # Row 1, Col 1: Auto-sync on Anki Startup (Background)
+        self.sync_on_startup_cb = QCheckBox("Auto-sync on Anki Startup (Background)")
+        self.sync_on_startup_cb.setToolTip(format_tooltip_box("sync_on_startup"))
+        grid_sync.addWidget(self.sync_on_startup_cb, 1, 1)
 
         card_sync_l.addLayout(grid_sync)
         layout.addWidget(card_sync)
@@ -582,7 +580,7 @@ class ConfigWindow(QDialog):
         self.routing_table.setMinimumHeight(125)
         self.routing_table.setMaximumHeight(145)
         self.routing_table.setStyleSheet(table_style)
-        self.routing_table.setToolTip(TOOLTIPS.get("deck_routing", ""))
+        self.routing_table.setToolTip(format_tooltip_box("deck_routing"))
         card_rules_l.addWidget(self.routing_table)
         card_rules_l.addSpacing(6)
 
@@ -621,18 +619,18 @@ class ConfigWindow(QDialog):
 
         lbl_tag = QLabel("Base Tag Prefix:")
         lbl_tag.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
-        lbl_tag.setToolTip(TOOLTIPS.get("base_tag", ""))
+        lbl_tag.setToolTip(format_tooltip_box("base_tag"))
         row_tsettings.addWidget(lbl_tag)
 
         self.tag_edit = QLineEdit()
         self.tag_edit.setPlaceholderText("Optional: e.g. vaultsync")
         self.tag_edit.setMaximumWidth(200)
-        self.tag_edit.setToolTip(TOOLTIPS.get("base_tag", ""))
+        self.tag_edit.setToolTip(format_tooltip_box("base_tag"))
         _dim_placeholder(self.tag_edit)
         row_tsettings.addWidget(self.tag_edit)
 
         self.pad_single_digits_cb = QCheckBox("Pad Folder Numbers (01, 02...)")
-        self.pad_single_digits_cb.setToolTip(TOOLTIPS.get("pad_single_digit_tags", ""))
+        self.pad_single_digits_cb.setToolTip(format_tooltip_box("pad_single_digit_tags"))
         row_tsettings.addWidget(self.pad_single_digits_cb)
         row_tsettings.addStretch()
         card_tag_l.addLayout(row_tsettings)
@@ -645,7 +643,7 @@ class ConfigWindow(QDialog):
         self.alias_table.setMinimumHeight(125)
         self.alias_table.setMaximumHeight(145)
         self.alias_table.setStyleSheet(table_style)
-        self.alias_table.setToolTip(TOOLTIPS.get("tag_aliases", ""))
+        self.alias_table.setToolTip(format_tooltip_box("tag_aliases"))
         card_tag_l.addWidget(self.alias_table)
         card_tag_l.addSpacing(6)
 
@@ -706,11 +704,11 @@ class ConfigWindow(QDialog):
         row_c = QHBoxLayout()
         row_c.setSpacing(24)
         self.cloze_cb = QCheckBox("Enable Cloze Syntax Processing")
-        self.cloze_cb.setToolTip(TOOLTIPS.get("cloze_notes", ""))
+        self.cloze_cb.setToolTip(format_tooltip_box("cloze_notes"))
         row_c.addWidget(self.cloze_cb)
 
         self.suspend_new_clozes_cb = QCheckBox("Suspend Newly Created Cloze Cards")
-        self.suspend_new_clozes_cb.setToolTip(TOOLTIPS.get("suspend_new_clozes", ""))
+        self.suspend_new_clozes_cb.setToolTip(format_tooltip_box("suspend_new_clozes"))
         row_c.addWidget(self.suspend_new_clozes_cb)
         row_c.addStretch()
         card_cloze_l.addLayout(row_c)
@@ -732,15 +730,13 @@ class ConfigWindow(QDialog):
         self.image_occlusion_mode_combo.setStyleSheet(input_style + " QComboBox { min-width: 280px; }")
         self.image_occlusion_mode_combo.addItem("Direct Native Image Occlusions (Recommended)", userData="native")
         self.image_occlusion_mode_combo.addItem("Folder Staging (Legacy / Manual)", userData="stage")
-        self.image_occlusion_mode_combo.setToolTip(TOOLTIPS.get("image_occlusion_mode", ""))
+        self.image_occlusion_mode_combo.setToolTip(format_tooltip_box("image_occlusion_mode"))
         self.image_occlusion_mode_combo.currentIndexChanged.connect(self._on_io_mode_changed)
         row_mode.addWidget(self.image_occlusion_mode_combo)
         row_mode.addStretch()
         card_io_l.addLayout(row_mode)
 
-        lbl_iom_hint = QLabel("Native mode embeds masks directly into collection.media. Staging mode exports images to an external occlusions/ folder.")
-        lbl_iom_hint.setStyleSheet("font-size: 11px; color: rgba(180, 180, 180, 0.7); margin-left: 48px;")
-        card_io_l.addWidget(lbl_iom_hint)
+
 
         # Dynamic staging folder row (hidden in native mode)
         self.staging_folder_row = QWidget()
@@ -755,7 +751,7 @@ class ConfigWindow(QDialog):
         self.occlusion_edit = QLineEdit()
         self.occlusion_edit.setStyleSheet(input_style)
         self.occlusion_edit.setPlaceholderText("Output folder for staged occlusions...")
-        self.occlusion_edit.setToolTip(TOOLTIPS.get("occlusion_dir", ""))
+        self.occlusion_edit.setToolTip(format_tooltip_box("occlusion_dir"))
         _dim_placeholder(self.occlusion_edit)
         occ_browse = QPushButton("Browse...")
         occ_browse.setStyleSheet(btn_style)
@@ -768,19 +764,15 @@ class ConfigWindow(QDialog):
         row_io_opts = QHBoxLayout()
         row_io_opts.setSpacing(16)
         self.suspend_new_occlusions_cb = QCheckBox("Suspend New Occlusions Until Masked")
-        self.suspend_new_occlusions_cb.setToolTip(TOOLTIPS.get("suspend_new_occlusions", ""))
-        box_occ_susp = QVBoxLayout()
-        box_occ_susp.setSpacing(2)
-        box_occ_susp.addWidget(self.suspend_new_occlusions_cb)
-        box_occ_susp.addWidget(_create_setting_hint("Prevents empty-card review errors until masks are drawn in Anki."))
-        row_io_opts.addLayout(box_occ_susp)
+        self.suspend_new_occlusions_cb.setToolTip(format_tooltip_box("suspend_new_occlusions"))
+        row_io_opts.addWidget(self.suspend_new_occlusions_cb)
 
         self.re_stage_cb = QCheckBox("Re-export Existing Occlusion Images")
-        self.re_stage_cb.setToolTip(TOOLTIPS.get("re_stage_occlusions", ""))
+        self.re_stage_cb.setToolTip(format_tooltip_box("re_stage_occlusions"))
         row_io_opts.addWidget(self.re_stage_cb)
 
         self.freeze_image_occlusions_cb = QCheckBox("Freeze Occlusion Notes (Skip Updates)")
-        self.freeze_image_occlusions_cb.setToolTip(TOOLTIPS.get("freeze_image_occlusions", ""))
+        self.freeze_image_occlusions_cb.setToolTip(format_tooltip_box("freeze_image_occlusions"))
         row_io_opts.addWidget(self.freeze_image_occlusions_cb)
         row_io_opts.addStretch()
         card_io_l.addLayout(row_io_opts)
@@ -792,13 +784,9 @@ class ConfigWindow(QDialog):
             "Manage deterministic image hashing and optional custom Anki note type bindings.",
         )
 
-        box_media = QVBoxLayout()
-        box_media.setSpacing(2)
         self.hash_media_cb = QCheckBox("Hash Media (Rename images with deterministic 8-character hex hash)")
-        self.hash_media_cb.setToolTip(TOOLTIPS.get("hash_media", ""))
-        box_media.addWidget(self.hash_media_cb)
-        box_media.addWidget(_create_setting_hint("Prevents filename collisions and case-sensitivity issues across devices."))
-        card_bind_l.addLayout(box_media)
+        self.hash_media_cb.setToolTip(format_tooltip_box("hash_media"))
+        card_bind_l.addWidget(self.hash_media_cb)
 
         grid_models = QGridLayout()
         grid_models.setContentsMargins(0, 4, 0, 0)
@@ -807,22 +795,22 @@ class ConfigWindow(QDialog):
 
         lbl_bm = QLabel("Basic Note Type:")
         lbl_bm.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
-        lbl_bm.setToolTip(TOOLTIPS.get("basic_model_id", ""))
+        lbl_bm.setToolTip(format_tooltip_box("basic_model_id"))
         grid_models.addWidget(lbl_bm, 0, 0)
 
         self.basic_model_combo = QComboBox()
         self.basic_model_combo.setStyleSheet(input_style + " QComboBox { min-width: 220px; }")
-        self.basic_model_combo.setToolTip(TOOLTIPS.get("basic_model_id", ""))
+        self.basic_model_combo.setToolTip(format_tooltip_box("basic_model_id"))
         grid_models.addWidget(self.basic_model_combo, 0, 1)
 
         lbl_cm = QLabel("Cloze Note Type:")
         lbl_cm.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
-        lbl_cm.setToolTip(TOOLTIPS.get("cloze_model_id", ""))
+        lbl_cm.setToolTip(format_tooltip_box("cloze_model_id"))
         grid_models.addWidget(lbl_cm, 1, 0)
 
         self.cloze_model_combo = QComboBox()
         self.cloze_model_combo.setStyleSheet(input_style + " QComboBox { min-width: 220px; }")
-        self.cloze_model_combo.setToolTip(TOOLTIPS.get("cloze_model_id", ""))
+        self.cloze_model_combo.setToolTip(format_tooltip_box("cloze_model_id"))
         grid_models.addWidget(self.cloze_model_combo, 1, 1)
         grid_models.setColumnStretch(2, 1)
 
@@ -1410,7 +1398,7 @@ class ConfigWindow(QDialog):
         self.sc_dash_edit = QKeySequenceEdit()
         self.sc_dash_edit.setStyleSheet(input_style)
         self.sc_dash_edit.setMaximumWidth(170)
-        self.sc_dash_edit.setToolTip(TOOLTIPS.get("shortcuts_open_dashboard", ""))
+        self.sc_dash_edit.setToolTip(format_tooltip_box("shortcuts_open_dashboard"))
         btn_c_dash = QPushButton("Clear")
         btn_c_dash.setStyleSheet(btn_clear_style)
         btn_c_dash.clicked.connect(lambda: self.sc_dash_edit.setKeySequence(QKeySequence()))
@@ -1431,7 +1419,7 @@ class ConfigWindow(QDialog):
         self.sc_quick_edit = QKeySequenceEdit()
         self.sc_quick_edit.setStyleSheet(input_style)
         self.sc_quick_edit.setMaximumWidth(170)
-        self.sc_quick_edit.setToolTip(TOOLTIPS.get("shortcuts_quick_sync", ""))
+        self.sc_quick_edit.setToolTip(format_tooltip_box("shortcuts_quick_sync"))
         btn_c_quick = QPushButton("Clear")
         btn_c_quick.setStyleSheet(btn_clear_style)
         btn_c_quick.clicked.connect(lambda: self.sc_quick_edit.setKeySequence(QKeySequence()))
@@ -1452,7 +1440,7 @@ class ConfigWindow(QDialog):
         self.sc_full_edit = QKeySequenceEdit()
         self.sc_full_edit.setStyleSheet(input_style)
         self.sc_full_edit.setMaximumWidth(170)
-        self.sc_full_edit.setToolTip(TOOLTIPS.get("shortcuts_full_sync", ""))
+        self.sc_full_edit.setToolTip(format_tooltip_box("shortcuts_full_sync"))
         btn_c_full = QPushButton("Clear")
         btn_c_full.setStyleSheet(btn_clear_style)
         btn_c_full.clicked.connect(lambda: self.sc_full_edit.setKeySequence(QKeySequence()))

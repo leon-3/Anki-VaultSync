@@ -1152,3 +1152,23 @@ def test_main_window_setup_view_quick_connect_and_manual(tmp_path: Path, monkeyp
     assert win.main_stack.currentIndex() == 1
     assert str(v1) in win.vault_label.text()
     win.close()
+
+
+def test_format_tooltip_box_and_assets():
+    from src.ui.help_tooltips import format_tooltip_box, TOOLTIPS
+    from src.ui.config_window import _CHECKMARK_SVG_PATH
+
+    html = format_tooltip_box("backup_before_sync")
+    assert "Automatic Backup" in html
+    assert TOOLTIPS["backup_before_sync"] in html
+    assert "min-width: 220px" in html
+
+    # Unknown key returns empty string
+    assert format_tooltip_box("nonexistent_key_xyz") == ""
+
+    # Checkmark asset exists and is valid SVG
+    assert _CHECKMARK_SVG_PATH.exists()
+    svg_content = _CHECKMARK_SVG_PATH.read_text(encoding="utf-8")
+    assert "<svg" in svg_content
+    assert "</svg>" in svg_content
+    assert "polyline" in svg_content
