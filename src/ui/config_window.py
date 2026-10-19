@@ -510,6 +510,7 @@ class ConfigWindow(QDialog):
         vault_row.addWidget(self.vault_edit, 1)
         vault_row.addWidget(vault_browse)
         card_dirs_l.addLayout(vault_row)
+        card_dirs_l.addStretch()
         top_row.addWidget(card_dirs, stretch=2)
 
         # Right (1/3 width): Ignored Directories & Files
@@ -521,7 +522,7 @@ class ConfigWindow(QDialog):
         self.ignore_edit.setPlaceholderText("e.g. .obsidian\ntemplates/*\narchive")
         self.ignore_edit.setToolTip(format_tooltip_box("ignore"))
         _dim_placeholder(self.ignore_edit)
-        self.ignore_edit.setFixedHeight(85)
+        self.ignore_edit.setFixedHeight(125)
         self.ignore_edit.setStyleSheet("""
             QPlainTextEdit {
                 font-family: monospace;
@@ -536,7 +537,6 @@ class ConfigWindow(QDialog):
         top_row.addWidget(card_ign, stretch=1)
 
         layout.addLayout(top_row)
-        layout.addSpacing(48)
 
         # Section 2: Sync Automation & Safety (2-Column Grid with aligned info icons)
         card_sync, card_sync_l = _create_section_card(
@@ -827,32 +827,38 @@ class ConfigWindow(QDialog):
         self.routing_table.itemChanged.connect(self._on_routing_item_changed)
         table_row.addWidget(self.routing_table, stretch=2)
 
-        # Right Column (1/3 width): Clean Explanation Panel matching table style
+        # Right Column (1/3 width): Compact Explanation Panel matching table style
         info_panel = QFrame()
         info_panel.setStyleSheet("""
             QFrame {
                 background-color: rgba(255, 255, 255, 0.02);
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 6px;
-                padding: 10px 14px;
+                padding: 6px 10px;
             }
             QLabel {
-                font-size: 12px;
-                line-height: 145%;
+                font-size: 11px;
+                line-height: 135%;
                 color: rgba(220, 220, 220, 0.90);
                 border: none;
                 background: transparent;
             }
         """)
         info_l = QVBoxLayout(info_panel)
-        info_l.setContentsMargins(6, 6, 6, 6)
-        info_l.setSpacing(8)
+        info_l.setContentsMargins(2, 2, 2, 2)
+        info_l.setSpacing(4)
         info_title = QLabel("How Deck Rules work:")
-        info_title.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(240, 240, 240, 0.95);")
+        info_title.setStyleSheet("font-size: 11.5px; font-weight: 600; color: rgba(245, 245, 245, 0.95);")
         info_text = QLabel(
-            "• <b>Folder Mapping:</b> Flashcards located inside a mapped folder are placed into that folder's target Anki deck.<br><br>"
-            "• <b>Inheritance:</b> Subfolders automatically inherit their parent folder's deck rule unless a more specific rule is added.<br><br>"
-            "• <b>Default Deck:</b> Flashcards without an explicit rule are routed to your Default Target Deck above."
+            "<div style='margin-bottom: 5px;'>"
+            "• <b>Folder Mapping:</b> Notes in a mapped folder go to that folder's target Anki deck."
+            "</div>"
+            "<div style='margin-bottom: 5px;'>"
+            "• <b>Inheritance:</b> Subfolders inherit the parent rule unless a specific rule is set."
+            "</div>"
+            "<div>"
+            "• <b>Default Deck:</b> Unmatched notes go to the Default Target Deck above."
+            "</div>"
         )
         info_text.setWordWrap(True)
         info_l.addWidget(info_title)
@@ -963,32 +969,38 @@ class ConfigWindow(QDialog):
         self.alias_table.itemChanged.connect(self._on_alias_item_changed)
         table_row.addWidget(self.alias_table, stretch=2)
 
-        # Right Column (1/3 width): Clean Explanation Panel matching table style
+        # Right Column (1/3 width): Compact Explanation Panel matching table style
         info_panel = QFrame()
         info_panel.setStyleSheet("""
             QFrame {
                 background-color: rgba(255, 255, 255, 0.02);
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 6px;
-                padding: 10px 14px;
+                padding: 6px 10px;
             }
             QLabel {
-                font-size: 12px;
-                line-height: 145%;
+                font-size: 11px;
+                line-height: 135%;
                 color: rgba(220, 220, 220, 0.90);
                 border: none;
                 background: transparent;
             }
         """)
         info_l = QVBoxLayout(info_panel)
-        info_l.setContentsMargins(6, 6, 6, 6)
-        info_l.setSpacing(8)
+        info_l.setContentsMargins(2, 2, 2, 2)
+        info_l.setSpacing(4)
         info_title = QLabel("How Tag Rules work:")
-        info_title.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(240, 240, 240, 0.95);")
+        info_title.setStyleSheet("font-size: 11.5px; font-weight: 600; color: rgba(245, 245, 245, 0.95);")
         info_text = QLabel(
-            "• <b>Hierarchical Tagging:</b> Vault directories automatically convert into nested Anki tags (Folder::Subfolder).<br><br>"
-            "• <b>Folder Aliases:</b> Rename any directory level in the tag path, or leave the replacement empty to exclude that folder from tags.<br><br>"
-            "• <b>Base Prefix:</b> Optional root tag prepended before all generated tags across the vault."
+            "<div style='margin-bottom: 5px;'>"
+            "• <b>Hierarchical Tags:</b> Vault folders convert to nested tags (<code>Folder::Subfolder</code>)."
+            "</div>"
+            "<div style='margin-bottom: 5px;'>"
+            "• <b>Folder Aliases:</b> Rename directory levels, or leave blank to exclude from tags."
+            "</div>"
+            "<div>"
+            "• <b>Base Prefix:</b> Optional root tag prepended before all generated tags."
+            "</div>"
         )
         info_text.setWordWrap(True)
         info_l.addWidget(info_title)
