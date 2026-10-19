@@ -260,6 +260,7 @@ class ConfigWindow(QDialog):
         self._manager = profile_manager
         self._profile_name = profile_name
         self._updating_routing_table: bool = False
+        self._updating_alias_table: bool = False
         self._profile_settings = self._manager.load(profile_name)
 
         self._vault_cfg = None
@@ -520,7 +521,7 @@ class ConfigWindow(QDialog):
         self.ignore_edit.setPlaceholderText("e.g. .obsidian\ntemplates/*\narchive")
         self.ignore_edit.setToolTip(format_tooltip_box("ignore"))
         _dim_placeholder(self.ignore_edit)
-        self.ignore_edit.setFixedHeight(54)
+        self.ignore_edit.setFixedHeight(75)
         self.ignore_edit.setStyleSheet("""
             QPlainTextEdit {
                 font-family: monospace;
@@ -535,6 +536,7 @@ class ConfigWindow(QDialog):
         top_row.addWidget(card_ign, stretch=1)
 
         layout.addLayout(top_row)
+        layout.addSpacing(24)
 
         # Section 2: Sync Automation & Safety (2-Column Grid with aligned info icons)
         card_sync, card_sync_l = _create_section_card(
@@ -608,6 +610,16 @@ class ConfigWindow(QDialog):
                 pass
         return names
 
+    def _get_available_tag_names(self) -> list[str]:
+        tags: list[str] = []
+        if mw is not None and hasattr(mw, "col") and mw.col is not None:
+            try:
+                if hasattr(mw.col, "tags") and hasattr(mw.col.tags, "all"):
+                    tags = list(mw.col.tags.all())
+            except Exception:
+                pass
+        return sorted(tags, key=str.lower)
+
     def _create_deck_combo_for_table(self, selected: str = "") -> QComboBox:
         combo_style = """
             QComboBox {
@@ -631,6 +643,12 @@ class ConfigWindow(QDialog):
         combo = QComboBox()
         combo.setStyleSheet(combo_style)
         combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        if combo.completer():
+            combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+        if combo.lineEdit():
+            combo.lineEdit().setPlaceholderText("Select or type deck...")
+
         for name in self._get_available_deck_names():
             combo.addItem(name)
         if selected:
@@ -647,6 +665,53 @@ class ConfigWindow(QDialog):
         combo.currentTextChanged.connect(lambda text, c=combo: self._on_routing_combo_changed(c, text))
         return combo
 
+    def _create_tag_combo_for_table(self, selected: str = "") -> QComboBox:
+        combo_style = """
+            QComboBox {
+                font-size: 12px;
+                padding: 2px 6px;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 4px;
+                background-color: rgba(30, 30, 30, 0.95);
+                color: #ffffff;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 18px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1e1e1e;
+                color: #ffffff;
+                selection-background-color: #2196F3;
+            }
+        """
+        combo = QComboBox()
+        combo.setStyleSheet(combo_style)
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        if combo.completer():
+            combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+        if combo.lineEdit():
+            combo.lineEdit().setPlaceholderText("Select or type tag (or blank)...")
+
+        # Empty entry first to allow removing or suppressing folder from tags
+        combo.addItem("")
+        for name in self._get_available_tag_names():
+            if name:
+                combo.addItem(name)
+
+        if selected:
+            idx = combo.findText(selected)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+            else:
+                combo.setCurrentText(selected)
+        else:
+            combo.setCurrentIndex(0)
+
+        combo.currentTextChanged.connect(lambda text, c=combo: self._on_alias_combo_changed(c, text))
+        return combo
+
     def _set_routing_row(self, row: int, folder: str, deck: str) -> None:
         self._updating_routing_table = True
         try:
@@ -656,6 +721,16 @@ class ConfigWindow(QDialog):
             self.routing_table.setCellWidget(row, 1, combo)
         finally:
             self._updating_routing_table = False
+
+    def _set_alias_row(self, row: int, folder: str, alias: str) -> None:
+        self._updating_alias_table = True
+        try:
+            self.alias_table.setItem(row, 0, QTableWidgetItem(folder))
+            self.alias_table.setItem(row, 1, QTableWidgetItem(alias))
+            combo = self._create_tag_combo_for_table(alias)
+            self.alias_table.setCellWidget(row, 1, combo)
+        finally:
+            self._updating_alias_table = False
 
     def _init_tab_deck_routing(self) -> None:
         self._init_tab_deck_rules()
@@ -719,6 +794,11 @@ class ConfigWindow(QDialog):
         self.deck_combo = QComboBox()
         self.deck_combo.setStyleSheet(input_style + " QComboBox { min-width: 220px; }")
         self.deck_combo.setEditable(True)
+        self.deck_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        if self.deck_combo.completer():
+            self.deck_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+        if self.deck_combo.lineEdit():
+            self.deck_combo.lineEdit().setPlaceholderText("Select or type default deck...")
         self.deck_combo.setToolTip(format_tooltip_box("default_deck"))
         for d in self._get_available_deck_names():
             self.deck_combo.addItem(d)
@@ -726,57 +806,32 @@ class ConfigWindow(QDialog):
         card_default_l.addLayout(deck_row)
         layout.addWidget(card_default)
 
-        # Section 2: Folder Deck Rules
+        # Section 2: Folder Deck Rules (2/3 Table | 1/3 Explanation Layout)
         card_rules, card_rules_l = _create_section_card(
             "Deck Rules & Folder Mapping",
             "Assign specific vault directories to designated target Anki decks.",
         )
 
-        # Intuitive abstract explanation callout
-        info_panel = QFrame()
-        info_panel.setStyleSheet("""
-            QFrame {
-                background-color: rgba(33, 150, 243, 0.06);
-                border-left: 3px solid #2196F3;
-                border-radius: 4px;
-                padding: 8px 12px;
-            }
-            QLabel {
-                font-size: 12px;
-                line-height: 140%;
-                color: rgba(220, 220, 220, 0.95);
-                border: none;
-                background: transparent;
-            }
-        """)
-        info_l = QVBoxLayout(info_panel)
-        info_l.setContentsMargins(0, 0, 0, 0)
-        info_l.setSpacing(4)
-        info_text = QLabel(
-            "<b>How Deck Rules work:</b><br>"
-            "• <b>Folder Mapping:</b> Flashcards located inside a mapped folder are placed into that folder's target Anki deck.<br>"
-            "• <b>Inheritance & Specificity:</b> Subfolders automatically inherit their parent folder's deck rule unless a more specific rule is added for that subfolder.<br>"
-            "• <b>Default Deck Fallback:</b> Flashcards in folders without an explicit or inherited rule are routed to your Default Target Deck above."
-        )
-        info_text.setWordWrap(True)
-        info_l.addWidget(info_text)
-        card_rules_l.addWidget(info_panel)
-        card_rules_l.addSpacing(6)
+        body_row = QHBoxLayout()
+        body_row.setSpacing(14)
+
+        # Left Column (2/3 width): Table and Action Buttons
+        table_col = QVBoxLayout()
+        table_col.setSpacing(12)
 
         self.routing_table = QTableWidget(0, 2)
         self.routing_table.setHorizontalHeaderLabels(["Vault Folder / Path", "Target Anki Deck"])
         self.routing_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.routing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.routing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.routing_table.setMinimumHeight(160)
+        self.routing_table.setMinimumHeight(200)
         self.routing_table.setStyleSheet(table_style)
         self.routing_table.setToolTip(format_tooltip_box("deck_routing"))
         self.routing_table.itemChanged.connect(self._on_routing_item_changed)
-        card_rules_l.addWidget(self.routing_table)
-        card_rules_l.addSpacing(10)
+        table_col.addWidget(self.routing_table)
 
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(6)
+        btn_row.setSpacing(8)
         add_btn = QPushButton("Add Rule")
         add_btn.setStyleSheet(btn_style)
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -790,7 +845,44 @@ class ConfigWindow(QDialog):
         btn_row.addWidget(add_btn)
         btn_row.addWidget(remove_btn)
         btn_row.addStretch()
-        card_rules_l.addLayout(btn_row)
+        table_col.addLayout(btn_row)
+
+        body_row.addLayout(table_col, stretch=2)
+
+        # Right Column (1/3 width): Explanation Callout
+        info_panel = QFrame()
+        info_panel.setStyleSheet("""
+            QFrame {
+                background-color: rgba(33, 150, 243, 0.06);
+                border-left: 3px solid #2196F3;
+                border-radius: 4px;
+                padding: 10px 12px;
+            }
+            QLabel {
+                font-size: 12px;
+                line-height: 145%;
+                color: rgba(220, 220, 220, 0.95);
+                border: none;
+                background: transparent;
+            }
+        """)
+        info_l = QVBoxLayout(info_panel)
+        info_l.setContentsMargins(4, 4, 4, 4)
+        info_l.setSpacing(6)
+        info_title = QLabel("<b>How Deck Rules work:</b>")
+        info_title.setStyleSheet("font-size: 12px; color: #2196F3; font-weight: bold;")
+        info_text = QLabel(
+            "• <b>Folder Mapping:</b> Flashcards located inside a mapped folder are placed into that folder's target Anki deck.<br><br>"
+            "• <b>Inheritance:</b> Subfolders automatically inherit their parent folder's deck rule unless a more specific rule is added.<br><br>"
+            "• <b>Default Deck:</b> Flashcards without an explicit rule are routed to your Default Target Deck above."
+        )
+        info_text.setWordWrap(True)
+        info_l.addWidget(info_title)
+        info_l.addWidget(info_text)
+        info_l.addStretch()
+
+        body_row.addWidget(info_panel, stretch=1)
+        card_rules_l.addLayout(body_row)
 
         layout.addWidget(card_rules)
         layout.addStretch()
@@ -837,37 +929,6 @@ class ConfigWindow(QDialog):
             "Control how directory hierarchy converts into hierarchical Anki tags.",
         )
 
-        # Intuitive abstract explanation callout
-        info_panel = QFrame()
-        info_panel.setStyleSheet("""
-            QFrame {
-                background-color: rgba(33, 150, 243, 0.06);
-                border-left: 3px solid #2196F3;
-                border-radius: 4px;
-                padding: 8px 12px;
-            }
-            QLabel {
-                font-size: 12px;
-                line-height: 140%;
-                color: rgba(220, 220, 220, 0.95);
-                border: none;
-                background: transparent;
-            }
-        """)
-        info_l = QVBoxLayout(info_panel)
-        info_l.setContentsMargins(0, 0, 0, 0)
-        info_l.setSpacing(4)
-        info_text = QLabel(
-            "<b>How Tag Rules work:</b><br>"
-            "• <b>Hierarchical Tagging:</b> Vault directories automatically convert into nested Anki tags (Folder::Subfolder).<br>"
-            "• <b>Folder Aliases:</b> Rename any directory level in the tag path, or leave the replacement empty to exclude that folder from tags.<br>"
-            "• <b>Base Prefix:</b> Optional root tag prepended before all generated tags across the vault."
-        )
-        info_text.setWordWrap(True)
-        info_l.addWidget(info_text)
-        card_tag_l.addWidget(info_panel)
-        card_tag_l.addSpacing(6)
-
         row_tsettings = QHBoxLayout()
         row_tsettings.setSpacing(12)
 
@@ -891,19 +952,27 @@ class ConfigWindow(QDialog):
         card_tag_l.addLayout(row_tsettings)
         card_tag_l.addSpacing(6)
 
+        # 2/3 (Table & Buttons) | 1/3 (Explanation) Split
+        body_row = QHBoxLayout()
+        body_row.setSpacing(14)
+
+        # Left Column (2/3 width): Table and Action Buttons
+        table_col = QVBoxLayout()
+        table_col.setSpacing(12)
+
         self.alias_table = QTableWidget(0, 2)
         self.alias_table.setHorizontalHeaderLabels(["Vault Folder / Path", "Tag Alias / Replacement"])
         self.alias_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.alias_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.alias_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.alias_table.setMinimumHeight(160)
+        self.alias_table.setMinimumHeight(200)
         self.alias_table.setStyleSheet(table_style)
         self.alias_table.setToolTip(format_tooltip_box("tag_aliases"))
-        card_tag_l.addWidget(self.alias_table)
-        card_tag_l.addSpacing(10)
+        self.alias_table.itemChanged.connect(self._on_alias_item_changed)
+        table_col.addWidget(self.alias_table)
 
         alias_btn_row = QHBoxLayout()
-        alias_btn_row.setSpacing(6)
+        alias_btn_row.setSpacing(8)
         add_alias_btn = QPushButton("Add Tag Alias")
         add_alias_btn.setStyleSheet(btn_style)
         add_alias_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -917,7 +986,44 @@ class ConfigWindow(QDialog):
         alias_btn_row.addWidget(add_alias_btn)
         alias_btn_row.addWidget(remove_alias_btn)
         alias_btn_row.addStretch()
-        card_tag_l.addLayout(alias_btn_row)
+        table_col.addLayout(alias_btn_row)
+
+        body_row.addLayout(table_col, stretch=2)
+
+        # Right Column (1/3 width): Explanation Callout
+        info_panel = QFrame()
+        info_panel.setStyleSheet("""
+            QFrame {
+                background-color: rgba(33, 150, 243, 0.06);
+                border-left: 3px solid #2196F3;
+                border-radius: 4px;
+                padding: 10px 12px;
+            }
+            QLabel {
+                font-size: 12px;
+                line-height: 145%;
+                color: rgba(220, 220, 220, 0.95);
+                border: none;
+                background: transparent;
+            }
+        """)
+        info_l = QVBoxLayout(info_panel)
+        info_l.setContentsMargins(4, 4, 4, 4)
+        info_l.setSpacing(6)
+        info_title = QLabel("<b>How Tag Rules work:</b>")
+        info_title.setStyleSheet("font-size: 12px; color: #2196F3; font-weight: bold;")
+        info_text = QLabel(
+            "• <b>Hierarchical Tagging:</b> Vault directories automatically convert into nested Anki tags (Folder::Subfolder).<br><br>"
+            "• <b>Folder Aliases:</b> Rename any directory level in the tag path, or leave the replacement empty to exclude that folder from tags.<br><br>"
+            "• <b>Base Prefix:</b> Optional root tag prepended before all generated tags across the vault."
+        )
+        info_text.setWordWrap(True)
+        info_l.addWidget(info_title)
+        info_l.addWidget(info_text)
+        info_l.addStretch()
+
+        body_row.addWidget(info_panel, stretch=1)
+        card_tag_l.addLayout(body_row)
 
         layout.addWidget(card_tag)
         layout.addStretch()
@@ -2012,13 +2118,38 @@ class ConfigWindow(QDialog):
     def _add_alias_row(self) -> None:
         row = self.alias_table.rowCount()
         self.alias_table.insertRow(row)
-        self.alias_table.setItem(row, 0, QTableWidgetItem("folder_path"))
-        self.alias_table.setItem(row, 1, QTableWidgetItem("tag_alias"))
+        self._set_alias_row(row, "folder_path", "tag_alias")
 
     def _remove_alias_row(self) -> None:
         curr = self.alias_table.currentRow()
         if curr >= 0:
             self.alias_table.removeRow(curr)
+
+    def _on_alias_combo_changed(self, combo: QComboBox, text: str) -> None:
+        if getattr(self, "_updating_alias_table", False):
+            return
+        for r in range(self.alias_table.rowCount()):
+            if self.alias_table.cellWidget(r, 1) is combo:
+                self._updating_alias_table = True
+                try:
+                    item = self.alias_table.item(r, 1)
+                    if item:
+                        item.setText(text)
+                finally:
+                    self._updating_alias_table = False
+                break
+
+    def _on_alias_item_changed(self, item: QTableWidgetItem) -> None:
+        if getattr(self, "_updating_alias_table", False):
+            return
+        if item.column() == 1:
+            widget = self.alias_table.cellWidget(item.row(), 1)
+            if isinstance(widget, QComboBox) and widget.currentText() != item.text():
+                self._updating_alias_table = True
+                try:
+                    widget.setCurrentText(item.text())
+                finally:
+                    self._updating_alias_table = False
 
     def _reset_shortcuts_to_defaults(self) -> None:
         self.sc_dash_edit.setKeySequence(QKeySequence(DEFAULT_SHORTCUTS["open_dashboard"]))
@@ -2189,8 +2320,7 @@ class ConfigWindow(QDialog):
         aliases = self._vault_cfg.tag_aliases or {}
         self.alias_table.setRowCount(len(aliases))
         for r, (folder, alias) in enumerate(aliases.items()):
-            self.alias_table.setItem(r, 0, QTableWidgetItem(folder))
-            self.alias_table.setItem(r, 1, QTableWidgetItem(alias))
+            self._set_alias_row(r, folder, alias)
 
         # Ignore globs
         ignore_lines = "\n".join(self._vault_cfg.ignore or [])
@@ -2214,9 +2344,13 @@ class ConfigWindow(QDialog):
         rules: list[tuple[str, str]] = []
         for r in range(self.alias_table.rowCount()):
             f_item = self.alias_table.item(r, 0)
-            a_item = self.alias_table.item(r, 1)
+            widget = self.alias_table.cellWidget(r, 1)
+            if isinstance(widget, QComboBox):
+                a_text = widget.currentText().strip()
+            else:
+                a_item = self.alias_table.item(r, 1)
+                a_text = a_item.text().strip() if a_item else ""
             f_text = f_item.text().strip() if f_item else ""
-            a_text = a_item.text().strip() if a_item else ""
             rules.append((f_text, a_text))
         return rules
 
@@ -2317,18 +2451,22 @@ class ConfigWindow(QDialog):
         tag_aliases: dict[str, str] = {}
         for r in range(self.alias_table.rowCount()):
             f_item = self.alias_table.item(r, 0)
-            a_item = self.alias_table.item(r, 1)
+            widget = self.alias_table.cellWidget(r, 1)
+            if isinstance(widget, QComboBox):
+                alias_val = widget.currentText().strip()
+            else:
+                a_item = self.alias_table.item(r, 1)
+                alias_val = a_item.text().strip() if a_item else ""
             raw_folder = f_item.text().strip() if f_item else ""
-            alias_val = a_item.text().strip() if a_item else ""
             if not raw_folder:
                 continue
             norm_key = _norm_path_key(raw_folder)
             if norm_key in tag_aliases:
                 QMessageBox.warning(
                     self,
-                    "Duplicate Tag Alias",
-                    f"The folder path '{norm_key}' is configured more than once in Tag Path Aliases.\n"
-                    "Please remove or merge duplicate aliases before saving.",
+                    "Duplicate Tag Rule",
+                    f"The folder path '{norm_key}' is configured more than once in Tag Rules.\n"
+                    "Please remove or merge duplicate rules before saving.",
                 )
                 return
             tag_aliases[norm_key] = alias_val

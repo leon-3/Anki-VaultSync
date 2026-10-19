@@ -1357,8 +1357,24 @@ def test_deck_rules_and_tag_rules_customization(tmp_path: Path):
     table_data = dlg._get_routing_table_data()
     assert table_data == [("Biology/Notes", "BioDeck::Notes")]
 
+    # 4. Adding a tag alias row provides an editable QComboBox in cell (row, 1)
+    dlg._add_alias_row()
+    assert dlg.alias_table.rowCount() == 1
+    tag_combo_widget = dlg.alias_table.cellWidget(0, 1)
+    assert isinstance(tag_combo_widget, qt.QComboBox)
+    assert tag_combo_widget.isEditable()
+
+    # Change via tag combo box
+    dlg.alias_table.item(0, 0).setText("Biology/Notes")
+    tag_combo_widget.setCurrentText("custom_tag::notes")
+
+    # Data extraction reflects combo box
+    alias_table_data = dlg._get_alias_table_data()
+    assert alias_table_data == [("Biology/Notes", "custom_tag::notes")]
+
     # Save to vault
     dlg._on_save()
     saved_cfg = manager.load_vault(vault)
     assert saved_cfg.deck_routing == {"Biology/Notes": "BioDeck::Notes"}
+    assert saved_cfg.tag_aliases == {"Biology/Notes": "custom_tag::notes"}
     dlg.close()
