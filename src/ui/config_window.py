@@ -521,7 +521,7 @@ class ConfigWindow(QDialog):
         self.ignore_edit.setPlaceholderText("e.g. .obsidian\ntemplates/*\narchive")
         self.ignore_edit.setToolTip(format_tooltip_box("ignore"))
         _dim_placeholder(self.ignore_edit)
-        self.ignore_edit.setFixedHeight(75)
+        self.ignore_edit.setFixedHeight(85)
         self.ignore_edit.setStyleSheet("""
             QPlainTextEdit {
                 font-family: monospace;
@@ -536,7 +536,7 @@ class ConfigWindow(QDialog):
         top_row.addWidget(card_ign, stretch=1)
 
         layout.addLayout(top_row)
-        layout.addSpacing(24)
+        layout.addSpacing(48)
 
         # Section 2: Sync Automation & Safety (2-Column Grid with aligned info icons)
         card_sync, card_sync_l = _create_section_card(
@@ -812,12 +812,9 @@ class ConfigWindow(QDialog):
             "Assign specific vault directories to designated target Anki decks.",
         )
 
-        body_row = QHBoxLayout()
-        body_row.setSpacing(14)
-
-        # Left Column (2/3 width): Table and Action Buttons
-        table_col = QVBoxLayout()
-        table_col.setSpacing(12)
+        # 2/3 (Table) | 1/3 (Explanation) Split aligned directly with the table
+        table_row = QHBoxLayout()
+        table_row.setSpacing(14)
 
         self.routing_table = QTableWidget(0, 2)
         self.routing_table.setHorizontalHeaderLabels(["Vault Folder / Path", "Target Anki Deck"])
@@ -828,8 +825,44 @@ class ConfigWindow(QDialog):
         self.routing_table.setStyleSheet(table_style)
         self.routing_table.setToolTip(format_tooltip_box("deck_routing"))
         self.routing_table.itemChanged.connect(self._on_routing_item_changed)
-        table_col.addWidget(self.routing_table)
+        table_row.addWidget(self.routing_table, stretch=2)
 
+        # Right Column (1/3 width): Clean Explanation Panel matching table style
+        info_panel = QFrame()
+        info_panel.setStyleSheet("""
+            QFrame {
+                background-color: rgba(255, 255, 255, 0.02);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
+                padding: 10px 14px;
+            }
+            QLabel {
+                font-size: 12px;
+                line-height: 145%;
+                color: rgba(220, 220, 220, 0.90);
+                border: none;
+                background: transparent;
+            }
+        """)
+        info_l = QVBoxLayout(info_panel)
+        info_l.setContentsMargins(6, 6, 6, 6)
+        info_l.setSpacing(8)
+        info_title = QLabel("How Deck Rules work:")
+        info_title.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(240, 240, 240, 0.95);")
+        info_text = QLabel(
+            "• <b>Folder Mapping:</b> Flashcards located inside a mapped folder are placed into that folder's target Anki deck.<br><br>"
+            "• <b>Inheritance:</b> Subfolders automatically inherit their parent folder's deck rule unless a more specific rule is added.<br><br>"
+            "• <b>Default Deck:</b> Flashcards without an explicit rule are routed to your Default Target Deck above."
+        )
+        info_text.setWordWrap(True)
+        info_l.addWidget(info_title)
+        info_l.addWidget(info_text)
+        info_l.addStretch()
+
+        table_row.addWidget(info_panel, stretch=1)
+        card_rules_l.addLayout(table_row)
+
+        card_rules_l.addSpacing(12)
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         add_btn = QPushButton("Add Rule")
@@ -845,44 +878,7 @@ class ConfigWindow(QDialog):
         btn_row.addWidget(add_btn)
         btn_row.addWidget(remove_btn)
         btn_row.addStretch()
-        table_col.addLayout(btn_row)
-
-        body_row.addLayout(table_col, stretch=2)
-
-        # Right Column (1/3 width): Explanation Callout
-        info_panel = QFrame()
-        info_panel.setStyleSheet("""
-            QFrame {
-                background-color: rgba(33, 150, 243, 0.06);
-                border-left: 3px solid #2196F3;
-                border-radius: 4px;
-                padding: 10px 12px;
-            }
-            QLabel {
-                font-size: 12px;
-                line-height: 145%;
-                color: rgba(220, 220, 220, 0.95);
-                border: none;
-                background: transparent;
-            }
-        """)
-        info_l = QVBoxLayout(info_panel)
-        info_l.setContentsMargins(4, 4, 4, 4)
-        info_l.setSpacing(6)
-        info_title = QLabel("<b>How Deck Rules work:</b>")
-        info_title.setStyleSheet("font-size: 12px; color: #2196F3; font-weight: bold;")
-        info_text = QLabel(
-            "• <b>Folder Mapping:</b> Flashcards located inside a mapped folder are placed into that folder's target Anki deck.<br><br>"
-            "• <b>Inheritance:</b> Subfolders automatically inherit their parent folder's deck rule unless a more specific rule is added.<br><br>"
-            "• <b>Default Deck:</b> Flashcards without an explicit rule are routed to your Default Target Deck above."
-        )
-        info_text.setWordWrap(True)
-        info_l.addWidget(info_title)
-        info_l.addWidget(info_text)
-        info_l.addStretch()
-
-        body_row.addWidget(info_panel, stretch=1)
-        card_rules_l.addLayout(body_row)
+        card_rules_l.addLayout(btn_row)
 
         layout.addWidget(card_rules)
         layout.addStretch()
@@ -952,13 +948,9 @@ class ConfigWindow(QDialog):
         card_tag_l.addLayout(row_tsettings)
         card_tag_l.addSpacing(6)
 
-        # 2/3 (Table & Buttons) | 1/3 (Explanation) Split
-        body_row = QHBoxLayout()
-        body_row.setSpacing(14)
-
-        # Left Column (2/3 width): Table and Action Buttons
-        table_col = QVBoxLayout()
-        table_col.setSpacing(12)
+        # 2/3 (Table) | 1/3 (Explanation) Split aligned directly with the table
+        table_row = QHBoxLayout()
+        table_row.setSpacing(14)
 
         self.alias_table = QTableWidget(0, 2)
         self.alias_table.setHorizontalHeaderLabels(["Vault Folder / Path", "Tag Alias / Replacement"])
@@ -969,8 +961,44 @@ class ConfigWindow(QDialog):
         self.alias_table.setStyleSheet(table_style)
         self.alias_table.setToolTip(format_tooltip_box("tag_aliases"))
         self.alias_table.itemChanged.connect(self._on_alias_item_changed)
-        table_col.addWidget(self.alias_table)
+        table_row.addWidget(self.alias_table, stretch=2)
 
+        # Right Column (1/3 width): Clean Explanation Panel matching table style
+        info_panel = QFrame()
+        info_panel.setStyleSheet("""
+            QFrame {
+                background-color: rgba(255, 255, 255, 0.02);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
+                padding: 10px 14px;
+            }
+            QLabel {
+                font-size: 12px;
+                line-height: 145%;
+                color: rgba(220, 220, 220, 0.90);
+                border: none;
+                background: transparent;
+            }
+        """)
+        info_l = QVBoxLayout(info_panel)
+        info_l.setContentsMargins(6, 6, 6, 6)
+        info_l.setSpacing(8)
+        info_title = QLabel("How Tag Rules work:")
+        info_title.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(240, 240, 240, 0.95);")
+        info_text = QLabel(
+            "• <b>Hierarchical Tagging:</b> Vault directories automatically convert into nested Anki tags (Folder::Subfolder).<br><br>"
+            "• <b>Folder Aliases:</b> Rename any directory level in the tag path, or leave the replacement empty to exclude that folder from tags.<br><br>"
+            "• <b>Base Prefix:</b> Optional root tag prepended before all generated tags across the vault."
+        )
+        info_text.setWordWrap(True)
+        info_l.addWidget(info_title)
+        info_l.addWidget(info_text)
+        info_l.addStretch()
+
+        table_row.addWidget(info_panel, stretch=1)
+        card_tag_l.addLayout(table_row)
+
+        card_tag_l.addSpacing(12)
         alias_btn_row = QHBoxLayout()
         alias_btn_row.setSpacing(8)
         add_alias_btn = QPushButton("Add Tag Alias")
@@ -986,44 +1014,7 @@ class ConfigWindow(QDialog):
         alias_btn_row.addWidget(add_alias_btn)
         alias_btn_row.addWidget(remove_alias_btn)
         alias_btn_row.addStretch()
-        table_col.addLayout(alias_btn_row)
-
-        body_row.addLayout(table_col, stretch=2)
-
-        # Right Column (1/3 width): Explanation Callout
-        info_panel = QFrame()
-        info_panel.setStyleSheet("""
-            QFrame {
-                background-color: rgba(33, 150, 243, 0.06);
-                border-left: 3px solid #2196F3;
-                border-radius: 4px;
-                padding: 10px 12px;
-            }
-            QLabel {
-                font-size: 12px;
-                line-height: 145%;
-                color: rgba(220, 220, 220, 0.95);
-                border: none;
-                background: transparent;
-            }
-        """)
-        info_l = QVBoxLayout(info_panel)
-        info_l.setContentsMargins(4, 4, 4, 4)
-        info_l.setSpacing(6)
-        info_title = QLabel("<b>How Tag Rules work:</b>")
-        info_title.setStyleSheet("font-size: 12px; color: #2196F3; font-weight: bold;")
-        info_text = QLabel(
-            "• <b>Hierarchical Tagging:</b> Vault directories automatically convert into nested Anki tags (Folder::Subfolder).<br><br>"
-            "• <b>Folder Aliases:</b> Rename any directory level in the tag path, or leave the replacement empty to exclude that folder from tags.<br><br>"
-            "• <b>Base Prefix:</b> Optional root tag prepended before all generated tags across the vault."
-        )
-        info_text.setWordWrap(True)
-        info_l.addWidget(info_title)
-        info_l.addWidget(info_text)
-        info_l.addStretch()
-
-        body_row.addWidget(info_panel, stretch=1)
-        card_tag_l.addLayout(body_row)
+        card_tag_l.addLayout(alias_btn_row)
 
         layout.addWidget(card_tag)
         layout.addStretch()
