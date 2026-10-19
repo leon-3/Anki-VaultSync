@@ -454,6 +454,7 @@ class ConfigWindow(QDialog):
         # Tab 3: Card Types && Media
         self.tab_rules = QWidget()
         self.tab_advanced = self.tab_rules
+        self.tab_card_types = self.tab_rules
         self._init_tab_card_types_and_media()
         self.tabs.addTab(self.tab_rules, "Card Types && Media")
 
@@ -531,11 +532,15 @@ class ConfigWindow(QDialog):
         )
 
         card_dirs_l.addStretch(1)
-        lbl_vault = QLabel("Obsidian Vault Folder: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        lbl_vault_row = QHBoxLayout()
+        lbl_vault_row.setSpacing(6)
+        lbl_vault = QLabel("Obsidian Vault Folder:")
         lbl_vault.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
-        lbl_vault.setToolTip(format_tooltip_box("vault_path"))
-        lbl_vault.setCursor(Qt.CursorShape.WhatsThisCursor)
-        card_dirs_l.addWidget(lbl_vault)
+        hint_vault = InfoHintLabel("vault_path")
+        lbl_vault_row.addWidget(lbl_vault)
+        lbl_vault_row.addWidget(hint_vault)
+        lbl_vault_row.addStretch()
+        card_dirs_l.addLayout(lbl_vault_row)
         card_dirs_l.addSpacing(4)
 
         vault_row = QHBoxLayout()
@@ -566,7 +571,7 @@ class ConfigWindow(QDialog):
         self.ignore_edit.setPlaceholderText("e.g. .obsidian\ntemplates/*\narchive")
         self.ignore_edit.setToolTip(format_tooltip_box("ignore"))
         _dim_placeholder(self.ignore_edit)
-        self.ignore_edit.setFixedHeight(125)
+        self.ignore_edit.setFixedHeight(88)
         self.ignore_edit.setStyleSheet("""
             QPlainTextEdit {
                 font-family: monospace;
@@ -1020,6 +1025,9 @@ class ConfigWindow(QDialog):
         info_title = QLabel("How Deck Rules work:")
         info_title.setStyleSheet("font-size: 11.5px; font-weight: 600; color: rgba(245, 245, 245, 0.95);")
         info_text = QLabel(
+            "<div style='margin-bottom: 6px; color: rgba(200, 200, 200, 0.85);'>"
+            "Direct cards from specific vault folders into dedicated Anki target decks automatically."
+            "</div>"
             "<div style='margin-bottom: 5px;'>"
             "• <b>Folder Mapping:</b> Notes in a mapped folder go to that folder's target Anki deck."
             "</div>"
@@ -1162,6 +1170,9 @@ class ConfigWindow(QDialog):
         info_title = QLabel("How Tag Rules work:")
         info_title.setStyleSheet("font-size: 11.5px; font-weight: 600; color: rgba(245, 245, 245, 0.95);")
         info_text = QLabel(
+            "<div style='margin-bottom: 6px; color: rgba(200, 200, 200, 0.85);'>"
+            "Transform vault folder paths into clean, customizable hierarchical tags in Anki."
+            "</div>"
             "<div style='margin-bottom: 5px;'>"
             "• <b>Hierarchical Tags:</b> Vault folders convert to nested tags (<code>Folder::Subfolder</code>)."
             "</div>"
@@ -1249,12 +1260,13 @@ class ConfigWindow(QDialog):
         )
 
         row_mode = QHBoxLayout()
-        row_mode.setSpacing(8)
-        lbl_iom = QLabel("Mode: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        row_mode.setSpacing(6)
+        lbl_iom = QLabel("Mode:")
         lbl_iom.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
-        lbl_iom.setToolTip(format_tooltip_box("image_occlusion_mode"))
-        lbl_iom.setCursor(Qt.CursorShape.WhatsThisCursor)
+        hint_iom = InfoHintLabel("image_occlusion_mode")
         row_mode.addWidget(lbl_iom)
+        row_mode.addWidget(hint_iom)
+        row_mode.addSpacing(4)
 
         self.image_occlusion_mode_combo = QComboBox()
         self.image_occlusion_mode_combo.setStyleSheet(input_style + " QComboBox { min-width: 280px; }")

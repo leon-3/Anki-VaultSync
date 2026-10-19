@@ -1508,3 +1508,61 @@ def test_folder_dropdown_ignores_patterns_reactively(tmp_path: Path):
     assert "Private" not in items_after
 
     dlg.close()
+
+
+def test_ui_refinements_summaries_io_hint_and_diff_dialog(tmp_path: Path):
+    from src.ui.config_window import ConfigWindow, InfoHintLabel
+    from src.ui.diff_dialog import DiffDialog
+    from src.profile_config import ProfileConfigManager
+    from src.contracts import FileSyncPlan, NoteUpdateOp, SyncPlan
+    import aqt.qt as qt
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    dlg = ConfigWindow(manager, "RefinementsProfile")
+
+    # 1. Compact ignore_edit height
+    assert dlg.ignore_edit.maximumHeight() == 88
+
+    # 2. Deck Rules and Tag Rules summary sentences
+    deck_labels = [w.text() for w in dlg.tab_deck_rules.findChildren(qt.QLabel)]
+    assert any("Direct cards from specific vault folders into dedicated Anki target decks automatically." in t for t in deck_labels)
+
+    tag_labels = [w.text() for w in dlg.tab_tag_rules.findChildren(qt.QLabel)]
+    assert any("Transform vault folder paths into clean, customizable hierarchical tags in Anki." in t for t in tag_labels)
+
+    # 3. Image Occlusion Mode has InfoHintLabel widget
+    io_hints = [w for w in dlg.tab_card_types.findChildren(InfoHintLabel) if w.toolTip() and "Image Occlusion Mode" in str(w.toolTip())]
+    assert len(io_hints) >= 1
+
+    dlg.close()
+
+    # 4. Modern DiffDialog layout and elements
+    op = NoteUpdateOp(
+        note_id=1,
+        card_id="modern_card",
+        model_name="M2A Basic",
+        target_deck_name="NewDeck",
+        old_deck_names=["OldDeck"],
+        old_fields={"Front": "Old Question", "Back": "Answer"},
+        new_fields={"Front": "New Question", "Back": "Answer"},
+        old_tags=[],
+        new_tags=[],
+        deck_changed=True,
+        fields_changed=True,
+        tags_changed=False,
+        source_file=Path("/vault/test.md"),
+        source_line=10,
+        media_refs=[],
+    )
+    fp = FileSyncPlan(file_path=Path("/vault/test.md"), mtime_ns=1, sha256_hex="123", creates=[], updates=[op], unchanged_count=0)
+    plan = SyncPlan(vault_path=Path("/vault"), default_deck="Default", file_plans=[fp])
+
+    diff_dlg = DiffDialog(plan)
+    diff_labels = [w.text() for w in diff_dlg.findChildren(qt.QLabel)]
+    assert "Card Updates Preview" in diff_labels
+    assert any("1 modified card(s)" in t for t in diff_labels)
+    assert diff_dlg.apply_btn.text() == "Apply Selected"
+    assert diff_dlg.cancel_btn.text() == "Cancel"
+    assert diff_dlg.rescan_btn.text() == "Rescan Vault"
+    diff_dlg.close()
