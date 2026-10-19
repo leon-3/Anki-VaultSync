@@ -39,10 +39,16 @@ def _is_deleted(widget: Any) -> bool:
 from aqt.utils import tooltip
 
 from .. import logger
-from ..contracts import SyncPlan, SyncReport
+from ..contracts import OcclusionStatus, SyncPlan, SyncReport, UnflagReport
 from ..profile_config import ProfileConfigManager
 from ..vault_detector import DetectedVault, detect_obsidian_vaults
-from ..worker import build_sync_plan, execute_sync_plan
+from ..worker import (
+    build_sync_plan,
+    execute_sync_plan,
+    get_occlusion_status,
+    unflag_completed_occlusions,
+)
+from markdown2anki.constants import OCCLUSION_TAG
 from .config_window import ConfigWindow
 from .diff_dialog import DiffDialog
 from .sync_report_dialog import SyncIssuesDialog
@@ -481,9 +487,19 @@ class MainWindow(QDialog):
         self.rescan_btn.setStyleSheet(action_btn_style)
         self.rescan_btn.clicked.connect(self._start_scan)
 
+        self.unflag_occ_btn = QPushButton("Unflag Occlusions")
+        self.unflag_occ_btn.setFixedHeight(36)
+        self.unflag_occ_btn.setAutoDefault(False)
+        self.unflag_occ_btn.setDefault(False)
+        self.unflag_occ_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.unflag_occ_btn.setStyleSheet(action_btn_style)
+        self.unflag_occ_btn.setEnabled(False)
+        self.unflag_occ_btn.clicked.connect(self._on_unflag_occlusions)
+
         actions_layout.addWidget(self.sync_btn)
         actions_layout.addWidget(self.diff_btn)
         actions_layout.addWidget(self.rescan_btn)
+        actions_layout.addWidget(self.unflag_occ_btn)
         actions_layout.addStretch()
 
         middle_layout.addWidget(actions_box, stretch=1)
@@ -735,6 +751,9 @@ class MainWindow(QDialog):
                 or len(self._current_plan.occlusions_to_stage) > 0
             )
         )
+        has_ready_occ = getattr(self, "_occ_status", None) is not None and self._occ_status.ready_to_unflag > 0
+        if hasattr(self, "unflag_occ_btn"):
+            self.unflag_occ_btn.setEnabled(not busy and has_ready_occ)
 
     def _on_op_failure(self, exc: Exception, retry_action: Callable[[], None] | None = None) -> None:
         if _is_deleted(self):
@@ -778,14 +797,10 @@ class MainWindow(QDialog):
         b_mid = self._settings.basic_model_id
         c_mid = self._settings.cloze_model_id
 
-        def _scan_op(col) -> tuple[SyncPlan, int]:
+        def _scan_op(col) -> tuple[SyncPlan, OcclusionStatus]:
             plan = build_sync_plan(col, vault_p, basic_model_id=b_mid, cloze_model_id=c_mid)
-            unmasked = 0
-            try:
-                unmasked = len(col.find_notes("tag:TODO_PROCESS_OCCLUSION"))
-            except Exception:
-                unmasked = 0
-            return plan, unmasked
+            occ_status = get_occlusion_status(col)
+            return plan, occ_status
 
         def _on_success(res: Any) -> None:
             release_sync_lock()
@@ -818,24 +833,45 @@ class MainWindow(QDialog):
             success=_on_success,
         ).failure(_on_failure).with_progress("Scanning vault...").run_in_background()
 
-    def _on_scan_success(self, plan: SyncPlan, unmasked_in_anki: int = 0) -> None:
+    def _on_scan_success(self, plan: SyncPlan, unmasked_in_anki: Any = 0) -> None:
         if _is_deleted(self):
             return
         self._current_plan = plan
+        if isinstance(unmasked_in_anki, OcclusionStatus):
+            self._occ_status = unmasked_in_anki
+        else:
+            self._occ_status = OcclusionStatus(total=int(unmasked_in_anki), awaiting_masks=int(unmasked_in_anki), ready_to_unflag=0)
         self._set_buttons_busy(False)
 
         total_new = plan.total_creates + len(plan.occlusions_to_stage)
         self.new_val_label.setText(str(total_new))
         self.modified_val_label.setText(str(plan.total_updates))
 
-        self.occlusions_val_label.setText(str(unmasked_in_anki))
-        if unmasked_in_anki > 0:
-            self.occlusions_val_label.setToolTip(
-                f"{unmasked_in_anki} card(s) awaiting masks in Anki (tag:TODO_PROCESS_OCCLUSION).\n"
-                "Click to view in Anki Browser."
-            )
+        if self._occ_status.total > 0:
+            if self._occ_status.ready_to_unflag > 0:
+                self.occlusions_val_label.setText(f"{self._occ_status.total} ({self._occ_status.ready_to_unflag} ready)")
+                self.occlusions_val_label.setToolTip(
+                    f"{self._occ_status.awaiting_masks} card(s) awaiting masks in Anki (tag:{OCCLUSION_TAG}).\n"
+                    f"{self._occ_status.ready_to_unflag} card(s) have masks drawn and are ready to unsuspend.\n"
+                    "Click to view in Anki Browser."
+                )
+            else:
+                self.occlusions_val_label.setText(str(self._occ_status.total))
+                self.occlusions_val_label.setToolTip(
+                    f"{self._occ_status.total} card(s) awaiting masks in Anki (tag:{OCCLUSION_TAG}).\n"
+                    "Click to view in Anki Browser."
+                )
         else:
+            self.occlusions_val_label.setText("0")
             self.occlusions_val_label.setToolTip("No unprocessed image occlusions in Anki.")
+
+        if hasattr(self, "unflag_occ_btn"):
+            if self._occ_status.ready_to_unflag > 0:
+                self.unflag_occ_btn.setText(f"Unflag Occlusions ({self._occ_status.ready_to_unflag})")
+                self.unflag_occ_btn.setEnabled(not self._is_busy)
+            else:
+                self.unflag_occ_btn.setText("Unflag Occlusions")
+                self.unflag_occ_btn.setEnabled(False)
 
         self.orphans_val_label.setText(str(len(plan.orphans)))
 
@@ -867,7 +903,7 @@ class MainWindow(QDialog):
     def _open_diff(self) -> None:
         if self._current_plan is None or self._current_plan.total_updates == 0:
             return
-        dlg = DiffDialog(self._current_plan, self)
+        dlg = DiffDialog(self._current_plan, self, occ_status=getattr(self, "_occ_status", None))
         res = dlg.exec()
         if _is_deleted(self):
             return
@@ -882,8 +918,9 @@ class MainWindow(QDialog):
             return
         self._last_sync_included_updates = include_updates
 
+        unflag_from_diff = False
         if include_updates and self._settings.show_diff_before_update and self._current_plan.total_updates > 0:
-            dlg = DiffDialog(self._current_plan, self)
+            dlg = DiffDialog(self._current_plan, self, occ_status=getattr(self, "_occ_status", None))
             res = dlg.exec()
             if _is_deleted(self):
                 return
@@ -893,6 +930,7 @@ class MainWindow(QDialog):
                     return
                 self._log("Sync cancelled by user in diff preview.")
                 return
+            unflag_from_diff = dlg.should_unflag_occlusions
             self._update_action_button_counts()
 
         from ..sync_lock import acquire_sync_lock, release_sync_lock
@@ -921,6 +959,7 @@ class MainWindow(QDialog):
                 occlusion_dir=occ_dir,
                 basic_model_id=b_mid,
                 cloze_model_id=c_mid,
+                unflag_occlusions=unflag_from_diff,
             )
 
         def _on_success(report: SyncReport) -> None:
@@ -1028,6 +1067,58 @@ class MainWindow(QDialog):
                 vault_path=self._current_plan.vault_path,
             )
             dlg.exec()
+
+    def _on_unflag_occlusions(self) -> None:
+        from ..sync_lock import acquire_sync_lock, release_sync_lock
+        if not acquire_sync_lock():
+            self._set_status("Operation in progress. Please wait...", state="warning")
+            return
+        self._set_buttons_busy(True)
+        self._set_status("Unflagging completed occlusions...", state="busy")
+
+        def _op(col):
+            return unflag_completed_occlusions(col, dry_run=False)
+
+        def _success(rep: UnflagReport):
+            release_sync_lock()
+            if _is_deleted(self):
+                return
+            self._set_buttons_busy(False)
+            if rep.unflagged_notes_count > 0:
+                self._log(f"Unflagged {rep.unflagged_notes_count} note(s), unsuspended {rep.unsuspended_cards_count} card(s).")
+                try:
+                    tooltip(f"✔ Unsuspended {rep.unflagged_notes_count} note(s) ({rep.unsuspended_cards_count} card(s)).")
+                except Exception:
+                    pass
+            else:
+                self._log("No completed occlusions found to unflag.")
+                try:
+                    tooltip("No completed occlusions found.")
+                except Exception:
+                    pass
+            self._start_scan()
+
+        def _failure(exc: Exception):
+            release_sync_lock()
+            if _is_deleted(self):
+                return
+            self._set_buttons_busy(False)
+            self._on_op_failure(exc, retry_action=self._on_unflag_occlusions)
+
+        import aqt
+        if getattr(aqt, "mw", None) is None:
+            try:
+                res = _op(getattr(mw, "col", None))
+                _success(res)
+            except Exception as exc:
+                _failure(exc)
+            return
+
+        QueryOp(
+            parent=self,
+            op=_op,
+            success=_success,
+        ).failure(_failure).with_progress("Unflagging completed occlusions...").run_in_background()
 
     def _view_unmasked_occlusions(self) -> None:
         if mw is not None and getattr(mw, "col", None) is not None:

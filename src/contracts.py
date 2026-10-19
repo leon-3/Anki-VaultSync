@@ -85,6 +85,22 @@ class OrphanNoteRecord:
 
 
 @dataclass(frozen=True)
+class OcclusionStatus:
+    total: int = 0
+    awaiting_masks: int = 0
+    ready_to_unflag: int = 0
+
+
+@dataclass
+class UnflagReport:
+    total_checked: int = 0
+    awaiting_masks_count: int = 0
+    unflagged_notes_count: int = 0
+    unsuspended_cards_count: int = 0
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class MissingInAnkiRecord:
     card_id: str
     file_path: Path
@@ -108,6 +124,8 @@ class SyncPlan:
     suspend_new_occlusions: bool = True
     suspend_new_clozes: bool = False
     hash_media: bool = True
+    auto_unflag_occlusions: bool = False
+    unflag_occlusions: bool = False
 
     @property
     def total_files(self) -> int:
@@ -152,6 +170,8 @@ class SyncReport:
     media_added_count: int = 0
     occlusions_staged_count: int = 0
     suspended_count: int = 0
+    unflagged_occlusions_count: int = 0
+    unsuspended_occlusions_count: int = 0
     staged_occlusions_by_tag: dict[str, list[str]] = field(default_factory=dict)
     occlusion_dir: Path | None = None
     skipped_files: list[tuple[Path, str]] = field(default_factory=list)

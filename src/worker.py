@@ -11,7 +11,7 @@ from anki.collection import Collection
 from anki.models import NotetypeId
 from markdown2anki.build import MODEL_CLOZE, MODEL_IMAGE_OCCLUSION, build
 from markdown2anki.config import load_vault_config
-from markdown2anki.constants import OCCLUSION_TAG
+from markdown2anki.constants import CLOZE_TAG, OCCLUSION_TAG
 from markdown2anki.flags import clear_flags, write_flags
 from markdown2anki.ids import new_card_id, with_marker
 from markdown2anki.models import (
@@ -19,7 +19,7 @@ from markdown2anki.models import (
     MODEL_NAME_CLOZE,
     MODEL_NAME_IMAGE_OCCLUSION,
 )
-from markdown2anki.occlusions import export_occlusions
+from markdown2anki.occlusions import export_occlusions, is_cloze_completed, is_occlusion_completed
 from markdown2anki.diagnostics import Diagnostic, DiagnosticCategory, DiagnosticLevel
 from markdown2anki.parser import Card
 from markdown2anki.vault import collect
@@ -39,8 +39,10 @@ from .contracts import (
     NoteCreateOp,
     NoteUpdateOp,
     OrphanNoteRecord,
+    OcclusionStatus,
     SyncPlan,
     SyncReport,
+    UnflagReport,
 )
 
 
@@ -133,6 +135,130 @@ def _normalize_html_for_diff(text: str, media_refs: list[MediaItem]) -> str:
     return normalized
 
 
+
+
+def get_occlusion_status(col: Collection) -> OcclusionStatus:
+    """Scan notes with tag:TODO_PROCESS_OCCLUSION or tag:TODO_PROCESS_CLOZES and categorize them."""
+    if col is None:
+        return OcclusionStatus()
+    try:
+        occ_ids = col.find_notes(f"tag:{OCCLUSION_TAG}")
+    except Exception:
+        occ_ids = []
+    try:
+        cloze_ids = col.find_notes(f"tag:{CLOZE_TAG}")
+    except Exception:
+        cloze_ids = []
+
+    note_ids = list(dict.fromkeys(list(occ_ids) + list(cloze_ids)))
+    total = len(note_ids)
+    ready = 0
+    awaiting = 0
+    for nid in note_ids:
+        try:
+            note = col.get_note(nid)
+            has_occ = OCCLUSION_TAG in note.tags
+            has_cloze = CLOZE_TAG in note.tags
+            if not has_occ and not has_cloze:
+                continue
+            is_ready = False
+            if has_occ:
+                occ_val = note["Occlusion"] if "Occlusion" in note else ""
+                if is_occlusion_completed(occ_val):
+                    is_ready = True
+            if has_cloze:
+                text_val = note["Text"] if "Text" in note else ""
+                if is_cloze_completed(text_val):
+                    is_ready = True
+
+            if is_ready:
+                ready += 1
+            else:
+                awaiting += 1
+        except Exception:
+            awaiting += 1
+    return OcclusionStatus(total=total, awaiting_masks=awaiting, ready_to_unflag=ready)
+
+
+def unflag_completed_occlusions(col: Collection, dry_run: bool = False) -> UnflagReport:
+    """Find notes with TODO_PROCESS_OCCLUSION or TODO_PROCESS_CLOZES tag and unsuspend/unflag completed notes."""
+    report = UnflagReport()
+    if col is None:
+        return report
+    try:
+        occ_ids = col.find_notes(f"tag:{OCCLUSION_TAG}")
+    except Exception as exc:
+        occ_ids = []
+        report.warnings.append(f"Failed to query occlusion notes: {exc}")
+    try:
+        cloze_ids = col.find_notes(f"tag:{CLOZE_TAG}")
+    except Exception as exc:
+        cloze_ids = []
+        report.warnings.append(f"Failed to query cloze notes: {exc}")
+
+    note_ids = list(dict.fromkeys(list(occ_ids) + list(cloze_ids)))
+    report.total_checked = len(note_ids)
+    completed_notes: list[tuple[Any, set[str]]] = []
+    cards_to_unsuspend = []
+
+    for nid in note_ids:
+        try:
+            note = col.get_note(nid)
+            has_occ = OCCLUSION_TAG in note.tags
+            has_cloze = CLOZE_TAG in note.tags
+            if not has_occ and not has_cloze:
+                continue
+
+            tags_to_remove = set()
+            if has_occ:
+                occ_val = note["Occlusion"] if "Occlusion" in note else ""
+                if is_occlusion_completed(occ_val):
+                    tags_to_remove.add(OCCLUSION_TAG)
+            if has_cloze:
+                text_val = note["Text"] if "Text" in note else ""
+                if is_cloze_completed(text_val):
+                    tags_to_remove.add(CLOZE_TAG)
+
+            if tags_to_remove:
+                completed_notes.append((note, tags_to_remove))
+                for c in note.cards():
+                    cards_to_unsuspend.append(c.id)
+            else:
+                report.awaiting_masks_count += 1
+        except Exception as exc:
+            report.warnings.append(f"Note {nid}: {exc}")
+
+    report.unflagged_notes_count = len(completed_notes)
+    report.unsuspended_cards_count = len(cards_to_unsuspend)
+
+    if not dry_run and completed_notes:
+        undo_entry = None
+        if hasattr(col, "add_custom_undo_entry"):
+            try:
+                undo_entry = col.add_custom_undo_entry("VaultSync: Unflag Occlusions")
+            except Exception:
+                pass
+
+        try:
+            for note, tags_to_remove in completed_notes:
+                note.tags = [t for t in note.tags if t not in tags_to_remove]
+                col.update_note(note)
+
+            if cards_to_unsuspend:
+                if hasattr(col.sched, "unsuspend_cards"):
+                    col.sched.unsuspend_cards(cards_to_unsuspend)
+                elif hasattr(col.sched, "unsuspendCards"):
+                    col.sched.unsuspendCards(cards_to_unsuspend)
+
+            if undo_entry is not None and hasattr(col, "merge_undo_entries"):
+                try:
+                    col.merge_undo_entries(undo_entry)
+                except Exception:
+                    pass
+        except Exception as exc:
+            report.warnings.append(f"Execution error: {exc}")
+
+    return report
 def build_sync_plan(
     col: Collection,
     vault_path: Path,
@@ -219,9 +345,9 @@ def build_sync_plan(
                     trace_fn(diag.message)
                 continue
 
-            if note.model == MODEL_IMAGE_OCCLUSION:
+            if note.model == MODEL_IMAGE_OCCLUSION or (card is not None and getattr(card, "kind", None) in ("image_occlusion", "Image Occlusion")):
                 model_name: ModelName = MODEL_NAME_IMAGE_OCCLUSION
-            elif note.model == MODEL_CLOZE or (card is not None and getattr(card, "has_cloze_markers", False) and effective_cloze_notes):
+            elif note.model == MODEL_CLOZE or (card is not None and (getattr(card, "kind", None) in ("cloze", "Cloze") or getattr(card, "has_cloze_markers", False))):
                 model_name: ModelName = MODEL_NAME_CLOZE
             else:
                 model_name: ModelName = MODEL_NAME_BASIC
@@ -328,12 +454,24 @@ def build_sync_plan(
                     new_fields = dict(rec.fields)
                     new_fields[f0] = note.fields[0] if len(note.fields) > 0 else ""
                     new_fields[f1] = with_marker(note.fields[1] if len(note.fields) > 1 else "", card_id)
-                    new_tags = list(note.tags)
+                    new_tags = [
+                        t for t in note.tags
+                        if (t != OCCLUSION_TAG or OCCLUSION_TAG in rec.tags)
+                        and (t != CLOZE_TAG or CLOZE_TAG in rec.tags)
+                    ]
 
                 normalized_rec_fields = {
                     fname: _normalize_html_for_diff(fval, media_refs)
                     for fname, fval in rec.fields.items()
                 }
+
+                if is_cloze and not model_changed:
+                    rec_f0_val = normalized_rec_fields.get(f0, "")
+                    stripped_rec_f0 = re.sub(r"\{\{c\d+::(.*?)(?:::.*?)?\}\}", lambda m: m.group(1), rec_f0_val)
+                    clean_new = re.sub(r"^<(?:p|div)>(.*?)</(?:p|div)>$", lambda m: m.group(1), new_fields.get(f0, "").strip(), flags=re.DOTALL | re.IGNORECASE).strip()
+                    clean_rec = re.sub(r"^<(?:p|div)>(.*?)</(?:p|div)>$", lambda m: m.group(1), stripped_rec_f0.strip(), flags=re.DOTALL | re.IGNORECASE).strip()
+                    if clean_new == clean_rec or new_fields.get(f0, "").strip() == stripped_rec_f0.strip():
+                        new_fields[f0] = rec.fields.get(f0, "")
 
                 # Diff detection
                 if model_name == MODEL_NAME_IMAGE_OCCLUSION:
@@ -449,6 +587,7 @@ def build_sync_plan(
         suspend_new_occlusions=vault_cfg.suspend_new_occlusions,
         suspend_new_clozes=vault_cfg.suspend_new_clozes,
         hash_media=vault_cfg.hash_media,
+        auto_unflag_occlusions=getattr(vault_cfg, "auto_unflag_occlusions", False),
     )
 
 
@@ -459,6 +598,7 @@ def execute_sync_plan(
     occlusion_dir: Path | None = None,
     basic_model_id: int | None = None,
     cloze_model_id: int | None = None,
+    unflag_occlusions: bool = False,
 ) -> SyncReport:
     """Stage 3: Applies atomic Flag-Before-Insert persistence and Anki DB mutations."""
     report = SyncReport(diagnostics=list(plan.diagnostics), skipped_cards_count=plan.skipped_cards_count)
@@ -703,6 +843,15 @@ def execute_sync_plan(
 
     # Merge undo entries into a single atomic VaultSync operation
     _merge_undo()
+
+    # Unflag completed image occlusions if requested
+    should_unflag = unflag_occlusions or plan.unflag_occlusions or plan.auto_unflag_occlusions
+    if should_unflag:
+        unflag_rep = unflag_completed_occlusions(col, dry_run=False)
+        report.unflagged_occlusions_count = unflag_rep.unflagged_notes_count
+        report.unsuspended_occlusions_count = unflag_rep.unsuspended_cards_count
+        if unflag_rep.warnings:
+            report.warnings.extend(unflag_rep.warnings)
 
     report.flagged_cards = flagged_cards
     if undo_id is not None and flagged_cards:

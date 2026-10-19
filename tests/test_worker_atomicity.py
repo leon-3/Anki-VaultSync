@@ -1069,3 +1069,178 @@ def test_insert_failure_rolls_back_flags(monkeypatch):
             assert len(report.flagged_cards) == 0
         finally:
             col.close()
+
+
+def test_unflag_completed_occlusions_lifecycle():
+    """Verify get_occlusion_status and unflag_completed_occlusions work end-to-end,
+    correctly unsuspending cards and removing TODO_PROCESS_OCCLUSION only from masked notes."""
+    from src.worker import get_occlusion_status, unflag_completed_occlusions
+    from markdown2anki.constants import OCCLUSION_TAG
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            'vault = "."\ndeck = "Anatomy"\nimage_occlusion_mode = "native"\nsuspend_new_occlusions = true\n',
+            encoding="utf-8",
+        )
+        img1 = vault_path / "skull.png"
+        img1.write_bytes(b"skull_img_data")
+        img2 = vault_path / "brain.png"
+        img2.write_bytes(b"brain_img_data")
+
+        note_file = vault_path / "anatomy.md"
+        note_file.write_text(
+            """# Anatomy
+---
+Image Cloze
+![[skull.png]]
+---
+Image Cloze
+![[brain.png]]
+""",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            # 1. Sync creates both Image Occlusions, suspended and tagged with TODO_PROCESS_OCCLUSION
+            plan = build_sync_plan(col, vault_path)
+            assert plan.total_creates == 2
+            report = execute_sync_plan(col, plan)
+            assert report.created_count == 2
+            assert report.suspended_count == 2
+
+            # Check status before user draws masks
+            status1 = get_occlusion_status(col)
+            assert status1.total == 2
+            assert status1.awaiting_masks == 2
+            assert status1.ready_to_unflag == 0
+
+            # 2. Simulate user drawing a mask on note 1 in Anki
+            nids = col.find_notes(f"tag:{OCCLUSION_TAG}")
+            assert len(nids) == 2
+            note1 = col.get_note(nids[0])
+            note1["Occlusion"] = "<svg><rect x='10' y='10' width='50' height='20' data-cloze='1'/></svg>"
+            col.update_note(note1)
+
+            # Check status after user drew mask on note 1
+            status2 = get_occlusion_status(col)
+            assert status2.total == 2
+            assert status2.awaiting_masks == 1
+            assert status2.ready_to_unflag == 1
+
+            # 3. Dry run unflag
+            dry_rep = unflag_completed_occlusions(col, dry_run=True)
+            assert dry_rep.total_checked == 2
+            assert dry_rep.awaiting_masks_count == 1
+            assert dry_rep.unflagged_notes_count == 1
+            assert dry_rep.unsuspended_cards_count == len(note1.cards())
+            # Ensure dry run did not mutate
+            reloaded_note1 = col.get_note(nids[0])
+            assert OCCLUSION_TAG in reloaded_note1.tags
+            assert all(c.queue == -1 for c in reloaded_note1.cards())
+
+            # 4. Real execution of unflag_completed_occlusions
+            real_rep = unflag_completed_occlusions(col, dry_run=False)
+            assert real_rep.unflagged_notes_count == 1
+            assert real_rep.unsuspended_cards_count == len(note1.cards())
+
+            # Verify note 1 is untagged and unsuspended
+            reloaded_note1 = col.get_note(nids[0])
+            assert OCCLUSION_TAG not in reloaded_note1.tags
+            assert all(c.queue == 0 for c in reloaded_note1.cards())
+
+            # Verify note 2 remains awaiting masks and suspended
+            reloaded_note2 = col.get_note(nids[1])
+            assert OCCLUSION_TAG in reloaded_note2.tags
+            assert all(c.queue == -1 for c in reloaded_note2.cards())
+
+            # Check final status
+            status3 = get_occlusion_status(col)
+            assert status3.total == 1
+            assert status3.awaiting_masks == 1
+            assert status3.ready_to_unflag == 0
+        finally:
+            col.close()
+
+
+def test_cloze_model_stability_and_diff_tolerance():
+    """Verify that a Cloze card without markers retains Basic (Cloze) model,
+    does not trigger a model-change diff, and preserves clozes added in Anki."""
+    from src.worker import build_sync_plan, execute_sync_plan, get_occlusion_status, unflag_completed_occlusions
+    from anki.collection import Collection
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        (vault_path / "m2a.toml").write_text(
+            """vault = "."
+deck = "General"
+cloze_notes = true
+suspend_new_clozes = true
+""",
+            encoding="utf-8",
+        )
+        note_file = vault_path / "test.md"
+        note_file.write_text(
+            """# Test
+---
+Cloze
+das ist ein test fuer eine cloze
+""",
+            encoding="utf-8",
+        )
+
+        col = Collection(str(tmp_path / "col.anki2"))
+        try:
+            # 1. Initial sync creates the note as Cloze model with tag TODO_PROCESS_CLOZES
+            plan1 = build_sync_plan(col, vault_path)
+            assert plan1.total_creates == 1
+            create_op = plan1.file_plans[0].creates[0]
+            from markdown2anki.models import MODEL_NAME_CLOZE
+            assert create_op.model_name == MODEL_NAME_CLOZE
+            assert "TODO_PROCESS_CLOZES" in create_op.tags
+            assert "Text" in create_op.fields
+            assert "Front" not in create_op.fields
+
+            report1 = execute_sync_plan(col, plan1)
+            assert report1.created_count == 1
+            assert report1.created_text_cloze_count == 1
+            assert report1.suspended_count == 1
+
+            # 2. Rescan without editing Anki -> should be completely unchanged (NO diff, NO model conversion!)
+            plan2 = build_sync_plan(col, vault_path)
+            assert plan2.total_creates == 0
+            assert plan2.total_updates == 0
+            assert plan2.file_plans[0].unchanged_count == 1
+
+            # 3. Simulate user adding cloze in Anki
+            nid = col.find_notes("tag:TODO_PROCESS_CLOZES")[0]
+            note = col.get_note(nid)
+            note["Text"] = "<p>das ist ein {{c1::test}} fuer eine cloze</p>"
+            col.update_note(note)
+
+            # 4. Rescan with cloze added in Anki -> cloze diff tolerance means NO false diff!
+            plan3 = build_sync_plan(col, vault_path)
+            assert plan3.total_updates == 0
+            assert plan3.file_plans[0].unchanged_count == 1
+
+            # 5. Unflag routine recognizes completed text cloze and unflags/unsuspends it
+            status = get_occlusion_status(col)
+            assert status.total == 1
+            assert status.ready_to_unflag == 1
+
+            unflag_rep = unflag_completed_occlusions(col, dry_run=False)
+            assert unflag_rep.unflagged_notes_count == 1
+            assert unflag_rep.unsuspended_cards_count == 1
+
+            reloaded = col.get_note(nid)
+            assert "TODO_PROCESS_CLOZES" not in reloaded.tags
+            assert all(c.queue == 0 for c in reloaded.cards())
+        finally:
+            col.close()

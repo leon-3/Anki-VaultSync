@@ -150,12 +150,13 @@ def _generate_diff_html(op: NoteUpdateOp) -> str:
 class DiffDialog(QDialog):
     """Side-by-side visual diff preview and selective update approval dialog."""
 
-    def __init__(self, plan: SyncPlan, parent=None) -> None:
+    def __init__(self, plan: SyncPlan, parent=None, occ_status: Any = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Review Modified Cards (Diff Inspector)")
         self.resize(920, 560)
 
         self._plan = plan
+        self._occ_status = occ_status
         self._all_updates: list[NoteUpdateOp] = []
         for fp in plan.file_plans:
             self._all_updates.extend(fp.updates)
@@ -370,11 +371,23 @@ class DiffDialog(QDialog):
         self.rescan_btn.clicked.connect(self._on_rescan_clicked)
         self.button_box.addButton(self.rescan_btn, QDialogButtonBox.ButtonRole.ActionRole)
 
-        layout.addWidget(self.button_box)
+        bottom_bar = QHBoxLayout()
+        if self._occ_status is not None and getattr(self._occ_status, "ready_to_unflag", 0) > 0:
+            self.unflag_occlusions_cb = QCheckBox(f"Also unflag completed occlusions ({self._occ_status.ready_to_unflag} ready)")
+            self.unflag_occlusions_cb.setChecked(False)
+            self.unflag_occlusions_cb.setToolTip("Unsuspend cards and remove TODO_PROCESS_OCCLUSION from completed image occlusion notes.")
+            bottom_bar.addWidget(self.unflag_occlusions_cb)
+        bottom_bar.addStretch()
+        bottom_bar.addWidget(self.button_box)
+        layout.addLayout(bottom_bar)
 
         # Select first item
         if self.list_widget.count() > 0:
             self.list_widget.setCurrentRow(0)
+
+    @property
+    def should_unflag_occlusions(self) -> bool:
+        return hasattr(self, "unflag_occlusions_cb") and self.unflag_occlusions_cb.isChecked()
 
     def reject(self) -> None:
         for idx, op in enumerate(self._all_updates):

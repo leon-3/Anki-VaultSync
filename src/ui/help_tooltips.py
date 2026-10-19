@@ -17,6 +17,9 @@ TOOLTIPS: dict[str, str] = {
         "with image assets placed directly into collection.media. 'Folder Staging' exports images to "
         "an external occlusions/ folder for manual import."
     ),
+    "auto_unflag_occlusions": (
+        "When enabled, automatically unsuspend image occlusion cards and remove their TODO_PROCESS_OCCLUSION tag during sync once masks have been drawn in Anki."
+    ),
     "suspend_new_occlusions": (
         "Automatically suspends newly created Image Occlusion cards until you draw masks in Anki's editor. "
         "This prevents 'Empty Card' review errors while preserving full deck routing and tagging."
@@ -121,6 +124,7 @@ TOOLTIP_TITLES: dict[str, str] = {
     "backup_before_sync": "Automatic Backup",
     "suspend_new_clozes": "Suspend New Cloze Cards",
     "image_occlusion_mode": "Image Occlusion Mode",
+    "auto_unflag_occlusions": "Auto-unflag Completed Occlusions",
     "suspend_new_occlusions": "Suspend New Occlusions",
     "freeze_image_occlusions": "Freeze Occlusion Notes",
     "vault_path": "Vault Directory",

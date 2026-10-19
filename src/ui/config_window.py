@@ -1316,6 +1316,10 @@ class ConfigWindow(QDialog):
         self.freeze_image_occlusions_cb = QCheckBox("Freeze Occlusion Notes (Skip Updates)")
         self.freeze_image_occlusions_cb.setToolTip(format_tooltip_box("freeze_image_occlusions"))
         row_io_opts.addLayout(_wrap_with_info(self.freeze_image_occlusions_cb, "freeze_image_occlusions", add_stretch=False))
+
+        self.auto_unflag_occlusions_cb = QCheckBox("Auto-unflag Completed Occlusions During Sync")
+        self.auto_unflag_occlusions_cb.setToolTip(format_tooltip_box("auto_unflag_occlusions"))
+        row_io_opts.addLayout(_wrap_with_info(self.auto_unflag_occlusions_cb, "auto_unflag_occlusions", add_stretch=False))
         row_io_opts.addStretch()
         card_io_l.addLayout(row_io_opts)
         layout.addWidget(card_io)
@@ -1525,6 +1529,35 @@ class ConfigWindow(QDialog):
         card_del_l.addLayout(action_row)
         layout.addWidget(card_del)
 
+        # Section 3: Image Occlusions
+        card_io_maint, card_io_maint_l = _create_section_card(
+            "Image Occlusion Status in Anki",
+            "Notes with TODO_PROCESS_OCCLUSION awaiting masks or ready to unsuspend.",
+        )
+        self.io_maint_status_label = QLabel("0 image occlusion note(s) awaiting masks.")
+        self.io_maint_status_label.setStyleSheet("font-size: 12px; font-weight: 600;")
+        card_io_maint_l.addWidget(self.io_maint_status_label)
+
+        io_maint_btns = QHBoxLayout()
+        io_maint_btns.setSpacing(8)
+
+        self.view_unmasked_maint_btn = QPushButton("View in Anki Browser")
+        self.view_unmasked_maint_btn.setStyleSheet(btn_style)
+        self.view_unmasked_maint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.view_unmasked_maint_btn.clicked.connect(self._on_view_unmasked_browser)
+
+        self.unflag_maint_btn = QPushButton("Unflag Completed Occlusions Now")
+        self.unflag_maint_btn.setStyleSheet(btn_style)
+        self.unflag_maint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.unflag_maint_btn.setEnabled(False)
+        self.unflag_maint_btn.clicked.connect(self._on_unflag_maint_clicked)
+
+        io_maint_btns.addWidget(self.view_unmasked_maint_btn)
+        io_maint_btns.addWidget(self.unflag_maint_btn)
+        io_maint_btns.addStretch()
+        card_io_maint_l.addLayout(io_maint_btns)
+        layout.addWidget(card_io_maint)
+
         layout.addStretch()
 
 
@@ -1586,6 +1619,39 @@ class ConfigWindow(QDialog):
 
         self.mark_deleted_btn.setEnabled(count_missing > 0)
         self.resync_missing_btn.setEnabled(count_missing > 0)
+
+        # Section 3: Image Occlusions
+        if mw is not None and getattr(mw, "col", None) is not None:
+            from ..worker import get_occlusion_status
+            occ_status = get_occlusion_status(mw.col)
+            if occ_status.total > 0:
+                if occ_status.ready_to_unflag > 0:
+                    self.io_maint_status_label.setText(
+                        f"{occ_status.total} note(s) found with TODO_PROCESS_OCCLUSION ({occ_status.awaiting_masks} awaiting masks, {occ_status.ready_to_unflag} ready to unflag)."
+                    )
+                else:
+                    self.io_maint_status_label.setText(
+                        f"{occ_status.total} note(s) awaiting masks in Anki."
+                    )
+            else:
+                self.io_maint_status_label.setText("No image occlusion notes awaiting masks in Anki.")
+            self.view_unmasked_maint_btn.setEnabled(occ_status.total > 0)
+            self.unflag_maint_btn.setEnabled(occ_status.ready_to_unflag > 0)
+
+    def _on_view_unmasked_browser(self) -> None:
+        if mw is not None and getattr(mw, "col", None) is not None:
+            browser = dialogs.open("Browser", mw)
+            browser.search_for(f"tag:{OCCLUSION_TAG}")
+
+    def _on_unflag_maint_clicked(self) -> None:
+        if mw is not None and getattr(mw, "col", None) is not None:
+            from ..worker import unflag_completed_occlusions
+            rep = unflag_completed_occlusions(mw.col, dry_run=False)
+            if rep.unflagged_notes_count > 0:
+                tooltip(f"✔ Unsuspended {rep.unflagged_notes_count} note(s) ({rep.unsuspended_cards_count} cards) and removed {OCCLUSION_TAG}.")
+            else:
+                tooltip("No completed occlusions to unflag.")
+            self._refresh_maintenance_data()
 
     def _set_maintenance_buttons_enabled(self, enabled: bool) -> None:
         self.view_orphans_btn.setEnabled(enabled and len(self._current_orphans) > 0)
@@ -2520,6 +2586,7 @@ class ConfigWindow(QDialog):
             self.image_occlusion_mode_combo.setCurrentIndex(0)
             self.suspend_new_occlusions_cb.setChecked(True)
             self.freeze_image_occlusions_cb.setChecked(False)
+            self.auto_unflag_occlusions_cb.setChecked(False)
             self.routing_table.setRowCount(0)
             self.alias_table.setRowCount(0)
             from markdown2anki.config import DEFAULT_IGNORE
@@ -2540,6 +2607,7 @@ class ConfigWindow(QDialog):
         self.image_occlusion_mode_combo.setCurrentIndex(1 if mode == "stage" else 0)
         self.suspend_new_occlusions_cb.setChecked(getattr(self._vault_cfg, "suspend_new_occlusions", True))
         self.freeze_image_occlusions_cb.setChecked(getattr(self._vault_cfg, "freeze_image_occlusions", False))
+        self.auto_unflag_occlusions_cb.setChecked(getattr(self._vault_cfg, "auto_unflag_occlusions", False))
 
         self.re_stage_occlusions = self._vault_cfg.re_stage_occlusions
         self.re_stage_cb.setChecked(self._vault_cfg.re_stage_occlusions)
@@ -2623,6 +2691,7 @@ class ConfigWindow(QDialog):
             "image_occlusion_mode": self.image_occlusion_mode_combo.currentData() or "native",
             "suspend_new_occlusions": self.suspend_new_occlusions_cb.isChecked(),
             "freeze_image_occlusions": self.freeze_image_occlusions_cb.isChecked(),
+            "auto_unflag_occlusions": self.auto_unflag_occlusions_cb.isChecked(),
             "hash_media": self.hash_media_cb.isChecked(),
             "re_stage": self.re_stage_cb.isChecked(),
             "ignore": self.ignore_edit.toPlainText().strip(),
@@ -2784,6 +2853,7 @@ class ConfigWindow(QDialog):
                 cfg.image_occlusion_mode = self.image_occlusion_mode_combo.currentData() or "native"
                 cfg.suspend_new_occlusions = self.suspend_new_occlusions_cb.isChecked()
                 cfg.freeze_image_occlusions = self.freeze_image_occlusions_cb.isChecked()
+                cfg.auto_unflag_occlusions = self.auto_unflag_occlusions_cb.isChecked()
                 cfg.re_stage_occlusions = self.re_stage_cb.isChecked()
                 cfg.deck_routing = deck_routing
                 cfg.tag_aliases = tag_aliases

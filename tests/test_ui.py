@@ -460,6 +460,7 @@ def test_config_window_image_occlusion_and_suspension_settings_roundtrip(tmp_pat
 
     dlg = ConfigWindow(manager, "ProfileIO")
     assert dlg.suspend_new_clozes_cb.isChecked() is False
+    assert dlg.auto_unflag_occlusions_cb.isChecked() is False
     assert dlg.image_occlusion_mode_combo.currentData() == "native"
     assert dlg.suspend_new_occlusions_cb.isChecked() is True
     assert dlg.freeze_image_occlusions_cb.isChecked() is False
@@ -467,6 +468,7 @@ def test_config_window_image_occlusion_and_suspension_settings_roundtrip(tmp_pat
 
     # Modify settings in UI
     dlg.suspend_new_clozes_cb.setChecked(True)
+    dlg.auto_unflag_occlusions_cb.setChecked(True)
     dlg.image_occlusion_mode_combo.setCurrentIndex(1)  # "stage"
     assert dlg.staging_folder_row.isHidden() is False
     dlg.suspend_new_occlusions_cb.setChecked(False)
@@ -478,6 +480,7 @@ def test_config_window_image_occlusion_and_suspension_settings_roundtrip(tmp_pat
     # Verify saved back to m2a.toml
     saved_cfg = manager.load_vault(vault_path)
     assert saved_cfg.suspend_new_clozes is True
+    assert saved_cfg.auto_unflag_occlusions is True
     assert saved_cfg.image_occlusion_mode == "stage"
     assert saved_cfg.suspend_new_occlusions is False
     assert saved_cfg.freeze_image_occlusions is True
@@ -532,12 +535,18 @@ def test_main_window_card_counts_separation_and_unprocessed_occlusions(tmp_path:
         diagnostics=[],
     )
 
-    win._on_scan_success(plan)
-    # Total new cards = 1 create + 1 staged occlusion = 2
+    from src.contracts import OcclusionStatus
+    # When 0 ready
+    win._on_scan_success(plan, OcclusionStatus(total=3, awaiting_masks=3, ready_to_unflag=0))
     assert win.new_val_label.text() == "2"
-    # Unprocessed occlusions label shows 0 since no notes in Anki collection
-    assert win.occlusions_val_label.text() == "0"
-    assert "No unprocessed image occlusions in Anki." in win.occlusions_val_label.toolTip()
+    assert win.occlusions_val_label.text() == "3"
+    assert win.unflag_occ_btn.isEnabled() is False
+
+    # When 1 ready to unflag
+    win._on_scan_success(plan, OcclusionStatus(total=3, awaiting_masks=2, ready_to_unflag=1))
+    assert win.occlusions_val_label.text() == "3 (1 ready)"
+    assert win.unflag_occ_btn.isEnabled() is True
+    assert win.unflag_occ_btn.text() == "Unflag Occlusions (1)"
     win.close()
 
 def test_config_window_maintenance_tab_operations(tmp_path: Path):
@@ -1566,3 +1575,36 @@ def test_ui_refinements_summaries_io_hint_and_diff_dialog(tmp_path: Path):
     assert diff_dlg.cancel_btn.text() == "Cancel"
     assert diff_dlg.rescan_btn.text() == "Rescan Vault"
     diff_dlg.close()
+
+
+def test_unflag_occlusions_resets_busy_state(tmp_path: Path, monkeypatch):
+    from src.contracts import UnflagReport
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    win = MainWindow(manager, "TestBusyReset")
+
+    monkeypatch.setattr("src.ui.main_window.unflag_completed_occlusions", lambda col, dry_run=False: UnflagReport(unflagged_notes_count=1, unsuspended_cards_count=2))
+    class SyncQueryOp:
+        def __init__(self, parent=None, op=None, success=None):
+            self.op = op
+            self.success = success
+        def failure(self, f):
+            return self
+        def with_progress(self, *a, **kw):
+            return self
+        def run_in_background(self):
+            res = self.op(None)
+            if self.success:
+                self.success(res)
+    monkeypatch.setattr("src.ui.main_window.QueryOp", SyncQueryOp)
+
+    scanned = False
+    def fake_start_scan():
+        nonlocal scanned
+        scanned = True
+    monkeypatch.setattr(win, "_start_scan", fake_start_scan)
+
+    win._on_unflag_occlusions()
+    assert win._is_busy is False
+    assert scanned is True
+    win.close()
