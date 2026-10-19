@@ -37,62 +37,87 @@ M2A_MARKER_STRIP_RE = re.compile(r"\s*<!--m2a:[a-zA-Z0-9_-]+-->")
 HTML_TOKEN_RE = re.compile(r"<[^>]+>|\w+|\s+|[^\w\s<]+")
 
 
-def _format_diff_token(tok: str) -> str:
-    lower = tok.lower().strip()
-    if lower in ("<br>", "<br/>", "<br />"):
-        return "<br>"
-    if lower in ("<p>", "<div>"):
+def _format_diff_chunk(tokens: list[str], tag_name: str, style: str) -> str:
+    """Format inline diff tokens while preserving HTML tag boundaries."""
+    out: list[str] = []
+    in_tag = False
+    for t in tokens:
+        if t.startswith("<") and t.endswith(">"):
+            if in_tag:
+                out.append(f"</{tag_name}>")
+                in_tag = False
+            out.append(t)
+        else:
+            if not in_tag:
+                out.append(f'<{tag_name} style="{style}">')
+                in_tag = True
+            out.append(html.escape(t))
+    if in_tag:
+        out.append(f"</{tag_name}>")
+    return "".join(out)
+
+
+def _normalize_field_text(text: str) -> str:
+    clean = M2A_MARKER_STRIP_RE.sub("", text).strip()
+    if not clean:
         return ""
-    if lower in ("</p>", "</div>"):
-        return "<br>"
-    if tok.startswith("<") and tok.endswith(">"):
-        return ""
-    return html.escape(tok)
+    # If the text has raw newlines but no HTML block tags, convert \n to <br> so card linebreaks are visible
+    if "\n" in clean and not any(
+        tag in clean.lower()
+        for tag in ("<p>", "<br>", "<div>", "<ul>", "<ol>", "<table>", "<pre>")
+    ):
+        clean = "<br>".join(clean.splitlines())
+    return clean
 
 
 def _generate_word_diff_html(old_text: str, new_text: str) -> str:
-    """Generate an inline word-by-word diff with <del> and <ins> tags."""
-    clean_old = M2A_MARKER_STRIP_RE.sub("", old_text).strip()
-    clean_new = M2A_MARKER_STRIP_RE.sub("", new_text).strip()
+    """Generate rich card inline diff preserving HTML formatting, line breaks, and styling."""
+    clean_old = _normalize_field_text(old_text)
+    clean_new = _normalize_field_text(new_text)
 
     words_old = HTML_TOKEN_RE.findall(clean_old)
     words_new = HTML_TOKEN_RE.findall(clean_new)
     matcher = difflib.SequenceMatcher(None, words_old, words_new)
+
+    ins_style = (
+        "background-color: rgba(76, 175, 80, 0.18); border-bottom: 1.5px solid #4CAF50; "
+        "border-radius: 2px; padding: 1px 3px; text-decoration: none;"
+    )
+    del_style = (
+        "background-color: rgba(244, 67, 54, 0.16); color: rgba(244, 67, 54, 0.88); "
+        "text-decoration: line-through; border-radius: 2px; padding: 1px 3px;"
+    )
+
     result: list[str] = []
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
             for tok in words_old[i1:i2]:
-                result.append(_format_diff_token(tok))
+                if tok.startswith("<") and tok.endswith(">"):
+                    result.append(tok)
+                else:
+                    result.append(html.escape(tok))
         elif tag == "delete":
-            deleted = "".join(_format_diff_token(t) for t in words_old[i1:i2] if _format_diff_token(t))
-            if deleted:
-                result.append(
-                    f"<del style='background-color:rgba(244, 67, 54, 0.22); color:#ef9a9a; text-decoration:line-through; padding:1px 4px; border-radius:3px;'>{deleted}</del>"
-                )
+            chunk = _format_diff_chunk(words_old[i1:i2], "del", del_style)
+            if chunk:
+                result.append(chunk)
         elif tag == "insert":
-            inserted = "".join(_format_diff_token(t) for t in words_new[j1:j2] if _format_diff_token(t))
-            if inserted:
-                result.append(
-                    f"<ins style='background-color:rgba(76, 175, 80, 0.22); color:#a5d6a7; text-decoration:none; padding:1px 4px; border-radius:3px;'>{inserted}</ins>"
-                )
+            chunk = _format_diff_chunk(words_new[j1:j2], "ins", ins_style)
+            if chunk:
+                result.append(chunk)
         elif tag == "replace":
-            deleted = "".join(_format_diff_token(t) for t in words_old[i1:i2] if _format_diff_token(t))
-            inserted = "".join(_format_diff_token(t) for t in words_new[j1:j2] if _format_diff_token(t))
-            if deleted:
-                result.append(
-                    f"<del style='background-color:rgba(244, 67, 54, 0.22); color:#ef9a9a; text-decoration:line-through; padding:1px 4px; border-radius:3px;'>{deleted}</del>"
-                )
-            if inserted:
-                result.append(
-                    f"<ins style='background-color:rgba(76, 175, 80, 0.22); color:#a5d6a7; text-decoration:none; padding:1px 4px; border-radius:3px;'>{inserted}</ins>"
-                )
+            chunk_del = _format_diff_chunk(words_old[i1:i2], "del", del_style)
+            chunk_ins = _format_diff_chunk(words_new[j1:j2], "ins", ins_style)
+            if chunk_del:
+                result.append(chunk_del)
+            if chunk_ins:
+                result.append(chunk_ins)
 
     return "".join(result)
 
 
 def _generate_diff_html(op: NoteUpdateOp) -> str:
     lines: list[str] = [
-        "<div style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Inter\", sans-serif; color: palette(window-text); font-size: 12.5px; line-height: 1.5;'>"
+        "<div style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Inter\", sans-serif; color: palette(window-text); font-size: 13px; line-height: 1.5;'>"
     ]
     # Header metadata bar: ID on left, file:line on right
     lines.append(
@@ -141,11 +166,11 @@ def _generate_diff_html(op: NoteUpdateOp) -> str:
             continue
 
         lines.append(
-            f"<div style='margin-top: 10px; margin-bottom: 3px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #2196F3;'>Field [{html.escape(f_name)}]:</div>"
+            f"<div style='margin-top: 12px; margin-bottom: 5px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #2196F3;'>Field [{html.escape(f_name)}]:</div>"
         )
         formatted_diff = _generate_word_diff_html(old_val, new_val)
         lines.append(
-            f"<div style='background: rgba(130, 130, 130, 0.08); border: 1px solid rgba(130, 130, 130, 0.2); border-radius: 6px; padding: 9px 12px; line-height: 1.6; color: palette(window-text); font-family: \"JetBrains Mono\", \"Cascadia Code\", \"Fira Code\", \"SF Mono\", \"Menlo\", \"Roboto Mono\", \"Consolas\", monospace; font-size: 12px;'>{formatted_diff}</div>"
+            f"<div style='background-color: rgba(130, 130, 130, 0.05); border: 1px solid rgba(130, 130, 130, 0.22); border-radius: 8px; padding: 12px 15px; font-size: 13px; line-height: 1.6; color: palette(window-text); font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Inter\", sans-serif;'>{formatted_diff}</div>"
         )
 
     lines.append("</div>")
