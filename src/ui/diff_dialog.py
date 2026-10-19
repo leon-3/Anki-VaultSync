@@ -13,6 +13,7 @@ from aqt.qt import (
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
+    QIcon,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -91,14 +92,14 @@ def _generate_word_diff_html(old_text: str, new_text: str) -> str:
 
 def _generate_diff_html(op: NoteUpdateOp) -> str:
     lines: list[str] = [
-        "<div style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif; color: palette(window-text); font-size: 12px;'>"
+        "<div style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Inter\", sans-serif; color: palette(window-text); font-size: 12.5px; line-height: 1.5;'>"
     ]
     # Header metadata bar: ID on left, file:line on right
     lines.append(
-        "<table style='width:100%; border-bottom:1px solid rgba(130,130,130,0.25); padding-bottom:5px; margin-bottom:8px;'>"
+        "<table style='width:100%; border-bottom:1px solid rgba(130,130,130,0.22); padding-bottom:6px; margin-bottom:10px;'>"
         "<tr>"
-        f"<td style='font-size:12px; font-weight:bold; color:#2196F3; font-family:monospace;'>ID: {html.escape(op.card_id)}</td>"
-        f"<td style='text-align:right; font-size:11px; color:rgba(180,180,180,0.75);'>{html.escape(str(op.source_file))}:{op.source_line}</td>"
+        f"<td style='font-size:12px; font-weight:600; color:#2196F3; font-family:\"JetBrains Mono\", \"Cascadia Code\", \"Fira Code\", \"SF Mono\", \"Menlo\", \"Consolas\", monospace;'>ID: {html.escape(op.card_id)}</td>"
+        f"<td style='text-align:right; font-size:11px; opacity:0.75;'>{html.escape(str(op.source_file))}:{op.source_line}</td>"
         "</tr>"
         "</table>"
     )
@@ -144,7 +145,7 @@ def _generate_diff_html(op: NoteUpdateOp) -> str:
         )
         formatted_diff = _generate_word_diff_html(old_val, new_val)
         lines.append(
-            f"<div style='background: rgba(130, 130, 130, 0.08); border: 1px solid rgba(130, 130, 130, 0.2); border-radius: 6px; padding: 8px 10px; line-height: 1.5; color: palette(window-text); font-family: monospace, sans-serif;'>{formatted_diff}</div>"
+            f"<div style='background: rgba(130, 130, 130, 0.08); border: 1px solid rgba(130, 130, 130, 0.2); border-radius: 6px; padding: 9px 12px; line-height: 1.6; color: palette(window-text); font-family: \"JetBrains Mono\", \"Cascadia Code\", \"Fira Code\", \"SF Mono\", \"Menlo\", \"Roboto Mono\", \"Consolas\", monospace; font-size: 12px;'>{formatted_diff}</div>"
         )
 
     lines.append("</div>")
@@ -266,6 +267,7 @@ class DiffDialog(QDialog):
                 border-radius: 8px;
                 color: palette(window-text);
                 font-size: 12px;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
                 padding: 4px;
                 outline: none;
             }}
@@ -288,6 +290,7 @@ class DiffDialog(QDialog):
                 border: 1px solid rgba(130, 130, 130, 0.25);
                 border-radius: 8px;
                 color: palette(window-text);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
                 padding: 10px 14px;
                 selection-background-color: #2196F3;
             }}
@@ -363,6 +366,7 @@ class DiffDialog(QDialog):
         )
         self.apply_btn = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
         self.apply_btn.setText("Apply Selected")
+        self.apply_btn.setIcon(QIcon())
         self.apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.apply_btn.setStyleSheet("""
             QPushButton {
@@ -385,6 +389,7 @@ class DiffDialog(QDialog):
 
         self.cancel_btn = self.button_box.button(QDialogButtonBox.StandardButton.Cancel)
         self.cancel_btn.setText("Cancel")
+        self.cancel_btn.setIcon(QIcon())
         self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cancel_btn.setStyleSheet("""
             QPushButton {
@@ -405,6 +410,7 @@ class DiffDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
 
         self.rescan_btn = QPushButton("Rescan Vault")
+        self.rescan_btn.setIcon(QIcon())
         self.rescan_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.rescan_btn.setToolTip("Discard current preview and re-scan your vault for the latest changes.")
         self.rescan_btn.setStyleSheet("""
