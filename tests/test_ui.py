@@ -1172,3 +1172,27 @@ def test_format_tooltip_box_and_assets():
     assert "<svg" in svg_content
     assert "</svg>" in svg_content
     assert "polyline" in svg_content
+
+
+def test_tab2_table_button_spacing(tmp_path: Path):
+    from src.ui.config_window import ConfigWindow
+    from src.profile_config import ProfileConfigManager
+    import aqt.qt as qt
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    dlg = ConfigWindow(manager, "ProfileSpacingTest")
+    dlg.switch_to_tab(ConfigWindow.TAB_DECKS_TAGS)
+    dlg.show()
+
+    card_rules = dlg.routing_table.parent()
+    card_tag = dlg.alias_table.parent()
+
+    btn_rule = [w for w in card_rules.findChildren(qt.QPushButton) if w.text() == "Add Rule"][0]
+    gap_card1 = btn_rule.pos().y() - (dlg.routing_table.pos().y() + dlg.routing_table.size().height())
+    assert gap_card1 >= 14, f"Gap in card 1 is too small: {gap_card1}"
+
+    btn_alias = [w for w in card_tag.findChildren(qt.QPushButton) if w.text() == "Add Tag Alias"][0]
+    gap_card2 = btn_alias.pos().y() - (dlg.alias_table.pos().y() + dlg.alias_table.size().height())
+    assert gap_card2 >= 14, f"Gap in card 2 is too small: {gap_card2}"
+
+    dlg.close()
