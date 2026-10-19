@@ -96,7 +96,7 @@ The Settings window (`ConfigWindow`) is organized into six specialized tabs:
 
 ### 4. Card Rules and Media
 * **Parsing & Media Options**:
-  * *Enable Cloze Syntax Processing*: Supports `==cloze==`, `{cloze}`, and native Anki `{{c1::...}}` syntax.
+  * *Convert Cloze Syntax*: Supports native Anki `{{c1::...}}` cloze deletion syntax.
   * *Hash Media*: Renames embedded images and attachments to deterministic SHA-256 hashes (`<8hex>_01.ext`) to avoid naming collisions.
   * *Re-stage Already Flagged Image Occlusions*: Forces re-exporting image occlusions during routine syncs.
 * **Ignored Directories & Files**:

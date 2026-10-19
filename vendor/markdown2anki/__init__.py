@@ -6,7 +6,6 @@ from .parser import Card, parse_file, parse_lines
 from .build import BuildResult, RenderedNote, build, resolve_image_path
 from .render import render_markdown
 from .occlusions import export_occlusions
-# .export is omitted in vendored runtime
 from .flags import clear_flags, write_flags
 from .config import Config, load_config, load_vault_config, save_vault_config
 

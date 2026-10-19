@@ -1174,7 +1174,7 @@ class ConfigWindow(QDialog):
         )
         row_c = QHBoxLayout()
         row_c.setSpacing(24)
-        self.cloze_cb = QCheckBox("Enable Cloze Syntax Processing")
+        self.cloze_cb = QCheckBox("Convert Cloze Syntax ({{c1::...}})")
         self.cloze_cb.setToolTip(format_tooltip_box("cloze_notes"))
         row_c.addLayout(_wrap_with_info(self.cloze_cb, "cloze_notes", add_stretch=False))
 
@@ -2354,6 +2354,8 @@ class ConfigWindow(QDialog):
             self.vault_edit.setText(str(self._profile_settings.vault_path))
         if self._profile_settings.occlusion_dir:
             self.occlusion_edit.setText(str(self._profile_settings.occlusion_dir))
+        elif getattr(self, "_vault_cfg", None) and getattr(self._vault_cfg, "output_dir", None) and str(self._vault_cfg.output_dir) != ".":
+            self.occlusion_edit.setText(str(self._vault_cfg.output_dir))
 
         self.show_diff_cb.setChecked(self._profile_settings.show_diff_before_update)
         self.auto_close_cb.setChecked(self._profile_settings.auto_close_on_success)
@@ -2386,6 +2388,9 @@ class ConfigWindow(QDialog):
                     display_text = name or f"Note Type ({self._profile_settings.basic_model_id})"
                     self.basic_model_combo.addItem(display_text, userData=self._profile_settings.basic_model_id)
                     self.basic_model_combo.setCurrentIndex(self.basic_model_combo.count() - 1)
+        elif getattr(self, "_vault_cfg", None) and getattr(self._vault_cfg, "anki_basic_model", None):
+            idx = self.basic_model_combo.findText(self._vault_cfg.anki_basic_model)
+            self.basic_model_combo.setCurrentIndex(idx if idx >= 0 else 0)
         else:
             self.basic_model_combo.setCurrentIndex(0)
 
@@ -2415,6 +2420,9 @@ class ConfigWindow(QDialog):
                     display_text = name or f"Note Type ({self._profile_settings.cloze_model_id})"
                     self.cloze_model_combo.addItem(display_text, userData=self._profile_settings.cloze_model_id)
                     self.cloze_model_combo.setCurrentIndex(self.cloze_model_combo.count() - 1)
+        elif getattr(self, "_vault_cfg", None) and getattr(self._vault_cfg, "anki_cloze_model", None):
+            idx = self.cloze_model_combo.findText(self._vault_cfg.anki_cloze_model)
+            self.cloze_model_combo.setCurrentIndex(idx if idx >= 0 else 0)
         else:
             self.cloze_model_combo.setCurrentIndex(0)
 
@@ -2443,6 +2451,8 @@ class ConfigWindow(QDialog):
             self.freeze_image_occlusions_cb.setChecked(False)
             self.routing_table.setRowCount(0)
             self.alias_table.setRowCount(0)
+            from markdown2anki.config import DEFAULT_IGNORE
+            self.ignore_edit.setPlainText("\n".join(DEFAULT_IGNORE))
             return
 
         self.deck_combo.setCurrentText(self._vault_cfg.deck)
@@ -2699,6 +2709,16 @@ class ConfigWindow(QDialog):
                 cfg.re_stage_occlusions = self.re_stage_cb.isChecked()
                 cfg.deck_routing = deck_routing
                 cfg.tag_aliases = tag_aliases
+
+                # Synchronize note types and output directory with m2a.toml
+                basic_model_name = self.basic_model_combo.currentText().strip()
+                if basic_model_name:
+                    cfg.anki_basic_model = basic_model_name
+                cloze_model_name = self.cloze_model_combo.currentText().strip()
+                if cloze_model_name:
+                    cfg.anki_cloze_model = cloze_model_name
+                if occ_path:
+                    cfg.output_dir = occ_path
 
                 # Collect ignore
                 ignore_text = self.ignore_edit.toPlainText().strip()
