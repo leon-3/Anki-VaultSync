@@ -4,8 +4,6 @@ import json
 from pathlib import Path
 
 from src.vault_detector import DetectedVault, detect_obsidian_vaults
-from src.ui.onboarding_dialog import PageVaultDeck
-from src.ui.onboarding_state import OnboardingState
 
 
 def test_detect_obsidian_vaults_parses_and_sorts_correctly(tmp_path: Path):
@@ -70,52 +68,3 @@ def test_detect_obsidian_vaults_deduplicates_across_config_paths(tmp_path: Path)
     assert detected[0].name == "SharedVault"
     assert detected[0].is_open is True
     assert detected[0].ts == 200
-
-
-def test_page2_vault_combo_selection_and_sync(tmp_path: Path):
-    v1 = tmp_path / "AutoVault1"
-    v2 = tmp_path / "AutoVault2"
-    v1.mkdir()
-    v2.mkdir()
-
-    detected = [
-        DetectedVault(name="AutoVault1", path=v1, is_open=True, ts=100),
-        DetectedVault(name="AutoVault2", path=v2, is_open=False, ts=50),
-    ]
-
-    page = PageVaultDeck()
-    page._populate_detected_vaults(detected)
-
-    assert not page.detected_box.isHidden()
-    assert page.vault_combo.count() == 3  # Placeholder + 2 vaults
-    assert "2 found" in page.vault_combo.itemText(0)
-
-    # Selecting item 2 ("AutoVault2") updates vault_edit
-    page.vault_combo.setCurrentIndex(2)
-    assert page.vault_edit.text() == str(v2)
-
-    # Entering v1 in vault_edit syncs combo back to index 1
-    page.vault_edit.setText(str(v1))
-    assert page.vault_combo.currentIndex() == 1
-
-
-def test_page2_hides_detected_box_when_no_vaults():
-    page = PageVaultDeck()
-    page._populate_detected_vaults([])
-    assert page.detected_box.isHidden() is True
-
-
-def test_page2_auto_selects_active_vault_on_enter(tmp_path: Path, monkeypatch):
-    v1 = tmp_path / "MyNotes"
-    v1.mkdir()
-
-    detected = [DetectedVault(name="MyNotes", path=v1, is_open=True, ts=500)]
-    import src.ui.onboarding_dialog as dlg_mod
-    monkeypatch.setattr(dlg_mod, "detect_obsidian_vaults", lambda: detected)
-
-    page = PageVaultDeck()
-    state = OnboardingState(vault_path=None)
-    page.on_enter(state)
-
-    assert page.vault_edit.text() == str(v1)
-    assert page.vault_combo.currentIndex() == 1

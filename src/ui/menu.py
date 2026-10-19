@@ -17,14 +17,12 @@ from ..profile_config import AddonProfileSettings, ProfileConfigManager
 from ..worker import build_sync_plan, execute_sync_plan
 from .config_window import ConfigWindow
 from .main_window import MainWindow
-from .onboarding_dialog import OnboardingDialog
 from .shortcuts import find_shortcut_conflict
 from .notification import dismiss_active_notification, show_sync_notification
 from ..undo import clear_sync_undo_stack
 
 _main_window_instance: MainWindow | None = None
 _config_window_instance: ConfigWindow | None = None
-_onboarding_dialog_instance: OnboardingDialog | None = None
 _onboarding_timer: QTimer | None = None
 _manager = ProfileConfigManager()
 
@@ -150,23 +148,6 @@ def open_dashboard() -> None:
         _main_window_instance.raise_()
 
 
-def open_onboarding_wizard() -> OnboardingDialog:
-    global _onboarding_dialog_instance
-    profile_name = _get_active_profile()
-    live_mw = _get_mw()
-    if (
-        _onboarding_dialog_instance is None
-        or _is_deleted(_onboarding_dialog_instance)
-        or not _onboarding_dialog_instance.isVisible()
-    ):
-        _onboarding_dialog_instance = OnboardingDialog(_manager, profile_name, live_mw)
-        _onboarding_dialog_instance.show()
-    else:
-        _onboarding_dialog_instance.activateWindow()
-        _onboarding_dialog_instance.raise_()
-    return _onboarding_dialog_instance
-
-
 def open_settings(
     tab_index: int | str | None = None,
     sync_plan: Any = None,
@@ -268,7 +249,7 @@ def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
     def _on_failure(exc: Exception) -> None:
         release_sync_lock()
         logger.log_error(f"Menu sync failed: {exc}")
-        tooltip(f"⚠️ VaultSync error: {exc}", period=5000)
+        tooltip(f"VaultSync error: {exc}", period=5000)
 
     op = QueryOp(
         parent=live_mw,
@@ -319,10 +300,6 @@ def on_main_window_did_init() -> None:
 
     vault_menu.addSeparator()
 
-    action_wizard = QAction("Setup Wizard...", vault_menu)
-    action_wizard.triggered.connect(open_onboarding_wizard)
-    vault_menu.addAction(action_wizard)
-
     action_settings = QAction("Settings...", vault_menu)
     action_settings.triggered.connect(open_settings)
     vault_menu.addAction(action_settings)
@@ -348,13 +325,15 @@ def on_profile_did_open() -> None:
         attach_undo_hook(live_mw.col)
         attach_redo_hook(live_mw.col)
 
-    # If onboarding is needed, schedule setup wizard and suppress automatic startup sync
+    # If first run for this profile, schedule dashboard once and mark completed
     if settings.needs_onboarding():
-        logger.log_info(f"Profile '{profile_name}' needs onboarding. Scheduling setup wizard...")
+        logger.log_info(f"First run for profile '{profile_name}'. Opening dashboard...")
+        settings.onboarding_completed = True
+        _manager.save(settings)
         if live_mw is not None:
             _onboarding_timer = QTimer()
             _onboarding_timer.setSingleShot(True)
-            _onboarding_timer.timeout.connect(open_onboarding_wizard)
+            _onboarding_timer.timeout.connect(open_dashboard)
             _onboarding_timer.start(200)
         return
 
@@ -364,7 +343,7 @@ def on_profile_did_open() -> None:
 
 
 def on_profile_will_close() -> None:
-    global _main_window_instance, _config_window_instance, _onboarding_dialog_instance, _onboarding_timer
+    global _main_window_instance, _config_window_instance, _onboarding_timer
 
     from ..sync_lock import is_sync_running, release_sync_lock
     if is_sync_running():
@@ -376,13 +355,6 @@ def on_profile_will_close() -> None:
         except Exception:
             pass
         _onboarding_timer = None
-
-    if _onboarding_dialog_instance is not None and not _is_deleted(_onboarding_dialog_instance):
-        try:
-            _onboarding_dialog_instance.close()
-        except Exception:
-            pass
-        _onboarding_dialog_instance = None
 
     if _main_window_instance is not None and not _is_deleted(_main_window_instance):
         try:
@@ -396,8 +368,6 @@ def on_profile_will_close() -> None:
         except Exception:
             pass
         _config_window_instance = None
-
     dismiss_active_notification()
-
     release_sync_lock()
     clear_sync_undo_stack()

@@ -33,10 +33,8 @@ class AddonProfileSettings:
     backup_before_sync: bool = True
 
     def needs_onboarding(self) -> bool:
-        """Return True if the onboarding wizard should run for this profile."""
-        if not self.onboarding_completed:
-            return True
-        return self.vault_path is None or not self.vault_path.is_dir()
+        """Return True if initial dashboard setup has not been completed for this profile."""
+        return not self.onboarding_completed
 
 
 class ProfileConfigManager:
