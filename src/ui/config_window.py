@@ -599,7 +599,8 @@ class ConfigWindow(QDialog):
 
         left_grid = QGridLayout()
         left_grid.setHorizontalSpacing(8)
-        left_grid.setVerticalSpacing(10)
+        left_grid.setVerticalSpacing(12)
+        left_grid.setColumnStretch(2, 1)
 
         # Row 0, Left: Safety Backup
         self.backup_before_sync_cb = QCheckBox("Create Collection Backup Before Sync")
@@ -624,7 +625,9 @@ class ConfigWindow(QDialog):
 
         right_grid = QGridLayout()
         right_grid.setHorizontalSpacing(8)
-        right_grid.setVerticalSpacing(10)
+        # Larger vertical spacing on right because there are only two options
+        right_grid.setVerticalSpacing(26)
+        right_grid.setColumnStretch(2, 1)
 
         # Row 0, Right: Show Diff Preview Before Updating (Swapped to row 0 alongside backup)
         self.show_diff_cb = QCheckBox("Show Diff Preview Before Updating")
@@ -640,10 +643,9 @@ class ConfigWindow(QDialog):
         right_grid.addWidget(self.sync_on_startup_cb, 1, 0)
         right_grid.addWidget(h_startup, 1, 1)
 
-        sync_cols.addLayout(left_grid)
+        sync_cols.addLayout(left_grid, 1)
         sync_cols.addSpacing(32)
-        sync_cols.addLayout(right_grid)
-        sync_cols.addStretch()
+        sync_cols.addLayout(right_grid, 1)
 
         card_sync_l.addLayout(sync_cols)
         layout.addWidget(card_sync)
