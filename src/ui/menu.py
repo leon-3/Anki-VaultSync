@@ -245,11 +245,15 @@ def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
             logger.log_warning(warn)
 
         show_sync_notification(report, parent=live_mw, include_updates=include_updates, is_startup=is_startup)
+        from .status_bar import notify_sync_finished
+        notify_sync_finished(report=report)
 
     def _on_failure(exc: Exception) -> None:
         release_sync_lock()
         logger.log_error(f"Menu sync failed: {exc}")
         tooltip(f"VaultSync error: {exc}", period=5000)
+        from .status_bar import notify_sync_finished
+        notify_sync_finished(report=None, error=exc)
 
     op = QueryOp(
         parent=live_mw,
@@ -258,6 +262,8 @@ def _run_menu_sync(include_updates: bool, is_startup: bool = False) -> None:
     ).failure(_on_failure)
     if not is_startup:
         op = op.with_progress("VaultSync running...")
+    from .status_bar import notify_sync_started
+    notify_sync_started()
     op.run_in_background()
 
 
@@ -275,6 +281,9 @@ def on_main_window_did_init() -> None:
     live_mw = _get_mw()
     if live_mw is None or not hasattr(live_mw, "form") or not hasattr(live_mw.form, "menubar"):
         return
+
+    from .status_bar import init_status_bar
+    init_status_bar(live_mw)
 
     menubar = live_mw.form.menubar
 
@@ -320,6 +329,8 @@ def on_profile_did_open() -> None:
     profile_name = _get_active_profile()
     settings = _manager.load(profile_name)
     apply_menu_shortcuts(settings)
+    from .status_bar import on_status_bar_profile_loaded
+    on_status_bar_profile_loaded(settings)
     from ..undo import attach_redo_hook, attach_undo_hook
     if live_mw is not None and hasattr(live_mw, "col") and live_mw.col is not None:
         attach_undo_hook(live_mw.col)
@@ -344,6 +355,9 @@ def on_profile_did_open() -> None:
 
 def on_profile_will_close() -> None:
     global _main_window_instance, _config_window_instance, _onboarding_timer
+
+    from .status_bar import on_status_bar_profile_closed
+    on_status_bar_profile_closed()
 
     from ..sync_lock import is_sync_running, release_sync_lock
     if is_sync_running():

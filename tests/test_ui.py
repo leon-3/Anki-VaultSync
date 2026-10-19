@@ -38,6 +38,7 @@ def test_help_tooltips_completeness():
         "decks",\
         "basic_model_id",\
         "cloze_model_id",\
+        "show_status_bar",\
     ]
     for key in required_keys:
         assert key in TOOLTIPS
@@ -1608,3 +1609,27 @@ def test_unflag_occlusions_resets_busy_state(tmp_path: Path, monkeypatch):
     assert win._is_busy is False
     assert scanned is True
     win.close()
+
+
+def test_config_window_show_status_bar_toggle(tmp_path: Path):
+    from src.ui.config_window import ConfigWindow
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+
+    # 1. Default should be checked
+    dlg = ConfigWindow(manager, "TestStatusBarToggle")
+    assert hasattr(dlg, "show_status_bar_cb")
+    assert dlg.show_status_bar_cb.isChecked() is True
+
+    # 2. Uncheck and save
+    dlg.show_status_bar_cb.setChecked(False)
+    dlg._on_save()
+    dlg.close()
+
+    saved_settings = manager.load("TestStatusBarToggle")
+    assert saved_settings.show_status_bar is False
+
+    # 3. Re-open and verify it loads as unchecked
+    dlg2 = ConfigWindow(manager, "TestStatusBarToggle")
+    assert dlg2.show_status_bar_cb.isChecked() is False
+    dlg2.close()

@@ -70,6 +70,11 @@ TOOLTIPS: dict[str, str] = {
         "each time Anki opens this profile. If no changes were detected, it stays quiet; "
         "if cards were added or modified, a brief notification tooltip appears."
     ),
+    "show_status_bar": (
+        "When enabled, displays a minimalist status indicator in the bottom-right corner of Anki's main window. "
+        "It subtly indicates whether changes are pending in your Obsidian vault, shows sync progress, "
+        "and provides quick access to sync actions."
+    ),
     "auto_close_on_success": (
         "Automatically closes the VaultSync Dashboard upon successful sync when there are no errors or warnings."
     ),
@@ -137,6 +142,7 @@ TOOLTIP_TITLES: dict[str, str] = {
     "re_stage_occlusions": "Re-export Occlusions",
     "show_diff_before_update": "Interactive Diff Preview",
     "sync_on_startup": "Auto-sync on Startup",
+    "show_status_bar": "Status Bar Indicator",
     "auto_close_on_success": "Close Dashboard on Success",
     "basic_model_id": "Basic Note Type",
     "cloze_model_id": "Cloze Note Type",

@@ -615,6 +615,13 @@ class ConfigWindow(QDialog):
         left_grid.addWidget(self.auto_close_cb, 1, 0)
         left_grid.addWidget(h_close, 1, 1)
 
+        # Row 2, Left: Show Status Bar Indicator
+        self.show_status_bar_cb = QCheckBox("Show Status Bar Indicator")
+        self.show_status_bar_cb.setToolTip(format_tooltip_box("show_status_bar"))
+        h_status = InfoHintLabel("show_status_bar")
+        left_grid.addWidget(self.show_status_bar_cb, 2, 0)
+        left_grid.addWidget(h_status, 2, 1)
+
         right_grid = QGridLayout()
         right_grid.setHorizontalSpacing(8)
         right_grid.setVerticalSpacing(10)
@@ -2498,6 +2505,7 @@ class ConfigWindow(QDialog):
         self.auto_close_cb.setChecked(self._profile_settings.auto_close_on_success)
         self.sync_on_startup_cb.setChecked(self._profile_settings.sync_on_startup)
         self.backup_before_sync_cb.setChecked(getattr(self._profile_settings, "backup_before_sync", True))
+        self.show_status_bar_cb.setChecked(getattr(self._profile_settings, "show_status_bar", True))
 
         # Select basic model
         if self._profile_settings.basic_model_id is not None:
@@ -2680,6 +2688,7 @@ class ConfigWindow(QDialog):
             "auto_close": self.auto_close_cb.isChecked(),
             "sync_on_startup": self.sync_on_startup_cb.isChecked(),
             "backup_before_sync": self.backup_before_sync_cb.isChecked(),
+            "show_status_bar": self.show_status_bar_cb.isChecked(),
             "sc_dash": self.sc_dash_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
             "sc_quick": self.sc_quick_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
             "sc_full": self.sc_full_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText),
@@ -2821,6 +2830,7 @@ class ConfigWindow(QDialog):
             show_diff_before_update=self.show_diff_cb.isChecked(),
             sync_on_startup=self.sync_on_startup_cb.isChecked(),
             backup_before_sync=self.backup_before_sync_cb.isChecked(),
+            show_status_bar=self.show_status_bar_cb.isChecked(),
             basic_model_id=basic_id,
             cloze_model_id=cloze_id,
             shortcuts=new_shortcuts,
@@ -2830,6 +2840,9 @@ class ConfigWindow(QDialog):
 
         from .menu import apply_menu_shortcuts
         apply_menu_shortcuts(new_settings)
+
+        from .status_bar import update_status_bar_visibility
+        update_status_bar_visibility(new_settings.show_status_bar)
 
         # 2. Save vault config to m2a.toml if vault path is valid
         if vault_path and vault_path.is_dir():

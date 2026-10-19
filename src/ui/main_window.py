@@ -762,6 +762,8 @@ class MainWindow(QDialog):
         self._set_status(f"Operation failed: {exc}", state="error")
         self._log(f"ERROR: {exc}", level="ERROR")
         self.error_banner.show_error(f"An error occurred: {exc}", retry_action=retry_action)
+        from .status_bar import notify_sync_finished
+        notify_sync_finished(report=None, error=exc)
 
     def _update_action_button_counts(self) -> None:
         if self._current_plan is None:
@@ -842,6 +844,9 @@ class MainWindow(QDialog):
         else:
             self._occ_status = OcclusionStatus(total=int(unmasked_in_anki), awaiting_masks=int(unmasked_in_anki), ready_to_unflag=0)
         self._set_buttons_busy(False)
+
+        from .status_bar import notify_scan_result
+        notify_scan_result(plan)
 
         total_new = plan.total_creates + len(plan.occlusions_to_stage)
         self.new_val_label.setText(str(total_new))
@@ -943,6 +948,9 @@ class MainWindow(QDialog):
         self._set_status("Syncing cards to Anki...", state="busy")
         self._log("Starting Sync...")
 
+        from .status_bar import notify_sync_started
+        notify_sync_started()
+
         plan = self._current_plan
         occ_dir = self._settings.occlusion_dir
         b_mid = self._settings.basic_model_id
@@ -994,6 +1002,9 @@ class MainWindow(QDialog):
             return
         self._set_buttons_busy(False)
         self._last_report = report
+
+        from .status_bar import notify_sync_finished
+        notify_sync_finished(report=report)
 
         if mw is not None:
             if hasattr(mw, "deckBrowser"):
