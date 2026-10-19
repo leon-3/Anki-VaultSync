@@ -5,18 +5,22 @@ import hashlib
 import html
 from pathlib import Path
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aqt.qt import (
     QCheckBox,
+    QColor,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QPainter,
     QPushButton,
+    QRect,
     QSplitter,
+    QSplitterHandle,
     Qt,
     QTextBrowser,
     QVBoxLayout,
@@ -62,24 +66,24 @@ def _generate_word_diff_html(old_text: str, new_text: str) -> str:
             deleted = "".join(_format_diff_token(t) for t in words_old[i1:i2] if _format_diff_token(t))
             if deleted:
                 result.append(
-                    f"<del style='background-color:rgba(244, 67, 54, 0.25); color:#ef9a9a; text-decoration:line-through; padding:1px 3px; border-radius:3px;'>{deleted}</del>"
+                    f"<del style='background-color:rgba(244, 67, 54, 0.22); color:#ef9a9a; text-decoration:line-through; padding:1px 4px; border-radius:3px;'>{deleted}</del>"
                 )
         elif tag == "insert":
             inserted = "".join(_format_diff_token(t) for t in words_new[j1:j2] if _format_diff_token(t))
             if inserted:
                 result.append(
-                    f"<ins style='background-color:rgba(76, 175, 80, 0.25); color:#a5d6a7; text-decoration:none; padding:1px 3px; border-radius:3px;'>{inserted}</ins>"
+                    f"<ins style='background-color:rgba(76, 175, 80, 0.22); color:#a5d6a7; text-decoration:none; padding:1px 4px; border-radius:3px;'>{inserted}</ins>"
                 )
         elif tag == "replace":
             deleted = "".join(_format_diff_token(t) for t in words_old[i1:i2] if _format_diff_token(t))
             inserted = "".join(_format_diff_token(t) for t in words_new[j1:j2] if _format_diff_token(t))
             if deleted:
                 result.append(
-                    f"<del style='background-color:rgba(244, 67, 54, 0.25); color:#ef9a9a; text-decoration:line-through; padding:1px 3px; border-radius:3px;'>{deleted}</del>"
+                    f"<del style='background-color:rgba(244, 67, 54, 0.22); color:#ef9a9a; text-decoration:line-through; padding:1px 4px; border-radius:3px;'>{deleted}</del>"
                 )
             if inserted:
                 result.append(
-                    f"<ins style='background-color:rgba(76, 175, 80, 0.25); color:#a5d6a7; text-decoration:none; padding:1px 3px; border-radius:3px;'>{inserted}</ins>"
+                    f"<ins style='background-color:rgba(76, 175, 80, 0.22); color:#a5d6a7; text-decoration:none; padding:1px 4px; border-radius:3px;'>{inserted}</ins>"
                 )
 
     return "".join(result)
@@ -87,14 +91,14 @@ def _generate_word_diff_html(old_text: str, new_text: str) -> str:
 
 def _generate_diff_html(op: NoteUpdateOp) -> str:
     lines: list[str] = [
-        "<div style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif; color: #e0e0e0; font-size: 12px;'>"
+        "<div style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif; color: palette(window-text); font-size: 12px;'>"
     ]
-    # Header metadata table: ID on left, file:line on right
+    # Header metadata bar: ID on left, file:line on right
     lines.append(
-        "<table style='width:100%; border-bottom:1px solid rgba(255,255,255,0.12); padding-bottom:5px; margin-bottom:8px;'>"
+        "<table style='width:100%; border-bottom:1px solid rgba(130,130,130,0.25); padding-bottom:5px; margin-bottom:8px;'>"
         "<tr>"
-        f"<td style='font-size:12px; font-weight:bold; color:#64B5F6; font-family:monospace;'>ID: {html.escape(op.card_id)}</td>"
-        f"<td style='text-align:right; font-size:11px; color:rgba(220,220,220,0.6);'>{html.escape(str(op.source_file))}:{op.source_line}</td>"
+        f"<td style='font-size:12px; font-weight:bold; color:#2196F3; font-family:monospace;'>ID: {html.escape(op.card_id)}</td>"
+        f"<td style='text-align:right; font-size:11px; color:rgba(180,180,180,0.75);'>{html.escape(str(op.source_file))}:{op.source_line}</td>"
         "</tr>"
         "</table>"
     )
@@ -103,9 +107,9 @@ def _generate_diff_html(op: NoteUpdateOp) -> str:
         old_d = ", ".join(op.old_deck_names) if op.old_deck_names else "(unknown)"
         lines.append(
             f"<div style='margin-bottom: 6px; font-size: 11.5px;'>"
-            f"<b style='color: rgba(240, 240, 240, 0.9);'>Deck Changed:</b> "
+            f"<b>Deck Changed:</b> "
             f"<span style='background: rgba(244, 67, 54, 0.15); color: #ef9a9a; padding: 1px 6px; border-radius: 3px;'>{html.escape(old_d)}</span> "
-            f"<span style='color: rgba(255, 255, 255, 0.4); margin: 0 4px;'>&rarr;</span> "
+            f"<span style='opacity: 0.5; margin: 0 4px;'>&rarr;</span> "
             f"<span style='background: rgba(76, 175, 80, 0.18); color: #a5d6a7; font-weight: 600; padding: 1px 6px; border-radius: 3px;'><b>{html.escape(op.target_deck_name)}</b></span>"
             f"</div>"
         )
@@ -124,27 +128,89 @@ def _generate_diff_html(op: NoteUpdateOp) -> str:
             tag_diff.append(
                 f"<span style='background: rgba(76, 175, 80, 0.18); color: #a5d6a7; padding: 1px 5px; border-radius: 3px; margin-right: 4px;'>+{html.escape(a)}</span>"
             )
-        lines.append(f"<div style='margin-bottom: 8px; font-size: 11.5px;'><b style='color: rgba(240, 240, 240, 0.9);'>Tags:</b> {' '.join(tag_diff)}</div>")
+        lines.append(f"<div style='margin-bottom: 8px; font-size: 11.5px;'><b>Tags:</b> {' '.join(tag_diff)}</div>")
 
     for f_name in sorted(set(op.old_fields.keys()) | set(op.new_fields.keys())):
         old_val = op.old_fields.get(f_name, "")
         new_val = op.new_fields.get(f_name, "")
         if old_val == new_val:
             lines.append(
-                f"<div style='margin-top: 8px; margin-bottom: 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255, 255, 255, 0.45);'>Field [{html.escape(f_name)}]: <span style='font-style: italic; font-weight: normal; text-transform: none;'>— (unchanged)</span></div>"
+                f"<div style='margin-top: 8px; margin-bottom: 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.55;'>Field [{html.escape(f_name)}]: <span style='font-style: italic; font-weight: normal; text-transform: none;'>— (unchanged)</span></div>"
             )
             continue
 
         lines.append(
-            f"<div style='margin-top: 10px; margin-bottom: 3px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #90CAF9;'>Field [{html.escape(f_name)}]:</div>"
+            f"<div style='margin-top: 10px; margin-bottom: 3px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #2196F3;'>Field [{html.escape(f_name)}]:</div>"
         )
         formatted_diff = _generate_word_diff_html(old_val, new_val)
         lines.append(
-            f"<div style='background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 5px; padding: 8px 10px; line-height: 1.5; color: #f0f0f0;'>{formatted_diff}</div>"
+            f"<div style='background: rgba(130, 130, 130, 0.08); border: 1px solid rgba(130, 130, 130, 0.2); border-radius: 6px; padding: 8px 10px; line-height: 1.5; color: palette(window-text); font-family: monospace, sans-serif;'>{formatted_diff}</div>"
         )
 
     lines.append("</div>")
     return "".join(lines)
+
+
+class _DiffSplitterHandle(QSplitterHandle):
+    """Custom splitter handle with centered resize grip and subtle padding."""
+
+    def __init__(self, orientation: Qt.Orientation, parent: QSplitter) -> None:
+        super().__init__(orientation, parent)
+        self.setCursor(
+            Qt.CursorShape.SplitHCursor
+            if orientation == Qt.Orientation.Horizontal
+            else Qt.CursorShape.SplitVCursor
+        )
+        self._hovered = False
+        self._pressed = False
+
+    def enterEvent(self, event: Any) -> None:
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: Any) -> None:
+        self._hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event: Any) -> None:
+        self._pressed = True
+        self.update()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: Any) -> None:
+        self._pressed = False
+        self.update()
+        super().mouseReleaseEvent(event)
+
+    def paintEvent(self, event: Any) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Center grip pill
+        w = 4
+        h = 36
+        x = (self.width() - w) // 2
+        y = (self.height() - h) // 2
+
+        if self._pressed:
+            color = QColor(25, 118, 210, 240)
+        elif self._hovered:
+            color = QColor(33, 150, 243, 210)
+        else:
+            color = QColor(130, 130, 130, 110)
+
+        painter.setBrush(color)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(QRect(x, y, w, h), 2, 2)
+
+
+class _DiffSplitter(QSplitter):
+    """Splitter using _DiffSplitterHandle with centered resize grip."""
+
+    def createHandle(self) -> QSplitterHandle:
+        return _DiffSplitterHandle(self.orientation(), self)
 
 
 class DiffDialog(QDialog):
@@ -173,27 +239,16 @@ class DiffDialog(QDialog):
     def _init_ui(self) -> None:
         chk_svg = _CHECKMARK_SVG_PATH.resolve().as_posix() if _CHECKMARK_SVG_PATH.exists() else ""
         self.setStyleSheet(f"""
-            QDialog {{
-                background-color: #1e1e1e;
-                color: #ffffff;
-            }}
-            QSplitter::handle {{
-                background-color: rgba(255, 255, 255, 0.08);
-                width: 2px;
-            }}
-            QSplitter::handle:hover {{
-                background-color: #2196F3;
-            }}
             QCheckBox {{
                 font-size: 12px;
                 spacing: 8px;
-                color: rgba(230, 230, 230, 0.95);
+                color: palette(window-text);
             }}
             QCheckBox::indicator, QListWidget::indicator {{
                 width: 15px;
                 height: 15px;
                 border: 1.5px solid rgba(150, 150, 150, 0.7);
-                border-radius: 3px;
+                border-radius: 4px;
                 background-color: rgba(130, 130, 130, 0.12);
             }}
             QCheckBox::indicator:hover, QListWidget::indicator:hover {{
@@ -206,41 +261,41 @@ class DiffDialog(QDialog):
                 image: url("{chk_svg}");
             }}
             QListWidget {{
-                background-color: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 6px;
-                color: #e0e0e0;
+                background-color: rgba(130, 130, 130, 0.04);
+                border: 1px solid rgba(130, 130, 130, 0.25);
+                border-radius: 8px;
+                color: palette(window-text);
                 font-size: 12px;
                 padding: 4px;
                 outline: none;
             }}
             QListWidget::item {{
                 padding: 6px 8px;
-                border-radius: 4px;
+                border-radius: 5px;
                 margin-bottom: 2px;
                 border: 1px solid transparent;
             }}
             QListWidget::item:hover {{
-                background-color: rgba(255, 255, 255, 0.06);
+                background-color: rgba(130, 130, 130, 0.12);
             }}
             QListWidget::item:selected {{
-                background-color: rgba(33, 150, 243, 0.2);
-                color: #ffffff;
+                background-color: rgba(33, 150, 243, 0.18);
+                color: palette(window-text);
                 border: 1px solid rgba(33, 150, 243, 0.45);
             }}
             QTextBrowser {{
-                background-color: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 6px;
-                color: #e0e0e0;
-                padding: 10px 12px;
+                background-color: rgba(130, 130, 130, 0.04);
+                border: 1px solid rgba(130, 130, 130, 0.25);
+                border-radius: 8px;
+                color: palette(window-text);
+                padding: 10px 14px;
                 selection-background-color: #2196F3;
             }}
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(10)
 
         # Compact, sleek single-line header
         header_bar = QHBoxLayout()
@@ -248,17 +303,18 @@ class DiffDialog(QDialog):
         header_bar.setSpacing(8)
 
         title = QLabel("Card Updates Preview")
-        title.setStyleSheet("font-size: 13px; font-weight: 700; color: #ffffff;")
+        title.setStyleSheet("font-size: 13px; font-weight: bold; color: palette(window-text);")
         header_bar.addWidget(title)
 
-        count_badge = QLabel(f"• &nbsp;{len(self._all_updates)} modified card(s)")
-        count_badge.setStyleSheet("font-size: 12px; color: rgba(220, 220, 220, 0.65);")
+        count_badge = QLabel(f"• {len(self._all_updates)} modified card(s)")
+        count_badge.setStyleSheet("font-size: 12px; color: palette(window-text); opacity: 0.75;")
         header_bar.addWidget(count_badge)
 
         header_bar.addStretch()
         layout.addLayout(header_bar)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter = _DiffSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(14)
 
         # Left Column: Updates List
         self.select_all_cb = QCheckBox("Select / Deselect All")
@@ -310,14 +366,14 @@ class DiffDialog(QDialog):
         self.apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.apply_btn.setStyleSheet("""
             QPushButton {
-                background-color: #2196F3;
-                color: #ffffff;
+                background-color: palette(highlight);
+                color: palette(highlighted-text);
                 font-weight: 600;
                 font-size: 12px;
                 border: none;
-                border-radius: 5px;
+                border-radius: 6px;
                 padding: 6px 16px;
-                min-height: 22px;
+                min-height: 24px;
             }
             QPushButton:hover {
                 background-color: #1976D2;
@@ -332,17 +388,16 @@ class DiffDialog(QDialog):
         self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cancel_btn.setStyleSheet("""
             QPushButton {
-                background-color: transparent;
-                color: rgba(220, 220, 220, 0.85);
                 font-size: 12px;
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 5px;
+                border: 1px solid rgba(130, 130, 130, 0.3);
+                border-radius: 6px;
                 padding: 6px 14px;
-                min-height: 22px;
+                min-height: 24px;
+                background: transparent;
+                color: palette(window-text);
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.08);
-                color: #ffffff;
+                background-color: rgba(130, 130, 130, 0.12);
             }
         """)
 
@@ -354,18 +409,16 @@ class DiffDialog(QDialog):
         self.rescan_btn.setToolTip("Discard current preview and re-scan your vault for the latest changes.")
         self.rescan_btn.setStyleSheet("""
             QPushButton {
-                background-color: transparent;
-                color: rgba(220, 220, 220, 0.85);
                 font-size: 12px;
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                border-radius: 5px;
+                border: 1px solid rgba(130, 130, 130, 0.3);
+                border-radius: 6px;
                 padding: 6px 14px;
-                min-height: 22px;
+                min-height: 24px;
+                background: transparent;
+                color: palette(window-text);
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.08);
-                color: #ffffff;
-                border-color: rgba(255, 255, 255, 0.25);
+                background-color: rgba(130, 130, 130, 0.12);
             }
         """)
         self.rescan_btn.clicked.connect(self._on_rescan_clicked)
@@ -425,10 +478,10 @@ class DiffDialog(QDialog):
         if self._is_file_externally_modified(op):
             banner = (
                 "<div style='background-color: rgba(255, 179, 0, 0.12); color: #ffca28; "
-                "border: 1px solid rgba(255, 179, 0, 0.35); border-radius: 5px; padding: 6px 10px; "
+                "border: 1px solid rgba(255, 179, 0, 0.35); border-radius: 6px; padding: 6px 10px; "
                 "margin-bottom: 8px; font-size: 11px; font-family: sans-serif; line-height: 1.35;'>"
                 "<b>Notice: Note modified in Obsidian since scan.</b><br>"
-                "<span style='color: rgba(240, 240, 240, 0.85); font-size: 11px;'>"
+                "<span style='opacity: 0.85; font-size: 11px;'>"
                 "This file was edited externally. Click <b>Rescan Vault</b> below to refresh preview with latest edits."
                 "</span>"
                 "</div>"
