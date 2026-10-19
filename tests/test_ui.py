@@ -1196,3 +1196,116 @@ def test_tab2_table_button_spacing(tmp_path: Path):
     assert gap_card2 >= 14, f"Gap in card 2 is too small: {gap_card2}"
 
     dlg.close()
+
+
+def test_load_vault_config_without_explicit_vault_key(tmp_path: Path):
+    from markdown2anki.config import load_vault_config
+    vault = tmp_path / "vault_no_key"
+    vault.mkdir()
+    (vault / "m2a.toml").write_text('deck = "CustomDeck"\n[deck_routing]\n"Sub" = "CustomDeck::Sub"\n', encoding="utf-8")
+    cfg = load_vault_config(vault)
+    assert cfg.deck == "CustomDeck"
+    assert cfg.vault.resolve() == vault.resolve()
+    assert cfg.deck_routing == {"Sub": "CustomDeck::Sub"}
+
+
+def test_config_window_reactive_vault_edit_preserves_existing_config(tmp_path: Path):
+    from src.ui.config_window import ConfigWindow
+    from src.profile_config import ProfileConfigManager, AddonProfileSettings
+
+    vault = tmp_path / "my_existing_vault"
+    vault.mkdir()
+    (vault / "m2a.toml").write_text(
+        'deck = "Biology"\nbase_tag = "#Bio"\nignore = ["Drafts"]\n\n[deck_routing]\n"Anatomy" = "Bio::Anatomy"\n\n[tag_aliases]\n"Anatomy" = "HumanBio"\n',
+        encoding="utf-8"
+    )
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    manager.save(AddonProfileSettings(profile_name="TestProfile"))
+
+    dlg = ConfigWindow(manager, "TestProfile")
+    # Initially empty/defaults
+    assert dlg.routing_table.rowCount() == 0
+
+    # Simulate user typing or pasting the vault path
+    dlg.vault_edit.setText(str(vault))
+    # textChanged should have populated the UI
+    assert dlg.deck_combo.currentText() == "Biology"
+    assert dlg.tag_edit.text() == "#Bio"
+    assert dlg.routing_table.rowCount() == 1
+    assert dlg.routing_table.item(0, 0).text() == "Anatomy"
+    assert dlg.routing_table.item(0, 1).text() == "Bio::Anatomy"
+    assert dlg.alias_table.rowCount() == 1
+    assert dlg.alias_table.item(0, 0).text() == "Anatomy"
+    assert dlg.alias_table.item(0, 1).text() == "HumanBio"
+    assert "Drafts" in dlg.ignore_edit.toPlainText()
+
+    # Save dialog
+    dlg._on_save()
+    dlg.close()
+
+    # Verify m2a.toml still has all settings intact
+    saved_cfg = manager.load_vault(vault)
+    assert saved_cfg.deck == "Biology"
+    assert saved_cfg.base_tag == "#Bio"
+    assert saved_cfg.deck_routing == {"Anatomy": "Bio::Anatomy"}
+    assert saved_cfg.tag_aliases == {"Anatomy": "HumanBio"}
+    assert "Drafts" in saved_cfg.ignore
+
+
+def test_config_window_prevents_saving_invalid_m2a_toml(tmp_path: Path, monkeypatch):
+    from src.ui.config_window import ConfigWindow
+    from src.profile_config import ProfileConfigManager, AddonProfileSettings
+
+    vault = tmp_path / "broken_vault"
+    vault.mkdir()
+    broken_content = "deck = [invalid syntax"
+    (vault / "m2a.toml").write_text(broken_content, encoding="utf-8")
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    manager.save(AddonProfileSettings(profile_name="TestProfile"))
+
+    dlg = ConfigWindow(manager, "TestProfile")
+    dlg.vault_edit.setText(str(vault))
+    dlg._load_vault_from_path(vault)
+
+    assert dlg._vault_cfg_error is not None
+    assert not dlg.error_banner.isHidden()
+
+    warnings: list[str] = []
+    from src.ui import config_window
+    monkeypatch.setattr(config_window.QMessageBox, "warning", lambda parent, title, msg: warnings.append(title))
+
+    # Trying to save should block saving and warn user
+    dlg._on_save()
+    assert "Invalid Vault Configuration" in warnings
+    # Verify the broken file was not overwritten with defaults
+    assert (vault / "m2a.toml").read_text(encoding="utf-8") == broken_content
+    dlg.close()
+
+
+def test_main_window_setup_vault_changed_preserves_existing_deck(tmp_path: Path):
+    from src.ui.main_window import MainWindow
+    from src.profile_config import ProfileConfigManager
+
+    vault = tmp_path / "setup_vault"
+    vault.mkdir()
+    (vault / "m2a.toml").write_text('deck = "Chemistry"\n', encoding="utf-8")
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+
+    win = MainWindow(manager, "SetupProfile")
+    # Simulate user selecting the vault folder
+    win._on_setup_vault_changed(str(vault))
+    assert win.setup_deck_combo.currentText() == "Chemistry"
+
+    # User clicks Save and Scan Vault
+    win.setup_vault_edit.setText(str(vault))
+    win._on_save_and_scan_clicked()
+
+    saved_cfg = manager.load_vault(vault)
+    assert saved_cfg.deck == "Chemistry"
+    win.close()

@@ -110,7 +110,10 @@ class Config:
     def from_dict(cls, data: dict[str, Any], source: Path) -> Config:
         """Build a Config from parsed TOML. Relative paths are taken relative to the config file."""
         if not data.get("vault"):
-            raise ValueError(f"{source}: 'vault' is required")
+            if source is not None and source.name == CONFIG_FILE_NAME:
+                data["vault"] = "."
+            else:
+                raise ValueError(f"{source}: 'vault' is required")
 
         values = dict(data)
         # Migrate or support legacy 'decks' key

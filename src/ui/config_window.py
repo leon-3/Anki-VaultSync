@@ -332,18 +332,22 @@ class ConfigWindow(QDialog):
         main_layout.setContentsMargins(18, 16, 18, 16)
         main_layout.setSpacing(14)
 
+        self.error_banner = QLabel()
+        self.error_banner.setWordWrap(True)
+        self.error_banner.setStyleSheet(
+            "background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; "
+            "border-radius: 6px; padding: 10px; font-size: 12px; font-family: sans-serif;"
+        )
         if self._vault_cfg_error:
-            self.error_banner = QLabel(
+            self.error_banner.setText(
                 f"<b>Warning: Failed to parse vault configuration (m2a.toml):</b><br>"
                 f"{html.escape(self._vault_cfg_error)}<br>"
                 f"<small>Default settings loaded. Please verify your m2a.toml syntax.</small>"
             )
-            self.error_banner.setWordWrap(True)
-            self.error_banner.setStyleSheet(
-                "background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; "
-                "border-radius: 6px; padding: 10px; font-size: 12px; font-family: sans-serif;"
-            )
-            main_layout.addWidget(self.error_banner)
+            self.error_banner.setVisible(True)
+        else:
+            self.error_banner.setVisible(False)
+        main_layout.addWidget(self.error_banner)
 
         # Tabs container with modern styling
         self.tabs = QTabWidget()
@@ -477,6 +481,8 @@ class ConfigWindow(QDialog):
         self.vault_edit.setPlaceholderText("Select Obsidian vault folder...")
         self.vault_edit.setToolTip(format_tooltip_box("vault_path"))
         _dim_placeholder(self.vault_edit)
+        self.vault_edit.textChanged.connect(self._on_vault_text_changed)
+        self.vault_edit.editingFinished.connect(lambda: self._load_vault_from_path(self.vault_edit.text()))
         vault_browse = QPushButton("Browse...")
         vault_browse.setStyleSheet(btn_style)
         vault_browse.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1677,17 +1683,68 @@ class ConfigWindow(QDialog):
                 pass
         return None
 
+    def _on_vault_text_changed(self, text: str) -> None:
+        raw = text.strip()
+        if not raw:
+            return
+        p = Path(raw).expanduser()
+        try:
+            if p.is_dir() and (p / "m2a.toml").is_file():
+                if self._vault_cfg is not None:
+                    try:
+                        if self._vault_cfg.vault.resolve() == p.resolve():
+                            return
+                    except Exception:
+                        pass
+                self._load_vault_from_path(p)
+        except Exception:
+            pass
+
+    def _load_vault_from_path(self, dir_path: str | Path) -> None:
+        raw = str(dir_path).strip()
+        if not raw:
+            self._vault_cfg = None
+            self._vault_cfg_error = None
+            if hasattr(self, "error_banner") and self.error_banner is not None:
+                self.error_banner.setVisible(False)
+            self._populate_vault_fields()
+            return
+
+        p = Path(raw).expanduser().resolve()
+        if not p.is_dir():
+            return
+
+        toml_file = p / "m2a.toml"
+        if toml_file.is_file():
+            try:
+                self._vault_cfg = self._manager.load_vault(p)
+                self._vault_cfg_error = None
+                if hasattr(self, "error_banner") and self.error_banner is not None:
+                    self.error_banner.setVisible(False)
+                self._populate_vault_fields()
+            except Exception as exc:
+                self._vault_cfg = None
+                self._vault_cfg_error = str(exc)
+                if hasattr(self, "error_banner") and self.error_banner is not None:
+                    self.error_banner.setText(
+                        f"<b>Warning: Failed to parse vault configuration (m2a.toml):</b><br>"
+                        f"{html.escape(self._vault_cfg_error)}<br>"
+                        f"<small>Default settings loaded. Please verify your m2a.toml syntax.</small>"
+                    )
+                    self.error_banner.setVisible(True)
+                self._populate_vault_fields()
+        else:
+            self._vault_cfg = None
+            self._vault_cfg_error = None
+            if hasattr(self, "error_banner") and self.error_banner is not None:
+                self.error_banner.setVisible(False)
+            self._populate_vault_fields()
+
     def _browse_vault(self) -> None:
         dir_path = QFileDialog.getExistingDirectory(self, "Select Obsidian Vault Folder")
         if dir_path:
             self.vault_edit.setText(dir_path)
-            p = Path(dir_path)
-            if (p / "m2a.toml").is_file():
-                try:
-                    self._vault_cfg = self._manager.load_vault(p)
-                    self._populate_vault_fields()
-                except Exception:
-                    pass
+            self._load_vault_from_path(dir_path)
 
     def _browse_occlusion(self) -> None:
         dir_path = QFileDialog.getExistingDirectory(self, "Select Image Occlusion Folder")
@@ -2087,6 +2144,15 @@ class ConfigWindow(QDialog):
 
         # 2. Save vault config to m2a.toml if vault path is valid
         if vault_path and vault_path.is_dir():
+            if (vault_path / "m2a.toml").is_file() and getattr(self, "_vault_cfg_error", None):
+                QMessageBox.warning(
+                    self,
+                    "Invalid Vault Configuration",
+                    f"Cannot save settings because the existing m2a.toml failed to parse:\n"
+                    f"{self._vault_cfg_error}\n\n"
+                    "Please fix or remove the invalid m2a.toml file before saving.",
+                )
+                return
             try:
                 cfg = self._manager.load_vault(vault_path)
                 cfg.deck = self.deck_combo.currentText().strip() or "Default"

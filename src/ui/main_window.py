@@ -274,6 +274,8 @@ class MainWindow(QDialog):
                 font-size: 12px;
             }
         """)
+        self.setup_vault_edit.textChanged.connect(self._on_setup_vault_changed)
+        self.setup_vault_edit.editingFinished.connect(lambda: self._on_setup_vault_changed(self.setup_vault_edit.text()))
         self.setup_browse_btn = QPushButton("Browse...")
         self.setup_browse_btn.setFixedHeight(30)
         self.setup_browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -585,11 +587,13 @@ class MainWindow(QDialog):
             )
             self.quick_connect_box.setVisible(True)
             self.setup_vault_edit.setText(str(best.path))
+            self._on_setup_vault_changed(str(best.path))
         else:
             self._primary_detected = None
             self.quick_connect_box.setVisible(False)
             if self._settings.vault_path:
                 self.setup_vault_edit.setText(str(self._settings.vault_path))
+                self._on_setup_vault_changed(str(self._settings.vault_path))
 
     def _on_quick_connect_clicked(self) -> None:
         if not getattr(self, "_primary_detected", None):
@@ -597,11 +601,26 @@ class MainWindow(QDialog):
         target_deck = self.setup_deck_combo.currentText().strip() or "Default"
         self._save_vault_and_start(self._primary_detected.path, target_deck)
 
+    def _on_setup_vault_changed(self, raw_path: str) -> None:
+        raw = raw_path.strip()
+        if not raw:
+            return
+        p = Path(raw).expanduser()
+        try:
+            p_resolved = p.resolve()
+            if p_resolved.is_dir() and (p_resolved / "m2a.toml").is_file():
+                cfg = self._manager.load_vault(p_resolved)
+                if cfg.deck:
+                    self.setup_deck_combo.setCurrentText(cfg.deck)
+        except Exception:
+            pass
+
     def _on_setup_browse(self) -> None:
         curr = self.setup_vault_edit.text().strip() or str(Path.home())
         selected = QFileDialog.getExistingDirectory(self, "Select Obsidian Vault Folder", curr)
         if selected:
             self.setup_vault_edit.setText(selected)
+            self._on_setup_vault_changed(selected)
 
     def _on_save_and_scan_clicked(self) -> None:
         raw = self.setup_vault_edit.text().strip()
@@ -623,7 +642,9 @@ class MainWindow(QDialog):
 
         try:
             cfg = self._manager.load_vault(vault_path)
-            if not cfg.deck or cfg.deck == "Default":
+            if not cfg.deck:
+                cfg.deck = target_deck
+            elif target_deck and target_deck != "Default" and cfg.deck == "Default":
                 cfg.deck = target_deck
             self._manager.save_vault(vault_path, cfg)
         except Exception:
