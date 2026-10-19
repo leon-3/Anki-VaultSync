@@ -142,10 +142,12 @@ class ConfigWindow(QDialog):
     TAB_GENERAL = 0
     TAB_DECKS_TAGS = 1
     TAB_CARD_TYPES = 2
-    TAB_MAINTENANCE = 3
-    TAB_LOGS = 4
+    TAB_DELETED_CARDS = 3
+    TAB_SHORTCUTS_LOGS = 4
 
     # Backwards-compatibility aliases
+    TAB_MAINTENANCE = 3
+    TAB_LOGS = 4
     TAB_DECK_ROUTING = 1
     TAB_TAG_ALIASING = 1
     TAB_RULES = 2
@@ -196,12 +198,18 @@ class ConfigWindow(QDialog):
         if isinstance(tab, str):
             target = tab.strip().lower()
             for idx in range(self.tabs.count()):
-                if self.tabs.tabText(idx).strip().lower() == target:
+                raw_text = self.tabs.tabText(idx).strip().lower()
+                clean_text = raw_text.replace("&&", "&")
+                if raw_text == target or clean_text == target:
                     self.tabs.setCurrentIndex(idx)
                     return
             for idx in range(self.tabs.count()):
-                text = self.tabs.tabText(idx).strip().lower()
-                if target in text or any(w == target for w in text.replace("&", " ").split()):
+                clean_text = self.tabs.tabText(idx).replace("&&", "&").strip().lower()
+                if (
+                    target in clean_text
+                    or any(w == target for w in clean_text.replace("&", " ").split())
+                    or (target in ("maintenance", "orphans", "deleted") and idx == self.TAB_DELETED_CARDS)
+                ):
                     self.tabs.setCurrentIndex(idx)
                     return
         elif isinstance(tab, int) and 0 <= tab < self.tabs.count():
@@ -280,33 +288,35 @@ class ConfigWindow(QDialog):
         """)
         main_layout.addWidget(self.tabs)
 
-        # Tab 1: General & Sync
+        # Tab 1: General && Sync
         self.tab_general = QWidget()
         self._init_tab_general()
-        self.tabs.addTab(self.tab_general, "General & Sync")
+        self.tabs.addTab(self.tab_general, "General && Sync")
 
-        # Tab 2: Decks & Tags
+        # Tab 2: Decks && Tags
         self.tab_deck_routing = QWidget()
         self.tab_routing = self.tab_deck_routing
         self.tab_tag_aliasing = self.tab_deck_routing
         self._init_tab_decks_and_tags()
-        self.tabs.addTab(self.tab_deck_routing, "Decks & Tags")
+        self.tabs.addTab(self.tab_deck_routing, "Decks && Tags")
 
-        # Tab 3: Card Types & Media
+        # Tab 3: Card Types && Media
         self.tab_rules = QWidget()
         self.tab_advanced = self.tab_rules
         self._init_tab_card_types_and_media()
-        self.tabs.addTab(self.tab_rules, "Card Types & Media")
+        self.tabs.addTab(self.tab_rules, "Card Types && Media")
 
-        # Tab 4: Maintenance & Excludes
+        # Tab 4: Deleted Cards
         self.tab_maintenance = QWidget()
+        self.tab_deleted_cards = self.tab_maintenance
         self._init_tab_maintenance()
-        self.tabs.addTab(self.tab_maintenance, "Maintenance & Excludes")
+        self.tabs.addTab(self.tab_maintenance, "Deleted Cards")
 
-        # Tab 5: Shortcuts & Logs
+        # Tab 5: Shortcuts && Logs
         self.tab_logs = QWidget()
+        self.tab_shortcuts_logs = self.tab_logs
         self._init_tab_shortcuts_and_logs()
-        self.tabs.addTab(self.tab_logs, "Shortcuts & Logs")
+        self.tabs.addTab(self.tab_logs, "Shortcuts && Logs")
 
         # Dialog Buttons
         self.button_box = QDialogButtonBox(
@@ -464,6 +474,29 @@ class ConfigWindow(QDialog):
 
         card_sync_l.addLayout(grid_sync)
         layout.addWidget(card_sync)
+
+        # Section 3: Ignored Directories & Files
+        card_ign, card_ign_l = _create_section_card(
+            "Ignored Directories & Files",
+            "Folders or glob patterns to skip during vault scanning (one per line, e.g. .obsidian, templates/*, archive).",
+        )
+        self.ignore_edit = QPlainTextEdit()
+        self.ignore_edit.setPlaceholderText("Optional: e.g. .obsidian, templates/*, archive")
+        _dim_placeholder(self.ignore_edit)
+        self.ignore_edit.setMinimumHeight(55)
+        self.ignore_edit.setMaximumHeight(75)
+        self.ignore_edit.setStyleSheet("""
+            QPlainTextEdit {
+                font-family: monospace;
+                font-size: 12px;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
+                padding: 6px;
+            }
+        """)
+        card_ign_l.addWidget(self.ignore_edit)
+        layout.addWidget(card_ign)
+
         layout.addStretch()
 
     def _init_tab_decks_and_tags(self) -> None:
@@ -844,24 +877,14 @@ class ConfigWindow(QDialog):
             "Notes with sync IDs in Obsidian that no longer exist in Anki.",
         )
 
+        # Clean header above table: status on left, selection controls on right
+        hdr_ctrl_row = QHBoxLayout()
+        hdr_ctrl_row.setSpacing(8)
+
         self.missing_status_label = QLabel("0 card(s) deleted in Anki.")
         self.missing_status_label.setStyleSheet("font-size: 12px; font-weight: 600;")
-        card_del_l.addWidget(self.missing_status_label)
-
-        self.missing_table = QTableWidget(0, 4)
-        self.missing_table.setHorizontalHeaderLabels(["", "File", "Line", "Question / Preview"])
-        self.missing_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.missing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        self.missing_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.missing_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self.missing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.missing_table.setMinimumHeight(120)
-        self.missing_table.setMaximumHeight(160)
-        self.missing_table.setStyleSheet(table_style)
-        card_del_l.addWidget(self.missing_table)
-
-        table_ctrl_row = QHBoxLayout()
-        table_ctrl_row.setSpacing(8)
+        hdr_ctrl_row.addWidget(self.missing_status_label)
+        hdr_ctrl_row.addStretch()
 
         sel_all_btn = QPushButton("Select All")
         sel_all_btn.setStyleSheet(btn_style)
@@ -873,10 +896,21 @@ class ConfigWindow(QDialog):
         desel_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         desel_all_btn.clicked.connect(lambda: self._on_select_all_missing(False))
 
-        table_ctrl_row.addWidget(sel_all_btn)
-        table_ctrl_row.addWidget(desel_all_btn)
-        table_ctrl_row.addStretch()
-        card_del_l.addLayout(table_ctrl_row)
+        hdr_ctrl_row.addWidget(sel_all_btn)
+        hdr_ctrl_row.addWidget(desel_all_btn)
+        card_del_l.addLayout(hdr_ctrl_row)
+
+        self.missing_table = QTableWidget(0, 4)
+        self.missing_table.setHorizontalHeaderLabels(["", "File", "Line", "Question / Preview"])
+        self.missing_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.missing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        self.missing_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.missing_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.missing_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.missing_table.setMinimumHeight(130)
+        self.missing_table.setMaximumHeight(180)
+        self.missing_table.setStyleSheet(table_style)
+        card_del_l.addWidget(self.missing_table)
 
         action_row = QHBoxLayout()
         action_row.setSpacing(8)
@@ -903,28 +937,6 @@ class ConfigWindow(QDialog):
         action_row.addStretch()
         card_del_l.addLayout(action_row)
         layout.addWidget(card_del)
-
-        # Section 3: Ignored Directories & Files
-        card_ign, card_ign_l = _create_section_card(
-            "Ignored Directories & Files",
-            "Folders or glob patterns to skip during vault scanning (one per line, e.g. .obsidian, templates/*, archive).",
-        )
-        self.ignore_edit = QPlainTextEdit()
-        self.ignore_edit.setPlaceholderText("Optional: e.g. .obsidian, templates/*, archive")
-        _dim_placeholder(self.ignore_edit)
-        self.ignore_edit.setMinimumHeight(60)
-        self.ignore_edit.setMaximumHeight(90)
-        self.ignore_edit.setStyleSheet("""
-            QPlainTextEdit {
-                font-family: monospace;
-                font-size: 12px;
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 6px;
-                padding: 6px;
-            }
-        """)
-        card_ign_l.addWidget(self.ignore_edit)
-        layout.addWidget(card_ign)
 
         layout.addStretch()
 
@@ -1326,15 +1338,25 @@ class ConfigWindow(QDialog):
         grid_sc.setHorizontalSpacing(10)
         grid_sc.setVerticalSpacing(4)
 
+        btn_clear_style = """
+            QPushButton {
+                font-size: 11px;
+                padding: 2px 8px;
+                border-radius: 4px;
+                min-height: 18px;
+                max-width: 48px;
+            }
+        """
+
         # 1. Dash
         lbl_dash = QLabel("Open Dashboard:")
         lbl_dash.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         grid_sc.addWidget(lbl_dash, 0, 0)
         self.sc_dash_edit = QKeySequenceEdit()
         self.sc_dash_edit.setStyleSheet(input_style)
-        self.sc_dash_edit.setMaximumWidth(220)
+        self.sc_dash_edit.setMaximumWidth(170)
         btn_c_dash = QPushButton("Clear")
-        btn_c_dash.setStyleSheet(btn_style)
+        btn_c_dash.setStyleSheet(btn_clear_style)
         btn_c_dash.clicked.connect(lambda: self.sc_dash_edit.setKeySequence(QKeySequence()))
         r_dash = QHBoxLayout()
         r_dash.addWidget(self.sc_dash_edit)
@@ -1353,9 +1375,9 @@ class ConfigWindow(QDialog):
         grid_sc.addWidget(lbl_quick, 2, 0)
         self.sc_quick_edit = QKeySequenceEdit()
         self.sc_quick_edit.setStyleSheet(input_style)
-        self.sc_quick_edit.setMaximumWidth(220)
+        self.sc_quick_edit.setMaximumWidth(170)
         btn_c_quick = QPushButton("Clear")
-        btn_c_quick.setStyleSheet(btn_style)
+        btn_c_quick.setStyleSheet(btn_clear_style)
         btn_c_quick.clicked.connect(lambda: self.sc_quick_edit.setKeySequence(QKeySequence()))
         r_quick = QHBoxLayout()
         r_quick.addWidget(self.sc_quick_edit)
@@ -1374,9 +1396,9 @@ class ConfigWindow(QDialog):
         grid_sc.addWidget(lbl_full, 4, 0)
         self.sc_full_edit = QKeySequenceEdit()
         self.sc_full_edit.setStyleSheet(input_style)
-        self.sc_full_edit.setMaximumWidth(220)
+        self.sc_full_edit.setMaximumWidth(170)
         btn_c_full = QPushButton("Clear")
-        btn_c_full.setStyleSheet(btn_style)
+        btn_c_full.setStyleSheet(btn_clear_style)
         btn_c_full.clicked.connect(lambda: self.sc_full_edit.setKeySequence(QKeySequence()))
         r_full = QHBoxLayout()
         r_full.addWidget(self.sc_full_edit)

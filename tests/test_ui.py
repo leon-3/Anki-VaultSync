@@ -123,11 +123,11 @@ def test_config_window_instantiation(tmp_path: Path):
 
     dlg = ConfigWindow(manager, "TestProfile")
     assert dlg.tabs.count() == 5
-    assert dlg.tabs.tabText(0) == "General & Sync"
-    assert dlg.tabs.tabText(1) == "Decks & Tags"
-    assert dlg.tabs.tabText(2) == "Card Types & Media"
-    assert dlg.tabs.tabText(3) == "Maintenance & Excludes"
-    assert dlg.tabs.tabText(4) == "Shortcuts & Logs"
+    assert dlg.tabs.tabText(0) == "General && Sync"
+    assert dlg.tabs.tabText(1) == "Decks && Tags"
+    assert dlg.tabs.tabText(2) == "Card Types && Media"
+    assert dlg.tabs.tabText(3) == "Deleted Cards"
+    assert dlg.tabs.tabText(4) == "Shortcuts && Logs"
     assert dlg.vault_edit is not None
     assert dlg.deck_combo is not None
     assert dlg.basic_model_combo is not None
@@ -142,6 +142,7 @@ def test_config_window_instantiation(tmp_path: Path):
     assert dlg.missing_table is not None
     assert dlg.mark_deleted_btn is not None
     assert dlg.resync_missing_btn is not None
+    assert dlg.tab_general.isAncestorOf(dlg.ignore_edit)
     dlg.close()
 
 
@@ -828,6 +829,7 @@ def test_config_window_shortcuts_configuration(monkeypatch, tmp_path: Path):
     dlg = ConfigWindow(manager, "TestShortcutProfile")
 
     # Verify default shortcuts loaded into GUI
+    assert dlg.sc_dash_edit.maximumWidth() == 170
     assert dlg.sc_dash_edit.keySequence().toString() == "Ctrl+Alt+V"
     assert dlg.sc_quick_edit.keySequence().toString() == "Ctrl+Alt+S"
     assert dlg.sc_full_edit.keySequence().toString() == "Ctrl+Alt+U"

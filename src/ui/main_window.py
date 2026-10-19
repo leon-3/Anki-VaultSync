@@ -302,8 +302,10 @@ class MainWindow(QDialog):
 
         setup_layout.addLayout(manual_grid)
 
-        # Action button row: Save and Scan
+        # Action row: Save and Scan Vault + Guide links side-by-side
         act_row = QHBoxLayout()
+        act_row.setSpacing(8)
+
         self.btn_save_and_scan = QPushButton("Save and Scan Vault")
         self.btn_save_and_scan.setFixedHeight(34)
         self.btn_save_and_scan.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -319,59 +321,40 @@ class MainWindow(QDialog):
         """)
         self.btn_save_and_scan.clicked.connect(self._on_save_and_scan_clicked)
         act_row.addWidget(self.btn_save_and_scan)
-        act_row.addStretch()
-        setup_layout.addLayout(act_row)
+        act_row.addSpacing(6)
 
-        # Subtle divider & Guide buttons
-        div_line = QFrame()
-        div_line.setStyleSheet("border: none; background-color: rgba(130, 130, 130, 0.2); max-height: 1px;")
-        setup_layout.addWidget(div_line)
-
-        guides_layout = QHBoxLayout()
-        guides_layout.setSpacing(10)
-
-        btn_first_guide = QPushButton("First User Guide ↗")
-        btn_first_guide.setFixedHeight(28)
-        btn_first_guide.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_first_guide.setStyleSheet("""
+        guide_btn_style = """
             QPushButton {
                 font-size: 11px;
                 border: 1px solid rgba(130, 130, 130, 0.3);
-                border-radius: 4px;
-                padding: 3px 10px;
+                border-radius: 5px;
+                padding: 4px 10px;
                 background: transparent;
             }
             QPushButton:hover {
                 background: rgba(130, 130, 130, 0.1);
             }
-        """)
+        """
+
+        btn_first_guide = QPushButton("First User Guide ↗")
+        btn_first_guide.setFixedHeight(32)
+        btn_first_guide.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_first_guide.setStyleSheet(guide_btn_style)
         btn_first_guide.clicked.connect(
             lambda: openLink("https://github.com/leon-3/Anki-VaultSync#dashboard-overview")
         )
+        act_row.addWidget(btn_first_guide)
 
         btn_doc_guide = QPushButton("Documentation / Card Syntax ↗")
-        btn_doc_guide.setFixedHeight(28)
+        btn_doc_guide.setFixedHeight(32)
         btn_doc_guide.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_doc_guide.setStyleSheet("""
-            QPushButton {
-                font-size: 11px;
-                border: 1px solid rgba(130, 130, 130, 0.3);
-                border-radius: 4px;
-                padding: 3px 10px;
-                background: transparent;
-            }
-            QPushButton:hover {
-                background: rgba(130, 130, 130, 0.1);
-            }
-        """)
+        btn_doc_guide.setStyleSheet(guide_btn_style)
         btn_doc_guide.clicked.connect(
             lambda: openLink("https://github.com/leon-3/Anki-VaultSync#note-syntax--conventions")
         )
-
-        guides_layout.addWidget(btn_first_guide)
-        guides_layout.addWidget(btn_doc_guide)
-        guides_layout.addStretch()
-        setup_layout.addLayout(guides_layout)
+        act_row.addWidget(btn_doc_guide)
+        act_row.addStretch()
+        setup_layout.addLayout(act_row)
 
         self.main_stack.addWidget(self.setup_widget)
 

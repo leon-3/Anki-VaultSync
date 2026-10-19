@@ -174,12 +174,21 @@ class ShortcutConfigWidget(QWidget):
 
             edit = QKeySequenceEdit()
             edit.setStyleSheet(input_style)
-            edit.setMaximumWidth(260)
+            edit.setMaximumWidth(170)
             if hasattr(edit, "setAutoDefault"):
                 edit.setAutoDefault(False)
 
+            btn_clear_style = """
+                QPushButton {
+                    font-size: 11px;
+                    padding: 2px 8px;
+                    border-radius: 4px;
+                    min-height: 18px;
+                    max-width: 48px;
+                }
+            """
             btn_clear = QPushButton("Clear")
-            btn_clear.setStyleSheet(btn_style)
+            btn_clear.setStyleSheet(btn_clear_style)
             btn_clear.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_clear.setAutoDefault(False)
             btn_clear.clicked.connect(lambda _, e=edit: e.setKeySequence(QKeySequence()))
