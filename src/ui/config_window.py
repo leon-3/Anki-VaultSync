@@ -598,6 +598,7 @@ class ConfigWindow(QDialog):
         sync_cols.setContentsMargins(0, 2, 0, 2)
 
         left_grid = QGridLayout()
+        left_grid.setAlignment(Qt.AlignmentFlag.AlignTop)
         left_grid.setHorizontalSpacing(8)
         left_grid.setVerticalSpacing(12)
         left_grid.setColumnStretch(2, 1)
@@ -624,9 +625,9 @@ class ConfigWindow(QDialog):
         left_grid.addWidget(h_status, 2, 1)
 
         right_grid = QGridLayout()
+        right_grid.setAlignment(Qt.AlignmentFlag.AlignTop)
         right_grid.setHorizontalSpacing(8)
-        # Larger vertical spacing on right because there are only two options
-        right_grid.setVerticalSpacing(26)
+        right_grid.setVerticalSpacing(12)
         right_grid.setColumnStretch(2, 1)
 
         # Row 0, Right: Show Diff Preview Before Updating (Swapped to row 0 alongside backup)
