@@ -488,11 +488,13 @@ class ConfigWindow(QDialog):
             "Specify the local root folder of your Obsidian vault.",
         )
 
+        card_dirs_l.addStretch(1)
         lbl_vault = QLabel("Obsidian Vault Folder: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
         lbl_vault.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_vault.setToolTip(format_tooltip_box("vault_path"))
         lbl_vault.setCursor(Qt.CursorShape.WhatsThisCursor)
         card_dirs_l.addWidget(lbl_vault)
+        card_dirs_l.addSpacing(4)
 
         vault_row = QHBoxLayout()
         vault_row.setSpacing(8)
@@ -510,7 +512,7 @@ class ConfigWindow(QDialog):
         vault_row.addWidget(self.vault_edit, 1)
         vault_row.addWidget(vault_browse)
         card_dirs_l.addLayout(vault_row)
-        card_dirs_l.addStretch()
+        card_dirs_l.addStretch(1)
         top_row.addWidget(card_dirs, stretch=2)
 
         # Right (1/3 width): Ignored Directories & Files
