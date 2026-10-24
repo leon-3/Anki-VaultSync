@@ -123,14 +123,17 @@ def test_config_window_instantiation(tmp_path: Path):
     manager = ProfileConfigManager(config_path=cfg_file)
 
     dlg = ConfigWindow(manager, "TestProfile")
-    assert dlg.tabs.count() == 7
+    dlg.show()
+    assert dlg.tabs.count() == 6
     assert dlg.tabs.tabText(0) == "General && Sync"
     assert dlg.tabs.tabText(1) == "Deck Rules"
     assert dlg.tabs.tabText(2) == "Tag Rules"
     assert dlg.tabs.tabText(3) == "Card Types && Media"
-    assert dlg.tabs.tabText(4) == "Ignored Directories && Files"
-    assert dlg.tabs.tabText(5) == "Deleted Cards"
-    assert dlg.tabs.tabText(6) == "Shortcuts && Logs"
+    assert dlg.tabs.tabText(4) == "Deleted Cards"
+    assert dlg.tabs.tabText(5) == "Shortcuts && Logs"
+    assert dlg.tab_general.isAncestorOf(dlg.ignore_edit)
+    assert dlg.ignore_edit.maximumHeight() == 120
+    assert dlg.freeze_image_occlusions_cb.text() == "Skip Image Occlusion Updates"
     assert dlg.vault_edit is not None
     assert dlg.deck_combo is not None
     assert dlg.basic_model_combo is not None
@@ -282,6 +285,7 @@ def test_config_window_orphans_button_exists(tmp_path: Path):
     cfg_file = tmp_path / "config.json"
     manager = ProfileConfigManager(config_path=cfg_file)
     dlg = ConfigWindow(manager, "TestProfile")
+    dlg.show()
     assert hasattr(dlg, "orphans_btn")
     assert dlg.orphans_btn.text() == "View in Anki Browser"
     dlg.close()
@@ -1237,6 +1241,7 @@ def test_config_window_reactive_vault_edit_preserves_existing_config(tmp_path: P
     manager.save(AddonProfileSettings(profile_name="TestProfile"))
 
     dlg = ConfigWindow(manager, "TestProfile")
+    dlg.show()
     # Initially empty/defaults
     assert dlg.routing_table.rowCount() == 0
 
@@ -1280,6 +1285,7 @@ def test_config_window_prevents_saving_invalid_m2a_toml(tmp_path: Path, monkeypa
     manager.save(AddonProfileSettings(profile_name="TestProfile"))
 
     dlg = ConfigWindow(manager, "TestProfile")
+    dlg.show()
     dlg.vault_edit.setText(str(vault))
     dlg._load_vault_from_path(vault)
 
@@ -1740,3 +1746,63 @@ def test_design_polish_tables_buttons_and_layout(tmp_path: Path, monkeypatch):
         assert btn.icon().isNull(), f"Diff button {btn.text()} has an icon!"
         assert "#2196F3" in btn.styleSheet() or "#1976D2" in btn.styleSheet()
     diff_dlg.close()
+
+
+def test_image_occlusion_status_and_browser_buttons(tmp_path: Path, monkeypatch):
+    from unittest.mock import MagicMock
+    from src.contracts import OcclusionStatus
+    from markdown2anki.constants import CLOZE_TAG, OCCLUSION_TAG
+
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    dlg = ConfigWindow(manager, "TestProfile")
+    dlg.show()
+
+    mock_mw = MagicMock()
+    mock_mw.col = MagicMock()
+    monkeypatch.setattr("src.ui.config_window.mw", mock_mw)
+
+    # 1. Both image and text available
+    occ_status = OcclusionStatus(total=5, awaiting_masks=5, ready_to_unflag=0, image_count=3, text_count=2)
+    monkeypatch.setattr("src.worker.get_occlusion_status", lambda col: occ_status)
+    dlg.set_maintenance_plan(SyncPlan(vault_path=tmp_path, default_deck="Default", file_plans=[]))
+
+    assert not dlg.card_io_maint.isHidden()
+    assert not dlg.view_image_occ_btn.isHidden()
+    assert not dlg.view_text_occ_btn.isHidden()
+    assert "5 note(s) awaiting mask (3 image, 2 text clozes)." in dlg.io_maint_status_label.text()
+
+    # 2. Only image available
+    occ_status_img = OcclusionStatus(total=3, awaiting_masks=3, ready_to_unflag=0, image_count=3, text_count=0)
+    monkeypatch.setattr("src.worker.get_occlusion_status", lambda col: occ_status_img)
+    dlg.set_maintenance_plan(SyncPlan(vault_path=tmp_path, default_deck="Default", file_plans=[]))
+
+    assert not dlg.view_image_occ_btn.isHidden()
+    assert dlg.view_text_occ_btn.isHidden()
+    assert "3 note(s) awaiting mask (3 image clozes)." in dlg.io_maint_status_label.text()
+
+    # 3. Only text available
+    occ_status_txt = OcclusionStatus(total=2, awaiting_masks=2, ready_to_unflag=0, image_count=0, text_count=2)
+    monkeypatch.setattr("src.worker.get_occlusion_status", lambda col: occ_status_txt)
+    dlg.set_maintenance_plan(SyncPlan(vault_path=tmp_path, default_deck="Default", file_plans=[]))
+
+    assert dlg.view_image_occ_btn.isHidden()
+    assert not dlg.view_text_occ_btn.isHidden()
+    assert "2 note(s) awaiting mask (2 text clozes)." in dlg.io_maint_status_label.text()
+
+    # 4. Check browser search queries
+    searched = []
+    mock_browser = MagicMock()
+    mock_browser.search_for = lambda q: searched.append(q)
+    monkeypatch.setattr("src.ui.config_window.dialogs.open", lambda name, parent: mock_browser)
+
+    dlg._on_view_image_occlusions_browser()
+    assert searched[-1] == f"tag:{OCCLUSION_TAG}"
+
+    dlg._on_view_text_occlusions_browser()
+    assert searched[-1] == f"tag:{CLOZE_TAG}"
+
+    dlg._on_view_unmasked_browser()
+    assert searched[-1] == f"tag:{OCCLUSION_TAG}"
+
+    dlg.close()

@@ -177,7 +177,7 @@ def get_occlusion_status(col: Collection) -> OcclusionStatus:
                 awaiting += 1
         except Exception:
             awaiting += 1
-    return OcclusionStatus(total=total, awaiting_masks=awaiting, ready_to_unflag=ready)
+    return OcclusionStatus(total=total, awaiting_masks=awaiting, ready_to_unflag=ready, image_count=len(occ_ids), text_count=len(cloze_ids))
 
 
 def unflag_completed_occlusions(col: Collection, dry_run: bool = False) -> UnflagReport:

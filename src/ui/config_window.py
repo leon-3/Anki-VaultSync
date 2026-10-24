@@ -57,7 +57,7 @@ def _is_deleted(widget: Any) -> bool:
 
 from ..contracts import MissingInAnkiRecord, OrphanNoteRecord, SyncPlan, SyncReport
 from ..worker import build_sync_plan, execute_sync_plan
-from markdown2anki.constants import OCCLUSION_TAG
+from markdown2anki.constants import CLOZE_TAG, OCCLUSION_TAG
 try:
     from aqt.utils import tooltip
 except ImportError:
@@ -367,9 +367,8 @@ class ConfigWindow(QDialog):
     TAB_DECK_RULES = 1
     TAB_TAG_RULES = 2
     TAB_CARD_TYPES = 3
-    TAB_IGNORED_FILES = 4
-    TAB_DELETED_CARDS = 5
-    TAB_SHORTCUTS_LOGS = 6
+    TAB_DELETED_CARDS = 4
+    TAB_SHORTCUTS_LOGS = 5
 
     # Backwards-compatibility aliases
     TAB_DECK_ROUTING = 1
@@ -381,11 +380,12 @@ class ConfigWindow(QDialog):
     TAB_TAG_ALIASING = 2
     TAB_RULES = 3
     TAB_ADVANCED = 3
-    TAB_IGNORED = 4
-    TAB_IGNORED_DIRECTORIES = 4
-    TAB_MAINTENANCE = 5
-    TAB_DELETED = 5
-    TAB_LOGS = 6
+    TAB_IGNORED = 0
+    TAB_IGNORED_FILES = 0
+    TAB_IGNORED_DIRECTORIES = 0
+    TAB_MAINTENANCE = 4
+    TAB_DELETED = 4
+    TAB_LOGS = 5
 
     def __init__(
         self,
@@ -486,7 +486,7 @@ class ConfigWindow(QDialog):
                     or (target in ("deck", "decks", "deck rules", "deck routing", "decks & tags", "routing") and idx == self.TAB_DECK_RULES)
                     or (target in ("tag", "tags", "tag rules", "tag routing", "aliases", "tag aliases") and idx == self.TAB_TAG_RULES)
                     or (target in ("card types", "card types & media", "rules", "media", "custom note type", "custom note types", "note types", "cusotm note type") and idx == self.TAB_CARD_TYPES)
-                    or (target in ("ignore", "ignored", "ignored files", "ignored directories", "ignored directories & files") and idx == self.TAB_IGNORED_FILES)
+                    or (target in ("ignore", "ignored", "ignored files", "ignored directories", "ignored directories & files") and idx == self.TAB_GENERAL)
                     or (target in ("maintenance", "orphans", "deleted", "deleted cards") and idx == self.TAB_DELETED_CARDS)
                     or (target in ("shortcuts", "logs", "shortcuts & logs") and idx == self.TAB_SHORTCUTS_LOGS)
                 ):
@@ -575,6 +575,9 @@ class ConfigWindow(QDialog):
 
         # Tab 1: General && Sync
         self.tab_general = QWidget()
+        self.tab_ignored = self.tab_general
+        self.tab_ignored_files = self.tab_general
+        self.tab_ignored_directories = self.tab_general
         self._init_tab_general()
         self.tabs.addTab(self.tab_general, "General && Sync")
 
@@ -592,27 +595,20 @@ class ConfigWindow(QDialog):
         self._init_tab_tag_rules()
         self.tabs.addTab(self.tab_tag_rules, "Tag Rules")
 
-        # Tab 3: Card Types && Media
+        # Tab 4: Card Types && Media
         self.tab_rules = QWidget()
         self.tab_advanced = self.tab_rules
         self.tab_card_types = self.tab_rules
         self._init_tab_card_types_and_media()
         self.tabs.addTab(self.tab_rules, "Card Types && Media")
 
-        # Tab 5: Ignored Directories && Files
-        self.tab_ignored = QWidget()
-        self.tab_ignored_files = self.tab_ignored
-        self.tab_ignored_directories = self.tab_ignored
-        self._init_tab_ignored_files()
-        self.tabs.addTab(self.tab_ignored, "Ignored Directories && Files")
-
-        # Tab 6: Deleted Cards
+        # Tab 5: Deleted Cards
         self.tab_maintenance = QWidget()
         self.tab_deleted_cards = self.tab_maintenance
         self._init_tab_maintenance()
         self.tabs.addTab(self.tab_maintenance, "Deleted Cards")
 
-        # Tab 7: Shortcuts && Logs
+        # Tab 6: Shortcuts && Logs
         self.tab_logs = QWidget()
         self.tab_shortcuts_logs = self.tab_logs
         self._init_tab_shortcuts_and_logs()
@@ -694,7 +690,11 @@ class ConfigWindow(QDialog):
             }
         """
 
-        # Section 1: Vault Location (Full width, no space between text and input)
+        # Top Row: 2-Column Split (2/3 Vault Location | 1/3 Ignored Files)
+        top_row = QHBoxLayout()
+        top_row.setSpacing(10)
+
+        # Left (2/3 width): Vault Location
         card_dirs, card_dirs_l = _create_section_card(
             "Vault Location",
             "Specify the local root folder of your Obsidian vault.",
@@ -727,7 +727,34 @@ class ConfigWindow(QDialog):
         vault_row.addWidget(self.vault_edit, 1)
         vault_row.addWidget(vault_browse)
         card_dirs_l.addLayout(vault_row)
-        layout.addWidget(card_dirs)
+        card_dirs_l.addStretch(1)
+        top_row.addWidget(card_dirs, stretch=2)
+
+        # Right (1/3 width): Ignored Directories & Files (enlarged text field)
+        card_ign, card_ign_l = _create_section_card(
+            "Ignored Directories & Files",
+            "Skip during scanning (one per line):",
+        )
+        self.ignore_edit = QPlainTextEdit()
+        self.ignore_edit.setPlaceholderText("e.g. .obsidian\ntemplates/*\narchive")
+        self.ignore_edit.setToolTip(format_tooltip_box("ignore"))
+        _dim_placeholder(self.ignore_edit)
+        self.ignore_edit.setFixedHeight(120)
+        self.ignore_edit.setStyleSheet("""
+            QPlainTextEdit {
+                font-family: monospace;
+                font-size: 12px;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
+                padding: 6px;
+                background-color: transparent;
+            }
+        """)
+        self.ignore_edit.textChanged.connect(self._refresh_folder_combos)
+        card_ign_l.addWidget(self.ignore_edit)
+        top_row.addWidget(card_ign, stretch=1)
+
+        layout.addLayout(top_row)
 
         # Section 2: Sync Automation & Safety (2-Column Grid with aligned info icons)
         card_sync, card_sync_l = _create_section_card(
@@ -795,7 +822,7 @@ class ConfigWindow(QDialog):
         # Section 3: Image Occlusions (Only displayed if masks > 0)
         card_io_maint, card_io_maint_l = _create_section_card(
             "Image Occlusion Status in Anki",
-            "Notes with TODO_PROCESS_OCCLUSION awaiting masks or ready to unsuspend.",
+            "Notes with TODO_PROCESS_OCCLUSION or TODO_PROCESS_CLOZES awaiting masks or ready to unsuspend.",
         )
         self.card_io_maint = card_io_maint
         self.io_maint_status_label = QLabel()
@@ -805,11 +832,19 @@ class ConfigWindow(QDialog):
         io_maint_btns = QHBoxLayout()
         io_maint_btns.setSpacing(8)
 
-        self.view_unmasked_maint_btn = QPushButton("View in Anki Browser")
-        self.view_unmasked_maint_btn.setStyleSheet(_BTN_STYLE)
-        self.view_unmasked_maint_btn.setIcon(QIcon())
-        self.view_unmasked_maint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.view_unmasked_maint_btn.clicked.connect(self._on_view_unmasked_browser)
+        self.view_image_occ_btn = QPushButton("View Image Occlusions in Browser")
+        self.view_image_occ_btn.setStyleSheet(_BTN_STYLE)
+        self.view_image_occ_btn.setIcon(QIcon())
+        self.view_image_occ_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.view_image_occ_btn.clicked.connect(self._on_view_image_occlusions_browser)
+
+        self.view_text_occ_btn = QPushButton("View Text Occlusions in Browser")
+        self.view_text_occ_btn.setStyleSheet(_BTN_STYLE)
+        self.view_text_occ_btn.setIcon(QIcon())
+        self.view_text_occ_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.view_text_occ_btn.clicked.connect(self._on_view_text_occlusions_browser)
+
+        self.view_unmasked_maint_btn = self.view_image_occ_btn
 
         self.unflag_maint_btn = QPushButton("Unflag Completed Occlusions Now")
         self.unflag_maint_btn.setStyleSheet(_BTN_STYLE)
@@ -818,7 +853,8 @@ class ConfigWindow(QDialog):
         self.unflag_maint_btn.setEnabled(False)
         self.unflag_maint_btn.clicked.connect(self._on_unflag_maint_clicked)
 
-        io_maint_btns.addWidget(self.view_unmasked_maint_btn)
+        io_maint_btns.addWidget(self.view_image_occ_btn)
+        io_maint_btns.addWidget(self.view_text_occ_btn)
         io_maint_btns.addWidget(self.unflag_maint_btn)
         io_maint_btns.addStretch()
         card_io_maint_l.addLayout(io_maint_btns)
@@ -826,33 +862,6 @@ class ConfigWindow(QDialog):
         card_io_maint.setVisible(False)
 
         layout.addStretch()
-
-    def _init_tab_ignored_files(self) -> None:
-        layout = QVBoxLayout(self.tab_ignored)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(10)
-
-        card_ign, card_ign_l = _create_section_card(
-            "Ignored Directories & Files",
-            "Folders or glob patterns to skip during vault scanning (one per line, e.g. .obsidian, templates/*, archive).",
-        )
-        self.ignore_edit = QPlainTextEdit()
-        self.ignore_edit.setPlaceholderText("e.g. .obsidian\ntemplates/*\narchive")
-        self.ignore_edit.setToolTip(format_tooltip_box("ignore"))
-        _dim_placeholder(self.ignore_edit)
-        self.ignore_edit.setStyleSheet("""
-            QPlainTextEdit {
-                font-family: monospace;
-                font-size: 12px;
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 6px;
-                padding: 10px;
-                background-color: transparent;
-            }
-        """)
-        self.ignore_edit.textChanged.connect(self._refresh_folder_combos)
-        card_ign_l.addWidget(self.ignore_edit, 1)
-        layout.addWidget(card_ign, 1)
 
     def _get_available_vault_folders(self) -> list[str]:
         folders: list[str] = []
@@ -1557,7 +1566,7 @@ class ConfigWindow(QDialog):
         self.auto_unflag_occlusions_cb = QCheckBox("Auto-unflag Completed Occlusions During Sync")
         self.auto_unflag_occlusions_cb.setToolTip(format_tooltip_box("auto_unflag_occlusions"))
 
-        self.freeze_image_occlusions_cb = QCheckBox("Freeze Occlusion Notes (Skip Updates)")
+        self.freeze_image_occlusions_cb = QCheckBox("Skip Image Occlusion Updates")
         self.freeze_image_occlusions_cb.setToolTip(format_tooltip_box("freeze_image_occlusions"))
 
         self.re_stage_cb = QCheckBox("Re-export Existing Occlusion Images")
@@ -1862,15 +1871,34 @@ class ConfigWindow(QDialog):
             if occ_status.total > 0:
                 if hasattr(self, "card_io_maint"):
                     self.card_io_maint.setVisible(True)
+
+                has_image = occ_status.image_count > 0
+                has_text = occ_status.text_count > 0
+
+                if hasattr(self, "view_image_occ_btn"):
+                    self.view_image_occ_btn.setVisible(has_image)
+                    self.view_image_occ_btn.setEnabled(has_image)
+                if hasattr(self, "view_text_occ_btn"):
+                    self.view_text_occ_btn.setVisible(has_text)
+                    self.view_text_occ_btn.setEnabled(has_text)
+
+                breakdown_str = ""
+                if occ_status.image_count > 0 and occ_status.text_count > 0:
+                    breakdown_str = f" ({occ_status.image_count} image, {occ_status.text_count} text clozes)"
+                elif occ_status.image_count > 0:
+                    breakdown_str = f" ({occ_status.image_count} image cloze{'s' if occ_status.image_count != 1 else ''})"
+                elif occ_status.text_count > 0:
+                    breakdown_str = f" ({occ_status.text_count} text cloze{'s' if occ_status.text_count != 1 else ''})"
+
                 if occ_status.ready_to_unflag > 0:
                     self.io_maint_status_label.setText(
-                        f"{occ_status.total} note(s) found with TODO_PROCESS_OCCLUSION ({occ_status.awaiting_masks} awaiting masks, {occ_status.ready_to_unflag} ready to unflag)."
+                        f"{occ_status.total} note(s) found with pending masks/clozes{breakdown_str}: "
+                        f"{occ_status.awaiting_masks} awaiting masks, {occ_status.ready_to_unflag} ready to unflag."
                     )
                 else:
                     self.io_maint_status_label.setText(
-                        f"{occ_status.total} note(s) awaiting masks in Anki."
+                        f"{occ_status.awaiting_masks} note(s) awaiting mask{breakdown_str}."
                     )
-                self.view_unmasked_maint_btn.setEnabled(True)
                 self.unflag_maint_btn.setEnabled(occ_status.ready_to_unflag > 0)
             else:
                 if hasattr(self, "card_io_maint"):
@@ -1879,7 +1907,7 @@ class ConfigWindow(QDialog):
             if hasattr(self, "card_io_maint"):
                 self.card_io_maint.setVisible(False)
 
-    def _on_view_unmasked_browser(self) -> None:
+    def _on_view_image_occlusions_browser(self) -> None:
         if mw is not None and getattr(mw, "col", None) is not None:
             browser = dialogs.open("Browser", mw)
             query = f"tag:{OCCLUSION_TAG}"
@@ -1887,6 +1915,18 @@ class ConfigWindow(QDialog):
                 browser.search_for(query)
             elif hasattr(browser, "search"):
                 browser.search(query)
+
+    def _on_view_text_occlusions_browser(self) -> None:
+        if mw is not None and getattr(mw, "col", None) is not None:
+            browser = dialogs.open("Browser", mw)
+            query = f"tag:{CLOZE_TAG}"
+            if hasattr(browser, "search_for"):
+                browser.search_for(query)
+            elif hasattr(browser, "search"):
+                browser.search(query)
+
+    def _on_view_unmasked_browser(self) -> None:
+        self._on_view_image_occlusions_browser()
 
     def _on_unflag_maint_clicked(self) -> None:
         if mw is not None and getattr(mw, "col", None) is not None:

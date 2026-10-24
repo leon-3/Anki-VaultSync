@@ -25,8 +25,8 @@ TOOLTIPS: dict[str, str] = {
         "This prevents 'Empty Card' review errors while preserving full deck routing and tagging."
     ),
     "freeze_image_occlusions": (
-        "When enabled, once an Image Occlusion card has been synced and flagged, routine syncs will skip it entirely "
-        "and never check for updates."
+        "When enabled, existing Image Occlusion notes in Anki will never be overwritten or updated during routine synchronization. "
+        "This protects your hand-drawn occlusion masks, shapes, and custom card edits in Anki from being modified by changes in Obsidian."
     ),
     "vault_path": (
         "The root directory of your Obsidian or Markdown vault where your flashcard notes are located. "
@@ -131,7 +131,7 @@ TOOLTIP_TITLES: dict[str, str] = {
     "image_occlusion_mode": "Image Occlusion Mode",
     "auto_unflag_occlusions": "Auto-unflag Completed Occlusions",
     "suspend_new_occlusions": "Suspend New Occlusions",
-    "freeze_image_occlusions": "Freeze Occlusion Notes",
+    "freeze_image_occlusions": "Skip Image Occlusion Updates",
     "vault_path": "Vault Directory",
     "occlusion_dir": "Occlusion Directory",
     "default_deck": "Default Target Deck",

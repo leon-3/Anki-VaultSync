@@ -89,6 +89,8 @@ class OcclusionStatus:
     total: int = 0
     awaiting_masks: int = 0
     ready_to_unflag: int = 0
+    image_count: int = 0
+    text_count: int = 0
 
 
 @dataclass
