@@ -57,6 +57,12 @@ def _is_deleted(widget: Any) -> bool:
 
 from ..contracts import MissingInAnkiRecord, OrphanNoteRecord, SyncPlan, SyncReport
 from ..worker import build_sync_plan, execute_sync_plan
+from markdown2anki.constants import OCCLUSION_TAG
+try:
+    from aqt.utils import tooltip
+except ImportError:
+    def tooltip(msg: str, period: int = 3000, parent=None) -> None:
+        pass
 from markdown2anki.flags import write_deleted_flags
 from ..profile_config import AddonProfileSettings, DEFAULT_SHORTCUTS, ProfileConfigManager
 from .help_tooltips import TOOLTIPS, format_tooltip_box
@@ -106,7 +112,11 @@ class HelpBadge(QLabel):
         QToolTip.showText(QCursor.pos(), self.tip_html, self)
 
 
-def _create_section_card(title: str | None = None, subtitle: str | None = None) -> tuple[QFrame, QVBoxLayout]:
+def _create_section_card(
+    title: str | None = None,
+    subtitle: str | None = None,
+    action_widget: QWidget | None = None,
+) -> tuple[QFrame, QVBoxLayout]:
     """Helper creating a modern, rounded card container for grouping settings."""
     card = QFrame()
     card.setObjectName("settingsCard")
@@ -121,7 +131,9 @@ def _create_section_card(title: str | None = None, subtitle: str | None = None) 
     layout.setContentsMargins(16, 14, 16, 16)
     layout.setSpacing(12)
 
-    if title or subtitle:
+    if title or subtitle or action_widget:
+        top_hdr = QHBoxLayout()
+        top_hdr.setSpacing(8)
         header_box = QVBoxLayout()
         header_box.setSpacing(3)
         if title:
@@ -133,7 +145,11 @@ def _create_section_card(title: str | None = None, subtitle: str | None = None) 
             s_lbl.setStyleSheet("font-size: 12px; color: rgba(180, 180, 180, 0.85); border: none; background: transparent;")
             s_lbl.setWordWrap(True)
             header_box.addWidget(s_lbl)
-        layout.addLayout(header_box)
+        top_hdr.addLayout(header_box, 1)
+        if action_widget:
+            action_widget.setParent(card)
+            top_hdr.addWidget(action_widget, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+        layout.addLayout(top_hdr)
         layout.addSpacing(2)
 
     return card, layout
@@ -277,8 +293,12 @@ _TABLE_STYLE = """
         border: none;
     }
     QTableWidget::item:selected, QTableView::item:selected {
-        background-color: rgba(33, 150, 243, 0.25);
-        color: #ffffff;
+        background-color: rgba(255, 255, 255, 0.05);
+        color: palette(window-text);
+    }
+    QTableWidget::item:focus, QTableView::item:focus {
+        background-color: rgba(255, 255, 255, 0.05);
+        outline: none;
     }
     QHeaderView {
         background-color: transparent;
@@ -347,8 +367,9 @@ class ConfigWindow(QDialog):
     TAB_DECK_RULES = 1
     TAB_TAG_RULES = 2
     TAB_CARD_TYPES = 3
-    TAB_DELETED_CARDS = 4
-    TAB_SHORTCUTS_LOGS = 5
+    TAB_IGNORED_FILES = 4
+    TAB_DELETED_CARDS = 5
+    TAB_SHORTCUTS_LOGS = 6
 
     # Backwards-compatibility aliases
     TAB_DECK_ROUTING = 1
@@ -360,9 +381,11 @@ class ConfigWindow(QDialog):
     TAB_TAG_ALIASING = 2
     TAB_RULES = 3
     TAB_ADVANCED = 3
-    TAB_MAINTENANCE = 4
-    TAB_DELETED = 4
-    TAB_LOGS = 5
+    TAB_IGNORED = 4
+    TAB_IGNORED_DIRECTORIES = 4
+    TAB_MAINTENANCE = 5
+    TAB_DELETED = 5
+    TAB_LOGS = 6
 
     def __init__(
         self,
@@ -374,8 +397,8 @@ class ConfigWindow(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("VaultSync Settings")
-        self.resize(680, 620)
-        self.setMinimumWidth(620)
+        self.resize(945, 620)
+        self.setMinimumWidth(860)
         self.setWindowModality(Qt.WindowModality.NonModal)
         self.setStyleSheet("""
             QCheckBox {
@@ -462,8 +485,9 @@ class ConfigWindow(QDialog):
                     or any(w == target for w in clean_text.replace("&", " ").split())
                     or (target in ("deck", "decks", "deck rules", "deck routing", "decks & tags", "routing") and idx == self.TAB_DECK_RULES)
                     or (target in ("tag", "tags", "tag rules", "tag routing", "aliases", "tag aliases") and idx == self.TAB_TAG_RULES)
-                    or (target in ("maintenance", "orphans", "deleted", "deleted cards") and idx == self.TAB_DELETED_CARDS)
                     or (target in ("card types", "card types & media", "rules", "media", "custom note type", "custom note types", "note types", "cusotm note type") and idx == self.TAB_CARD_TYPES)
+                    or (target in ("ignore", "ignored", "ignored files", "ignored directories", "ignored directories & files") and idx == self.TAB_IGNORED_FILES)
+                    or (target in ("maintenance", "orphans", "deleted", "deleted cards") and idx == self.TAB_DELETED_CARDS)
                     or (target in ("shortcuts", "logs", "shortcuts & logs") and idx == self.TAB_SHORTCUTS_LOGS)
                 ):
                     self.tabs.setCurrentIndex(idx)
@@ -575,13 +599,20 @@ class ConfigWindow(QDialog):
         self._init_tab_card_types_and_media()
         self.tabs.addTab(self.tab_rules, "Card Types && Media")
 
-        # Tab 4: Deleted Cards
+        # Tab 5: Ignored Directories && Files
+        self.tab_ignored = QWidget()
+        self.tab_ignored_files = self.tab_ignored
+        self.tab_ignored_directories = self.tab_ignored
+        self._init_tab_ignored_files()
+        self.tabs.addTab(self.tab_ignored, "Ignored Directories && Files")
+
+        # Tab 6: Deleted Cards
         self.tab_maintenance = QWidget()
         self.tab_deleted_cards = self.tab_maintenance
         self._init_tab_maintenance()
         self.tabs.addTab(self.tab_maintenance, "Deleted Cards")
 
-        # Tab 5: Shortcuts && Logs
+        # Tab 7: Shortcuts && Logs
         self.tab_logs = QWidget()
         self.tab_shortcuts_logs = self.tab_logs
         self._init_tab_shortcuts_and_logs()
@@ -663,17 +694,12 @@ class ConfigWindow(QDialog):
             }
         """
 
-        # Top Row: 2-Column Split (2/3 Vault Location | 1/3 Ignored Files)
-        top_row = QHBoxLayout()
-        top_row.setSpacing(10)
-
-        # Left (2/3 width): Vault Location
+        # Section 1: Vault Location (Full width, no space between text and input)
         card_dirs, card_dirs_l = _create_section_card(
             "Vault Location",
             "Specify the local root folder of your Obsidian vault.",
         )
-
-        card_dirs_l.addStretch(1)
+        card_dirs_l.setSpacing(4)
         lbl_vault_row = QHBoxLayout()
         lbl_vault_row.setSpacing(6)
         lbl_vault = QLabel("Obsidian Vault Folder:")
@@ -683,7 +709,6 @@ class ConfigWindow(QDialog):
         lbl_vault_row.addWidget(hint_vault)
         lbl_vault_row.addStretch()
         card_dirs_l.addLayout(lbl_vault_row)
-        card_dirs_l.addSpacing(4)
 
         vault_row = QHBoxLayout()
         vault_row.setSpacing(8)
@@ -696,39 +721,13 @@ class ConfigWindow(QDialog):
         self.vault_edit.editingFinished.connect(lambda: self._load_vault_from_path(self.vault_edit.text()))
         vault_browse = QPushButton("Browse...")
         vault_browse.setStyleSheet(_BTN_STYLE)
+        vault_browse.setIcon(QIcon())
         vault_browse.setCursor(Qt.CursorShape.PointingHandCursor)
         vault_browse.clicked.connect(self._browse_vault)
         vault_row.addWidget(self.vault_edit, 1)
         vault_row.addWidget(vault_browse)
         card_dirs_l.addLayout(vault_row)
-        card_dirs_l.addStretch(1)
-        top_row.addWidget(card_dirs, stretch=2)
-
-        # Right (1/3 width): Ignored Directories & Files
-        card_ign, card_ign_l = _create_section_card(
-            "Ignored Directories & Files",
-            "Skip during scanning (one per line):",
-        )
-        self.ignore_edit = QPlainTextEdit()
-        self.ignore_edit.setPlaceholderText("e.g. .obsidian\ntemplates/*\narchive")
-        self.ignore_edit.setToolTip(format_tooltip_box("ignore"))
-        _dim_placeholder(self.ignore_edit)
-        self.ignore_edit.setFixedHeight(88)
-        self.ignore_edit.setStyleSheet("""
-            QPlainTextEdit {
-                font-family: monospace;
-                font-size: 12px;
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 6px;
-                padding: 6px;
-                background-color: transparent;
-            }
-        """)
-        self.ignore_edit.textChanged.connect(self._refresh_folder_combos)
-        card_ign_l.addWidget(self.ignore_edit)
-        top_row.addWidget(card_ign, stretch=1)
-
-        layout.addLayout(top_row)
+        layout.addWidget(card_dirs)
 
         # Section 2: Sync Automation & Safety (2-Column Grid with aligned info icons)
         card_sync, card_sync_l = _create_section_card(
@@ -792,7 +791,68 @@ class ConfigWindow(QDialog):
 
         card_sync_l.addLayout(sync_cols)
         layout.addWidget(card_sync)
+
+        # Section 3: Image Occlusions (Only displayed if masks > 0)
+        card_io_maint, card_io_maint_l = _create_section_card(
+            "Image Occlusion Status in Anki",
+            "Notes with TODO_PROCESS_OCCLUSION awaiting masks or ready to unsuspend.",
+        )
+        self.card_io_maint = card_io_maint
+        self.io_maint_status_label = QLabel()
+        self.io_maint_status_label.setStyleSheet("font-size: 12px; font-weight: 600;")
+        card_io_maint_l.addWidget(self.io_maint_status_label)
+
+        io_maint_btns = QHBoxLayout()
+        io_maint_btns.setSpacing(8)
+
+        self.view_unmasked_maint_btn = QPushButton("View in Anki Browser")
+        self.view_unmasked_maint_btn.setStyleSheet(_BTN_STYLE)
+        self.view_unmasked_maint_btn.setIcon(QIcon())
+        self.view_unmasked_maint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.view_unmasked_maint_btn.clicked.connect(self._on_view_unmasked_browser)
+
+        self.unflag_maint_btn = QPushButton("Unflag Completed Occlusions Now")
+        self.unflag_maint_btn.setStyleSheet(_BTN_STYLE)
+        self.unflag_maint_btn.setIcon(QIcon())
+        self.unflag_maint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.unflag_maint_btn.setEnabled(False)
+        self.unflag_maint_btn.clicked.connect(self._on_unflag_maint_clicked)
+
+        io_maint_btns.addWidget(self.view_unmasked_maint_btn)
+        io_maint_btns.addWidget(self.unflag_maint_btn)
+        io_maint_btns.addStretch()
+        card_io_maint_l.addLayout(io_maint_btns)
+        layout.addWidget(card_io_maint)
+        card_io_maint.setVisible(False)
+
         layout.addStretch()
+
+    def _init_tab_ignored_files(self) -> None:
+        layout = QVBoxLayout(self.tab_ignored)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(10)
+
+        card_ign, card_ign_l = _create_section_card(
+            "Ignored Directories & Files",
+            "Folders or glob patterns to skip during vault scanning (one per line, e.g. .obsidian, templates/*, archive).",
+        )
+        self.ignore_edit = QPlainTextEdit()
+        self.ignore_edit.setPlaceholderText("e.g. .obsidian\ntemplates/*\narchive")
+        self.ignore_edit.setToolTip(format_tooltip_box("ignore"))
+        _dim_placeholder(self.ignore_edit)
+        self.ignore_edit.setStyleSheet("""
+            QPlainTextEdit {
+                font-family: monospace;
+                font-size: 12px;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
+                padding: 10px;
+                background-color: transparent;
+            }
+        """)
+        self.ignore_edit.textChanged.connect(self._refresh_folder_combos)
+        card_ign_l.addWidget(self.ignore_edit, 1)
+        layout.addWidget(card_ign, 1)
 
     def _get_available_vault_folders(self) -> list[str]:
         folders: list[str] = []
@@ -1703,21 +1763,26 @@ class ConfigWindow(QDialog):
         self.missing_table.setStyleSheet(_TABLE_STYLE)
         card_del_l.addWidget(self.missing_table)
 
+        card_del_l.addSpacing(14)  # Generous padding so buttons are cleanly separated below table
+
         action_row = QHBoxLayout()
         action_row.setSpacing(8)
 
         self.mark_deleted_btn = QPushButton("Mark Selected as DELETED in Obsidian")
         self.mark_deleted_btn.setStyleSheet(_BTN_STYLE)
+        self.mark_deleted_btn.setIcon(QIcon())
         self.mark_deleted_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.mark_deleted_btn.clicked.connect(self._on_mark_missing_deleted)
 
         self.resync_missing_btn = QPushButton("Resync / Recreate Selected in Anki")
         self.resync_missing_btn.setStyleSheet(_BTN_STYLE)
+        self.resync_missing_btn.setIcon(QIcon())
         self.resync_missing_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.resync_missing_btn.clicked.connect(self._on_resync_missing)
 
         refresh_maint_btn = QPushButton("Refresh Scan")
         refresh_maint_btn.setStyleSheet(_BTN_STYLE)
+        refresh_maint_btn.setIcon(QIcon())
         refresh_maint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_maint_btn.clicked.connect(self._refresh_maintenance_data)
 
@@ -1727,35 +1792,6 @@ class ConfigWindow(QDialog):
         action_row.addStretch()
         card_del_l.addLayout(action_row)
         layout.addWidget(card_del)
-
-        # Section 3: Image Occlusions
-        card_io_maint, card_io_maint_l = _create_section_card(
-            "Image Occlusion Status in Anki",
-            "Notes with TODO_PROCESS_OCCLUSION awaiting masks or ready to unsuspend.",
-        )
-        self.io_maint_status_label = QLabel("0 image occlusion note(s) awaiting masks.")
-        self.io_maint_status_label.setStyleSheet("font-size: 12px; font-weight: 600;")
-        card_io_maint_l.addWidget(self.io_maint_status_label)
-
-        io_maint_btns = QHBoxLayout()
-        io_maint_btns.setSpacing(8)
-
-        self.view_unmasked_maint_btn = QPushButton("View in Anki Browser")
-        self.view_unmasked_maint_btn.setStyleSheet(_BTN_STYLE)
-        self.view_unmasked_maint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.view_unmasked_maint_btn.clicked.connect(self._on_view_unmasked_browser)
-
-        self.unflag_maint_btn = QPushButton("Unflag Completed Occlusions Now")
-        self.unflag_maint_btn.setStyleSheet(_BTN_STYLE)
-        self.unflag_maint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.unflag_maint_btn.setEnabled(False)
-        self.unflag_maint_btn.clicked.connect(self._on_unflag_maint_clicked)
-
-        io_maint_btns.addWidget(self.view_unmasked_maint_btn)
-        io_maint_btns.addWidget(self.unflag_maint_btn)
-        io_maint_btns.addStretch()
-        card_io_maint_l.addLayout(io_maint_btns)
-        layout.addWidget(card_io_maint)
 
         layout.addStretch()
 
@@ -1819,11 +1855,13 @@ class ConfigWindow(QDialog):
         self.mark_deleted_btn.setEnabled(count_missing > 0)
         self.resync_missing_btn.setEnabled(count_missing > 0)
 
-        # Section 3: Image Occlusions
+        # Section: Image Occlusions (Only display if masks > 0)
         if mw is not None and getattr(mw, "col", None) is not None:
             from ..worker import get_occlusion_status
             occ_status = get_occlusion_status(mw.col)
             if occ_status.total > 0:
+                if hasattr(self, "card_io_maint"):
+                    self.card_io_maint.setVisible(True)
                 if occ_status.ready_to_unflag > 0:
                     self.io_maint_status_label.setText(
                         f"{occ_status.total} note(s) found with TODO_PROCESS_OCCLUSION ({occ_status.awaiting_masks} awaiting masks, {occ_status.ready_to_unflag} ready to unflag)."
@@ -1832,15 +1870,23 @@ class ConfigWindow(QDialog):
                     self.io_maint_status_label.setText(
                         f"{occ_status.total} note(s) awaiting masks in Anki."
                     )
+                self.view_unmasked_maint_btn.setEnabled(True)
+                self.unflag_maint_btn.setEnabled(occ_status.ready_to_unflag > 0)
             else:
-                self.io_maint_status_label.setText("No image occlusion notes awaiting masks in Anki.")
-            self.view_unmasked_maint_btn.setEnabled(occ_status.total > 0)
-            self.unflag_maint_btn.setEnabled(occ_status.ready_to_unflag > 0)
+                if hasattr(self, "card_io_maint"):
+                    self.card_io_maint.setVisible(False)
+        else:
+            if hasattr(self, "card_io_maint"):
+                self.card_io_maint.setVisible(False)
 
     def _on_view_unmasked_browser(self) -> None:
         if mw is not None and getattr(mw, "col", None) is not None:
             browser = dialogs.open("Browser", mw)
-            browser.search_for(f"tag:{OCCLUSION_TAG}")
+            query = f"tag:{OCCLUSION_TAG}"
+            if hasattr(browser, "search_for"):
+                browser.search_for(query)
+            elif hasattr(browser, "search"):
+                browser.search(query)
 
     def _on_unflag_maint_clicked(self) -> None:
         if mw is not None and getattr(mw, "col", None) is not None:
@@ -2179,15 +2225,22 @@ class ConfigWindow(QDialog):
             }
         """
 
-        # Section 1: Keyboard Shortcuts
+        btn_reset_sc = QPushButton("Reset Shortcuts to Defaults")
+        btn_reset_sc.setStyleSheet(_BTN_STYLE)
+        btn_reset_sc.setIcon(QIcon())
+        btn_reset_sc.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_reset_sc.clicked.connect(self._reset_shortcuts_to_defaults)
+
+        # Section 1: Keyboard Shortcuts (Reset button in top right corner next to heading)
         card_sc, card_sc_l = _create_section_card(
             "Keyboard Shortcuts",
             "Configure global shortcuts for VaultSync operations.",
+            action_widget=btn_reset_sc,
         )
 
         grid_sc = QGridLayout()
         grid_sc.setContentsMargins(0, 2, 0, 2)
-        grid_sc.setHorizontalSpacing(10)
+        grid_sc.setHorizontalSpacing(4)
         grid_sc.setVerticalSpacing(4)
 
         btn_clear_style = _BTN_CLEAR_STYLE
@@ -2204,9 +2257,11 @@ class ConfigWindow(QDialog):
         self.sc_dash_edit.setToolTip(format_tooltip_box("shortcuts_open_dashboard"))
         btn_c_dash = QPushButton("Clear")
         btn_c_dash.setStyleSheet(btn_clear_style)
+        btn_c_dash.setIcon(QIcon())
         btn_c_dash.clicked.connect(lambda: self.sc_dash_edit.setKeySequence(QKeySequence()))
         r_dash = QHBoxLayout()
         r_dash.addWidget(self.sc_dash_edit)
+        r_dash.addSpacing(4)
         r_dash.addWidget(btn_c_dash)
         grid_sc.addLayout(r_dash, 0, 1)
 
@@ -2227,9 +2282,11 @@ class ConfigWindow(QDialog):
         self.sc_quick_edit.setToolTip(format_tooltip_box("shortcuts_quick_sync"))
         btn_c_quick = QPushButton("Clear")
         btn_c_quick.setStyleSheet(btn_clear_style)
+        btn_c_quick.setIcon(QIcon())
         btn_c_quick.clicked.connect(lambda: self.sc_quick_edit.setKeySequence(QKeySequence()))
         r_quick = QHBoxLayout()
         r_quick.addWidget(self.sc_quick_edit)
+        r_quick.addSpacing(4)
         r_quick.addWidget(btn_c_quick)
         grid_sc.addLayout(r_quick, 2, 1)
 
@@ -2250,9 +2307,11 @@ class ConfigWindow(QDialog):
         self.sc_full_edit.setToolTip(format_tooltip_box("shortcuts_full_sync"))
         btn_c_full = QPushButton("Clear")
         btn_c_full.setStyleSheet(btn_clear_style)
+        btn_c_full.setIcon(QIcon())
         btn_c_full.clicked.connect(lambda: self.sc_full_edit.setKeySequence(QKeySequence()))
         r_full = QHBoxLayout()
         r_full.addWidget(self.sc_full_edit)
+        r_full.addSpacing(4)
         r_full.addWidget(btn_c_full)
         grid_sc.addLayout(r_full, 4, 1)
 
@@ -2265,15 +2324,6 @@ class ConfigWindow(QDialog):
         sc_container.addLayout(grid_sc)
         sc_container.addStretch()
         card_sc_l.addLayout(sc_container)
-
-        btn_reset_sc = QPushButton("Reset Shortcuts to Defaults")
-        btn_reset_sc.setStyleSheet(_BTN_STYLE)
-        btn_reset_sc.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_reset_sc.clicked.connect(self._reset_shortcuts_to_defaults)
-        r_rst = QHBoxLayout()
-        r_rst.addWidget(btn_reset_sc)
-        r_rst.addStretch()
-        card_sc_l.addLayout(r_rst)
         layout.addWidget(card_sc)
 
         self.sc_dash_edit.keySequenceChanged.connect(self._validate_shortcuts)
@@ -2903,14 +2953,22 @@ class ConfigWindow(QDialog):
     def _confirm_discard_changes(self) -> bool:
         if not self._has_unsaved_changes():
             return True
-        reply = QMessageBox.question(
-            self,
-            "Unsaved Changes",
-            "You have unsaved changes in Settings.\n\nDo you want to discard your changes and close?",
-            QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        return reply == QMessageBox.StandardButton.Discard
+        box = QMessageBox(self)
+        box.setWindowTitle("Unsaved Changes")
+        box.setText("You have unsaved changes in Settings.\n\nDo you want to discard your changes and close?")
+        box.setIcon(QMessageBox.Icon.NoIcon)
+        discard_btn = box.addButton(QMessageBox.StandardButton.Discard)
+        cancel_btn = box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(cancel_btn)
+        for btn in box.buttons():
+            btn.setIcon(QIcon())
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            if btn == discard_btn:
+                btn.setStyleSheet(_BTN_DANGER_STYLE)
+            else:
+                btn.setStyleSheet(_BTN_STYLE)
+        res = box.exec()
+        return box.clickedButton() == discard_btn or res == QMessageBox.StandardButton.Discard
 
     def reject(self) -> None:
         if not self._confirm_discard_changes():

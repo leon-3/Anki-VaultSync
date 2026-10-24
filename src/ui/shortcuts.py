@@ -215,6 +215,7 @@ class ShortcutConfigWidget(QWidget):
             btn_clear.clicked.connect(lambda _, e=edit: e.setKeySequence(QKeySequence()))
 
             row.addWidget(edit)
+            row.addSpacing(4)
             row.addWidget(btn_clear)
             row.addStretch()
             layout.addLayout(row)

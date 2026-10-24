@@ -123,13 +123,14 @@ def test_config_window_instantiation(tmp_path: Path):
     manager = ProfileConfigManager(config_path=cfg_file)
 
     dlg = ConfigWindow(manager, "TestProfile")
-    assert dlg.tabs.count() == 6
+    assert dlg.tabs.count() == 7
     assert dlg.tabs.tabText(0) == "General && Sync"
     assert dlg.tabs.tabText(1) == "Deck Rules"
     assert dlg.tabs.tabText(2) == "Tag Rules"
     assert dlg.tabs.tabText(3) == "Card Types && Media"
-    assert dlg.tabs.tabText(4) == "Deleted Cards"
-    assert dlg.tabs.tabText(5) == "Shortcuts && Logs"
+    assert dlg.tabs.tabText(4) == "Ignored Directories && Files"
+    assert dlg.tabs.tabText(5) == "Deleted Cards"
+    assert dlg.tabs.tabText(6) == "Shortcuts && Logs"
     assert dlg.vault_edit is not None
     assert dlg.deck_combo is not None
     assert dlg.basic_model_combo is not None
@@ -144,7 +145,7 @@ def test_config_window_instantiation(tmp_path: Path):
     assert dlg.missing_table is not None
     assert dlg.mark_deleted_btn is not None
     assert dlg.resync_missing_btn is not None
-    assert dlg.tab_general.isAncestorOf(dlg.ignore_edit)
+    assert dlg.tab_ignored.isAncestorOf(dlg.ignore_edit)
     assert dlg.routing_table.maximumHeight() == dlg.alias_table.maximumHeight()
     assert dlg.delete_orphans_btn.isEnabled() is False
     dlg.close()
@@ -1531,8 +1532,8 @@ def test_ui_refinements_summaries_io_hint_and_diff_dialog(tmp_path: Path):
     manager = ProfileConfigManager(config_path=cfg_file)
     dlg = ConfigWindow(manager, "RefinementsProfile")
 
-    # 1. Compact ignore_edit height
-    assert dlg.ignore_edit.maximumHeight() == 88
+    # 1. Ignored files fills space on its own tab
+    assert dlg.tab_ignored.isAncestorOf(dlg.ignore_edit)
 
     # 2. Deck Rules and Tag Rules summary sentences
     deck_labels = [w.text() for w in dlg.tab_deck_rules.findChildren(qt.QLabel)]
@@ -1666,9 +1667,9 @@ def test_design_polish_tables_buttons_and_layout(tmp_path: Path, monkeypatch):
 
     dlg = ConfigWindow(manager, "DesignTestProfile")
 
-    # 1. Check window width is shorter
-    assert dlg.width() <= 680
-    assert dlg.minimumWidth() == 620
+    # 1. Check window width is 1.388x wider
+    assert dlg.width() >= 940
+    assert dlg.minimumWidth() == 860
 
     # 2. Check tab switching with "custom note type"
     dlg.switch_to_tab("custom note type")

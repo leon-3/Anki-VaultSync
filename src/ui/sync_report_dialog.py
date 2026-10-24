@@ -60,8 +60,12 @@ _TABLE_STYLE = """
         border: none;
     }
     QTableView::item:selected {
-        background-color: rgba(33, 150, 243, 0.25);
-        color: #ffffff;
+        background-color: rgba(255, 255, 255, 0.05);
+        color: palette(window-text);
+    }
+    QTableView::item:focus {
+        background-color: rgba(255, 255, 255, 0.05);
+        outline: none;
     }
     QHeaderView {
         background-color: transparent;
