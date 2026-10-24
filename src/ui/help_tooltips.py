@@ -50,8 +50,8 @@ TOOLTIPS: dict[str, str] = {
         "Numbers inside words or decimals (e.g. '2D', 'v1.2') are preserved."
     ),
     "hash_media": (
-        "Renames embedded images using a deterministic 8-character lowercase hex hash (e.g. 472d6b17_01.png). "
-        "This prevents filename collisions and case-sensitivity issues across multiple devices."
+        "Anki stores all media files in a single shared folder. Enabling this gives each image a unique name based on its content, "
+        "preventing different images with the same filename (e.g. 'image.png') from accidentally overwriting each other."
     ),
     "cloze_notes": (
         "When enabled, questions titled 'Cloze' with {{c1::...}} markers are converted into native Anki Cloze "
@@ -137,7 +137,7 @@ TOOLTIP_TITLES: dict[str, str] = {
     "default_deck": "Default Target Deck",
     "base_tag": "Base Tag Prefix",
     "pad_single_digit_tags": "Pad Single-Digit Tags",
-    "hash_media": "Deterministic Media Hashing",
+    "hash_media": "Unique Image Names",
     "cloze_notes": "Convert Cloze Questions",
     "re_stage_occlusions": "Re-export Occlusions",
     "show_diff_before_update": "Interactive Diff Preview",

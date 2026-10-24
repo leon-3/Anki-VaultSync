@@ -132,8 +132,10 @@ def test_config_window_instantiation(tmp_path: Path):
     assert dlg.tabs.tabText(4) == "Deleted Cards"
     assert dlg.tabs.tabText(5) == "Shortcuts && Logs"
     assert dlg.tab_general.isAncestorOf(dlg.ignore_edit)
-    assert dlg.ignore_edit.maximumHeight() == 120
+    assert dlg.ignore_edit.maximumHeight() == 104
     assert dlg.freeze_image_occlusions_cb.text() == "Skip Image Occlusion Updates"
+    assert "Unique Image Names" in dlg.hash_media_cb.text()
+    assert hasattr(dlg, "hint_dash") and hasattr(dlg, "hint_quick") and hasattr(dlg, "hint_full")
     assert dlg.vault_edit is not None
     assert dlg.deck_combo is not None
     assert dlg.basic_model_combo is not None

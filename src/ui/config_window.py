@@ -739,7 +739,7 @@ class ConfigWindow(QDialog):
         self.ignore_edit.setPlaceholderText("e.g. .obsidian\ntemplates/*\narchive")
         self.ignore_edit.setToolTip(format_tooltip_box("ignore"))
         _dim_placeholder(self.ignore_edit)
-        self.ignore_edit.setFixedHeight(120)
+        self.ignore_edit.setFixedHeight(104)
         self.ignore_edit.setStyleSheet("""
             QPlainTextEdit {
                 font-family: monospace;
@@ -752,6 +752,7 @@ class ConfigWindow(QDialog):
         """)
         self.ignore_edit.textChanged.connect(self._refresh_folder_combos)
         card_ign_l.addWidget(self.ignore_edit)
+        card_ign_l.addStretch(1)
         top_row.addWidget(card_ign, stretch=1)
 
         layout.addLayout(top_row)
@@ -819,9 +820,9 @@ class ConfigWindow(QDialog):
         card_sync_l.addLayout(sync_cols)
         layout.addWidget(card_sync)
 
-        # Section 3: Image Occlusions (Only displayed if masks > 0)
+        # Section 3: Occlusions (Only displayed if masks > 0)
         card_io_maint, card_io_maint_l = _create_section_card(
-            "Image Occlusion Status in Anki",
+            "Occlusion Status in Anki",
             "Notes with TODO_PROCESS_OCCLUSION or TODO_PROCESS_CLOZES awaiting masks or ready to unsuspend.",
         )
         self.card_io_maint = card_io_maint
@@ -1605,10 +1606,10 @@ class ConfigWindow(QDialog):
         # Section 3: Media & Note Type Bindings
         card_bind, card_bind_l = _create_section_card(
             "Media & Custom Note Types",
-            "Manage deterministic image hashing and optional custom Anki note type bindings.",
+            "Manage image naming safety and optional custom Anki note type bindings.",
         )
 
-        self.hash_media_cb = QCheckBox("Hash Media (Rename images with deterministic 8-character hex hash)")
+        self.hash_media_cb = QCheckBox("Unique Image Names (Prevent Overwriting in Anki)")
         self.hash_media_cb.setToolTip(format_tooltip_box("hash_media"))
         card_bind_l.addLayout(_wrap_with_info(self.hash_media_cb, "hash_media"))
 
@@ -2280,26 +2281,34 @@ class ConfigWindow(QDialog):
 
         grid_sc = QGridLayout()
         grid_sc.setContentsMargins(0, 2, 0, 2)
-        grid_sc.setHorizontalSpacing(4)
+        grid_sc.setHorizontalSpacing(8)
         grid_sc.setVerticalSpacing(4)
 
         btn_clear_style = _BTN_CLEAR_STYLE
 
         # 1. Dash
-        lbl_dash = QLabel("Open Dashboard: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        lbl_dash = QLabel("Open Dashboard:")
         lbl_dash.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_dash.setToolTip(format_tooltip_box("shortcuts_open_dashboard"))
-        lbl_dash.setCursor(Qt.CursorShape.WhatsThisCursor)
         grid_sc.addWidget(lbl_dash, 0, 0)
+
         self.sc_dash_edit = QKeySequenceEdit()
         self.sc_dash_edit.setStyleSheet(input_style)
         self.sc_dash_edit.setMaximumWidth(170)
         self.sc_dash_edit.setToolTip(format_tooltip_box("shortcuts_open_dashboard"))
+
         btn_c_dash = QPushButton("Clear")
         btn_c_dash.setStyleSheet(btn_clear_style)
         btn_c_dash.setIcon(QIcon())
         btn_c_dash.clicked.connect(lambda: self.sc_dash_edit.setKeySequence(QKeySequence()))
+
+        self.hint_dash = InfoHintLabel("shortcuts_open_dashboard")
+
         r_dash = QHBoxLayout()
+        r_dash.setContentsMargins(0, 0, 0, 0)
+        r_dash.setSpacing(0)
+        r_dash.addWidget(self.hint_dash)
+        r_dash.addSpacing(8)
         r_dash.addWidget(self.sc_dash_edit)
         r_dash.addSpacing(4)
         r_dash.addWidget(btn_c_dash)
@@ -2311,20 +2320,28 @@ class ConfigWindow(QDialog):
         grid_sc.addWidget(self.sc_dash_warn, 1, 1)
 
         # 2. Quick
-        lbl_quick = QLabel("Quick Sync (New): &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        lbl_quick = QLabel("Quick Sync (New):")
         lbl_quick.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_quick.setToolTip(format_tooltip_box("shortcuts_quick_sync"))
-        lbl_quick.setCursor(Qt.CursorShape.WhatsThisCursor)
         grid_sc.addWidget(lbl_quick, 2, 0)
+
         self.sc_quick_edit = QKeySequenceEdit()
         self.sc_quick_edit.setStyleSheet(input_style)
         self.sc_quick_edit.setMaximumWidth(170)
         self.sc_quick_edit.setToolTip(format_tooltip_box("shortcuts_quick_sync"))
+
         btn_c_quick = QPushButton("Clear")
         btn_c_quick.setStyleSheet(btn_clear_style)
         btn_c_quick.setIcon(QIcon())
         btn_c_quick.clicked.connect(lambda: self.sc_quick_edit.setKeySequence(QKeySequence()))
+
+        self.hint_quick = InfoHintLabel("shortcuts_quick_sync")
+
         r_quick = QHBoxLayout()
+        r_quick.setContentsMargins(0, 0, 0, 0)
+        r_quick.setSpacing(0)
+        r_quick.addWidget(self.hint_quick)
+        r_quick.addSpacing(8)
         r_quick.addWidget(self.sc_quick_edit)
         r_quick.addSpacing(4)
         r_quick.addWidget(btn_c_quick)
@@ -2336,20 +2353,28 @@ class ConfigWindow(QDialog):
         grid_sc.addWidget(self.sc_quick_warn, 3, 1)
 
         # 3. Full
-        lbl_full = QLabel("Sync and Update: &nbsp;&nbsp;<span style='color: rgba(180, 180, 180, 0.45); font-size: 11px;'>ⓘ</span>")
+        lbl_full = QLabel("Sync and Update:")
         lbl_full.setStyleSheet("font-size: 12px; font-weight: 600; color: rgba(220, 220, 220, 0.95);")
         lbl_full.setToolTip(format_tooltip_box("shortcuts_full_sync"))
-        lbl_full.setCursor(Qt.CursorShape.WhatsThisCursor)
         grid_sc.addWidget(lbl_full, 4, 0)
+
         self.sc_full_edit = QKeySequenceEdit()
         self.sc_full_edit.setStyleSheet(input_style)
         self.sc_full_edit.setMaximumWidth(170)
         self.sc_full_edit.setToolTip(format_tooltip_box("shortcuts_full_sync"))
+
         btn_c_full = QPushButton("Clear")
         btn_c_full.setStyleSheet(btn_clear_style)
         btn_c_full.setIcon(QIcon())
         btn_c_full.clicked.connect(lambda: self.sc_full_edit.setKeySequence(QKeySequence()))
+
+        self.hint_full = InfoHintLabel("shortcuts_full_sync")
+
         r_full = QHBoxLayout()
+        r_full.setContentsMargins(0, 0, 0, 0)
+        r_full.setSpacing(0)
+        r_full.addWidget(self.hint_full)
+        r_full.addSpacing(8)
         r_full.addWidget(self.sc_full_edit)
         r_full.addSpacing(4)
         r_full.addWidget(btn_c_full)
