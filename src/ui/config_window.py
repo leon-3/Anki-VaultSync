@@ -35,6 +35,7 @@ from aqt.qt import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -165,6 +166,9 @@ class InfoHintLabel(QLabel):
         super().__init__("ⓘ", parent)
         self.setToolTip(format_tooltip_box(tooltip_key))
         self.setCursor(Qt.CursorShape.WhatsThisCursor)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.setFixedWidth(16)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setStyleSheet("""
             QLabel {
                 font-size: 11px;
@@ -1573,34 +1577,42 @@ class ConfigWindow(QDialog):
         self.re_stage_cb = QCheckBox("Re-export Existing Occlusion Images")
         self.re_stage_cb.setToolTip(format_tooltip_box("re_stage_occlusions"))
 
-        grid_io_opts = QGridLayout()
-        grid_io_opts.setContentsMargins(0, 4, 0, 0)
-        grid_io_opts.setHorizontalSpacing(20)
-        grid_io_opts.setVerticalSpacing(8)
+        io_cols = QHBoxLayout()
+        io_cols.setContentsMargins(0, 4, 0, 0)
 
-        grid_io_opts.addLayout(
-            _wrap_with_info(self.suspend_new_occlusions_cb, "suspend_new_occlusions", add_stretch=False),
-            0,
-            0,
-        )
-        grid_io_opts.addLayout(
-            _wrap_with_info(self.auto_unflag_occlusions_cb, "auto_unflag_occlusions", add_stretch=False),
-            0,
-            1,
-        )
-        grid_io_opts.addLayout(
-            _wrap_with_info(self.freeze_image_occlusions_cb, "freeze_image_occlusions", add_stretch=False),
-            1,
-            0,
-        )
-        grid_io_opts.addLayout(
-            _wrap_with_info(self.re_stage_cb, "re_stage_occlusions", add_stretch=False),
-            1,
-            1,
-        )
-        grid_io_opts.setColumnStretch(0, 1)
-        grid_io_opts.setColumnStretch(1, 1)
-        card_io_l.addLayout(grid_io_opts)
+        left_io_grid = QGridLayout()
+        left_io_grid.setAlignment(Qt.AlignmentFlag.AlignTop)
+        left_io_grid.setHorizontalSpacing(8)
+        left_io_grid.setVerticalSpacing(8)
+        left_io_grid.setColumnStretch(2, 1)
+
+        self.h_suspend = InfoHintLabel("suspend_new_occlusions")
+        left_io_grid.addWidget(self.suspend_new_occlusions_cb, 0, 0)
+        left_io_grid.addWidget(self.h_suspend, 0, 1)
+
+        self.h_freeze = InfoHintLabel("freeze_image_occlusions")
+        left_io_grid.addWidget(self.freeze_image_occlusions_cb, 1, 0)
+        left_io_grid.addWidget(self.h_freeze, 1, 1)
+
+        right_io_grid = QGridLayout()
+        right_io_grid.setAlignment(Qt.AlignmentFlag.AlignTop)
+        right_io_grid.setHorizontalSpacing(8)
+        right_io_grid.setVerticalSpacing(8)
+        right_io_grid.setColumnStretch(2, 1)
+
+        self.h_unflag = InfoHintLabel("auto_unflag_occlusions")
+        right_io_grid.addWidget(self.auto_unflag_occlusions_cb, 0, 0)
+        right_io_grid.addWidget(self.h_unflag, 0, 1)
+
+        self.h_restage = InfoHintLabel("re_stage_occlusions")
+        right_io_grid.addWidget(self.re_stage_cb, 1, 0)
+        right_io_grid.addWidget(self.h_restage, 1, 1)
+
+        io_cols.addLayout(left_io_grid, 1)
+        io_cols.addSpacing(32)
+        io_cols.addLayout(right_io_grid, 1)
+
+        card_io_l.addLayout(io_cols)
         layout.addWidget(card_io)
 
         # Section 3: Media & Note Type Bindings
@@ -2312,6 +2324,7 @@ class ConfigWindow(QDialog):
         r_dash.addWidget(self.sc_dash_edit)
         r_dash.addSpacing(4)
         r_dash.addWidget(btn_c_dash)
+        r_dash.addStretch(1)
         grid_sc.addLayout(r_dash, 0, 1)
 
         self.sc_dash_warn = QLabel()
@@ -2345,6 +2358,7 @@ class ConfigWindow(QDialog):
         r_quick.addWidget(self.sc_quick_edit)
         r_quick.addSpacing(4)
         r_quick.addWidget(btn_c_quick)
+        r_quick.addStretch(1)
         grid_sc.addLayout(r_quick, 2, 1)
 
         self.sc_quick_warn = QLabel()
@@ -2378,6 +2392,7 @@ class ConfigWindow(QDialog):
         r_full.addWidget(self.sc_full_edit)
         r_full.addSpacing(4)
         r_full.addWidget(btn_c_full)
+        r_full.addStretch(1)
         grid_sc.addLayout(r_full, 4, 1)
 
         self.sc_full_warn = QLabel()

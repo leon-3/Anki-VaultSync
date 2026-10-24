@@ -1808,3 +1808,31 @@ def test_image_occlusion_status_and_browser_buttons(tmp_path: Path, monkeypatch)
     assert searched[-1] == f"tag:{OCCLUSION_TAG}"
 
     dlg.close()
+
+
+def test_shortcuts_and_image_occlusion_alignment(tmp_path):
+    cfg_file = tmp_path / "config.json"
+    manager = ProfileConfigManager(config_path=cfg_file)
+    dlg = ConfigWindow(manager, "TestProfile")
+    dlg.switch_to_tab("Shortcuts & Logs")
+    dlg.show()
+    app.processEvents()
+
+    # 1. Shortcuts: Info buttons and edits start at same x, with 8px spacing
+    assert dlg.hint_dash.x() == dlg.hint_quick.x() == dlg.hint_full.x()
+    assert dlg.sc_dash_edit.x() == dlg.sc_quick_edit.x() == dlg.sc_full_edit.x()
+    dist = dlg.sc_dash_edit.x() - (dlg.hint_dash.x() + dlg.hint_dash.width())
+    assert dist == 8
+
+    # 2. Image Occlusion Settings: Information badges are aligned vertically per column
+    dlg.switch_to_tab("Card Types & Media")
+    app.processEvents()
+    x_suspend = dlg.h_suspend.mapTo(dlg, dlg.h_suspend.pos()).x()
+    x_freeze = dlg.h_freeze.mapTo(dlg, dlg.h_freeze.pos()).x()
+    x_unflag = dlg.h_unflag.mapTo(dlg, dlg.h_unflag.pos()).x()
+    x_restage = dlg.h_restage.mapTo(dlg, dlg.h_restage.pos()).x()
+
+    assert x_suspend == x_freeze
+    assert x_unflag == x_restage
+
+    dlg.close()
