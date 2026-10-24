@@ -3,9 +3,9 @@
 [![Release](https://img.shields.io/badge/version-1.0.0-blue?style=flat-square)](https://github.com/leon-3/Anki-VaultSync/releases)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](https://github.com/leon-3/Anki-VaultSync/blob/main/LICENSE)
 [![Anki](https://img.shields.io/badge/Anki-23.10%2B-informational?style=flat-square)](https://apps.ankiweb.net)
-[![AnkiWeb](https://img.shields.io/badge/AnkiWeb-Pending%20Release-orange?style=flat-square)](https://ankiweb.net/shared/addons)
+[![AnkiWeb](https://img.shields.io/badge/AnkiWeb-1811062412-orange?style=flat-square)](https://ankiweb.net/shared/info/1811062412)
 
-**AnkiWeb Add-on Code:** `<Pending Release>` *(Add-on ID will be available upon public release)*
+**AnkiWeb Add-on Code:** `1811062412` | **Listing:** [ankiweb.net/shared/info/1811062412](https://ankiweb.net/shared/info/1811062412)
 
 Anki-VaultSync is an Anki Desktop add-on that syncs flashcards from Obsidian or Markdown files directly into your local Anki collection. It connects directly to Anki's database (`mw.col`) in-process, without needing background services, AnkiConnect, or terminal commands.
 
@@ -29,10 +29,10 @@ It uses the card format from [Markdown2Anki](https://github.com/leon-3/Markdown2
 
 ## Installation & Quickstart
 
-### Method 1: AnkiWeb (Recommended once released)
+### Method 1: AnkiWeb (Recommended)
 1. In Anki Desktop, go to **Tools** > **Add-ons**.
 2. Click **Get Add-ons...**.
-3. Enter the add-on code: `<Pending Release>` and click **OK**.
+3. Enter the add-on code: `1811062412` and click **OK**.
 4. Restart Anki.
 
 ### Method 2: Manual Installation from Release Archive
