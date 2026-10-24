@@ -104,14 +104,14 @@ The Settings window (`ConfigWindow`) is organized into six specialized tabs:
 ### 4. Card Types & Media
 * **Cloze Deletions**:
   * *Convert Cloze Syntax*: Converts `{{c1::...}}` cloze deletion syntax into native Anki Cloze notes.
-  * *Suspend Newly Created Cloze Cards*: Suspends new cloze cards until manually reviewed.
+  * *Suspend Unmasked Clozes*: Suspends new cloze cards that lack cloze {{ markers until clozes are added in Anki.
 * **Image Occlusion Settings**:
   * *Mode*: Choose between **Direct Native Image Occlusions** (recommended for Anki 23.10+) or **Folder Staging** (legacy/manual).
   * *Export Folder*: Destination folder when using staging mode.
   * *Suspend New Occlusions Until Masked*: Suspends new Image Occlusion cards until masks are drawn in Anki.
   * *Re-export Existing Occlusion Images*: Forces re-exporting image occlusions during routine syncs.
   * *Skip Image Occlusion Updates*: Prevents future syncs from overwriting hand-drawn occlusion masks and custom card edits in Anki.
-  * *Auto-unflag Completed Occlusions During Sync*: Automatically removes `TODO_PROCESS_OCCLUSION` and unsuspends cards once masks are drawn.
+  * *Auto-unflag Completed Occlusions During Sync*: Automatically removes `TODO_PROCESS_OCCLUSION` and `TODO_PROCESS_CLOZES` and unsuspends cards once masks or clozes are drawn.
 * **Media & Note Type Bindings**:
   * *Unique Image Names (Prevent Overwriting in Anki)*: Renames embedded images and attachments to deterministic 8-character hex hashes (`<8hex>_01.ext`) so different images with identical filenames never overwrite each other in Anki's shared media folder.
   * *Custom Note Type Bindings*: Bind cards to existing custom Anki Note Types instead of the default `M2A Basic` and `M2A Cloze` templates.

@@ -124,9 +124,9 @@ class SyncPlan:
     diagnostics: list[Diagnostic] = field(default_factory=list)
     skipped_cards_count: int = 0
     suspend_new_occlusions: bool = True
-    suspend_new_clozes: bool = False
+    suspend_new_clozes: bool = True
     hash_media: bool = True
-    auto_unflag_occlusions: bool = False
+    auto_unflag_occlusions: bool = True
     unflag_occlusions: bool = False
 
     @property

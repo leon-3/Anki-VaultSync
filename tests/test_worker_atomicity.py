@@ -617,7 +617,7 @@ def test_freeze_image_occlusions_setting():
 
 
 def test_batch_suspension_text_clozes():
-    """Verify suspend_new_clozes suspends cloze cards, while basic cards remain active."""
+    """Verify suspend_new_clozes suspends only unmasked cloze cards, while cards with clozes remain active."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
         vault_path = tmp_path / "vault"
@@ -630,29 +630,37 @@ def test_batch_suspension_text_clozes():
 
         note_file = vault_path / "notes.md"
         note_file.write_text(
-            "# Chapter\n---\nBasic Q\nBasic A\n---\nCloze\n{{c1::alpha}} and {{c2::beta}}\n",
+            "# Chapter\n---\nBasic Q\nBasic A\n---\nCloze\n{{c1::alpha}} and {{c2::beta}}\n---\nCloze\ngamma without cloze marker\n",
             encoding="utf-8",
         )
 
         col = Collection(str(tmp_path / "col.anki2"))
         try:
             plan = build_sync_plan(col, vault_path)
-            assert plan.total_creates == 2
+            assert plan.total_creates == 3
             report = execute_sync_plan(col, plan)
-            assert report.created_count == 2
-            # The cloze note generated 2 cards (c1, c2), both suspended
-            assert report.suspended_count == 2
+            assert report.created_count == 3
+            # Only unmasked cloze card without markers is suspended
+            assert report.suspended_count == 1
 
-            # Basic note card should be active (queue == 0)
             all_deck_cards = [col.get_card(cid) for cid in col.find_cards("deck:TestDeck")]
             basic_cards = [c for c in all_deck_cards if c.note().note_type()["name"] == "M2A Basic"]
             assert len(basic_cards) == 1
             assert basic_cards[0].queue == 0
 
-            # Cloze note cards should be suspended (queue == -1)
-            cloze_cards = [c for c in all_deck_cards if c.note().note_type()["name"] == "M2A Cloze"]
-            assert len(cloze_cards) == 2
-            assert all(c.queue == -1 for c in cloze_cards)
+            completed_cloze_cards = [
+                c for c in all_deck_cards
+                if c.note().note_type()["name"] == "M2A Cloze" and "alpha" in c.note()["Text"]
+            ]
+            assert len(completed_cloze_cards) == 2
+            assert all(c.queue == 0 for c in completed_cloze_cards)
+
+            unmasked_cloze_cards = [
+                c for c in all_deck_cards
+                if c.note().note_type()["name"] == "M2A Cloze" and "gamma" in c.note()["Text"]
+            ]
+            assert len(unmasked_cloze_cards) == 1
+            assert all(c.queue == -1 for c in unmasked_cloze_cards)
         finally:
             col.close()
 
@@ -660,7 +668,7 @@ def test_batch_suspension_text_clozes():
 
 
 def test_batch_suspension_text_clozes_effective_when_cloze_notes_omitted():
-    """Verify suspend_new_clozes = true enables effective cloze notes and suspends cards."""
+    """Verify suspend_new_clozes = true enables effective cloze notes and suspends unmasked cards."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
         vault_path = tmp_path / "vault"
@@ -683,7 +691,7 @@ Basic Q
 Basic A
 ---
 Cloze
-{{c1::alpha}} and {{c2::beta}}
+unmasked without cloze markers
 """,
             encoding="utf-8",
         )
@@ -694,7 +702,7 @@ Cloze
             assert plan.total_creates == 2
             report = execute_sync_plan(col, plan)
             assert report.created_count == 2
-            assert report.suspended_count == 2
+            assert report.suspended_count == 1
 
             all_deck_cards = [col.get_card(cid) for cid in col.find_cards("deck:TestDeck")]
             basic_cards = [c for c in all_deck_cards if c.note().note_type()["name"] == "M2A Basic"]
@@ -702,7 +710,7 @@ Cloze
             assert basic_cards[0].queue == 0
 
             cloze_cards = [c for c in all_deck_cards if c.note().note_type()["name"] == "M2A Cloze"]
-            assert len(cloze_cards) == 2
+            assert len(cloze_cards) == 1
             assert all(c.queue == -1 for c in cloze_cards)
         finally:
             col.close()

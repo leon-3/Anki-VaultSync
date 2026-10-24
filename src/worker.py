@@ -587,7 +587,7 @@ def build_sync_plan(
         suspend_new_occlusions=vault_cfg.suspend_new_occlusions,
         suspend_new_clozes=vault_cfg.suspend_new_clozes,
         hash_media=vault_cfg.hash_media,
-        auto_unflag_occlusions=getattr(vault_cfg, "auto_unflag_occlusions", False),
+        auto_unflag_occlusions=getattr(vault_cfg, "auto_unflag_occlusions", True),
     )
 
 
@@ -742,7 +742,18 @@ def execute_sync_plan(
                 else:
                     report.created_basic_count += 1
 
-                if (is_io_note and plan.suspend_new_occlusions) or (is_cloze_note and plan.suspend_new_clozes):
+                should_suspend = False
+                if is_io_note and plan.suspend_new_occlusions:
+                    should_suspend = True
+                elif is_cloze_note and plan.suspend_new_clozes:
+                    has_cloze = (
+                        (create_op.card is not None and getattr(create_op.card, "has_cloze_markers", False))
+                        or any(is_cloze_completed(v) for v in create_op.fields.values())
+                    )
+                    if not has_cloze:
+                        should_suspend = True
+
+                if should_suspend:
                     cards_to_suspend.extend(created_card_ids)
                 _record_op()
             except Exception as exc:

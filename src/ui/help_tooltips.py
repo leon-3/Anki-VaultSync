@@ -8,8 +8,8 @@ TOOLTIPS: dict[str, str] = {
         "via Anki's profile manager (File -> Switch Profile -> Open Backup)."
     ),
     "suspend_new_clozes": (
-        "When enabled, newly created Text-Cloze cards are added in a suspended state. "
-        "This allows you to pace your study and selectively unsuspend cards in Anki when ready."
+        "When enabled, newly created Cloze cards that do not yet have cloze {{ deletions are added in a suspended state. "
+        "Cards that already contain cloze deletions will remain active. Unmasked cards are unsuspended once clozes are added in Anki."
     ),
     "image_occlusion_mode": (
         "Controls how Image Occlusion cards (Image Cloze) are processed. "
@@ -127,7 +127,7 @@ TOOLTIPS: dict[str, str] = {
 
 TOOLTIP_TITLES: dict[str, str] = {
     "backup_before_sync": "Automatic Backup",
-    "suspend_new_clozes": "Suspend New Cloze Cards",
+    "suspend_new_clozes": "Suspend Unmasked Clozes",
     "image_occlusion_mode": "Image Occlusion Mode",
     "auto_unflag_occlusions": "Auto-unflag Completed Occlusions",
     "suspend_new_occlusions": "Suspend New Occlusions",

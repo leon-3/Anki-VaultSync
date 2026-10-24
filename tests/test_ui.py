@@ -458,7 +458,7 @@ def test_config_window_image_occlusion_and_suspension_settings_roundtrip(tmp_pat
     vault_path.mkdir()
     toml_path = vault_path / "m2a.toml"
     toml_path.write_text(
-        'vault = "."\nimage_occlusion_mode = "native"\nsuspend_new_occlusions = true\nsuspend_new_clozes = false\nfreeze_image_occlusions = false\n',
+        'vault = "."\nimage_occlusion_mode = "native"\nsuspend_new_occlusions = true\nsuspend_new_clozes = false\nfreeze_image_occlusions = false\nauto_unflag_occlusions = false\n',
         encoding="utf-8",
     )
 

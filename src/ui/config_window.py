@@ -1508,7 +1508,7 @@ class ConfigWindow(QDialog):
         self.cloze_cb.setToolTip(format_tooltip_box("cloze_notes"))
         row_c.addLayout(_wrap_with_info(self.cloze_cb, "cloze_notes", add_stretch=False))
 
-        self.suspend_new_clozes_cb = QCheckBox("Suspend Newly Created Cloze Cards")
+        self.suspend_new_clozes_cb = QCheckBox("Suspend Unmasked Clozes")
         self.suspend_new_clozes_cb.setToolTip(format_tooltip_box("suspend_new_clozes"))
         row_c.addLayout(_wrap_with_info(self.suspend_new_clozes_cb, "suspend_new_clozes", add_stretch=False))
         row_c.addStretch()
@@ -2905,11 +2905,11 @@ class ConfigWindow(QDialog):
             self.pad_single_digits_cb.setChecked(True)
             self.hash_media_cb.setChecked(True)
             self.cloze_cb.setChecked(True)
-            self.suspend_new_clozes_cb.setChecked(False)
+            self.suspend_new_clozes_cb.setChecked(True)
             self.image_occlusion_mode_combo.setCurrentIndex(0)
             self.suspend_new_occlusions_cb.setChecked(True)
             self.freeze_image_occlusions_cb.setChecked(False)
-            self.auto_unflag_occlusions_cb.setChecked(False)
+            self.auto_unflag_occlusions_cb.setChecked(True)
             self.routing_table.setRowCount(0)
             self.alias_table.setRowCount(0)
             from markdown2anki.config import DEFAULT_IGNORE
@@ -2924,13 +2924,13 @@ class ConfigWindow(QDialog):
         self.pad_single_digits_cb.setChecked(self._vault_cfg.pad_single_digit_tags)
         self.hash_media_cb.setChecked(self._vault_cfg.hash_media)
         self.cloze_cb.setChecked(self._vault_cfg.cloze_notes)
-        self.suspend_new_clozes_cb.setChecked(getattr(self._vault_cfg, "suspend_new_clozes", False))
+        self.suspend_new_clozes_cb.setChecked(getattr(self._vault_cfg, "suspend_new_clozes", True))
 
         mode = getattr(self._vault_cfg, "image_occlusion_mode", "native")
         self.image_occlusion_mode_combo.setCurrentIndex(1 if mode == "stage" else 0)
         self.suspend_new_occlusions_cb.setChecked(getattr(self._vault_cfg, "suspend_new_occlusions", True))
         self.freeze_image_occlusions_cb.setChecked(getattr(self._vault_cfg, "freeze_image_occlusions", False))
-        self.auto_unflag_occlusions_cb.setChecked(getattr(self._vault_cfg, "auto_unflag_occlusions", False))
+        self.auto_unflag_occlusions_cb.setChecked(getattr(self._vault_cfg, "auto_unflag_occlusions", True))
 
         self.re_stage_occlusions = self._vault_cfg.re_stage_occlusions
         self.re_stage_cb.setChecked(self._vault_cfg.re_stage_occlusions)
